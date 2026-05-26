@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { METRICS, METRIC_GROUPS, Icon, todayISO, fmtFull } from '../data.jsx'
+import { saveReport, loadReport } from '../lib/supabase.js'
 
 export function DailyReportPage({ me, setRoute, showToast }) {
   const [stepIdx, setStepIdx] = useState(0);
@@ -8,6 +9,8 @@ export function DailyReportPage({ me, setRoute, showToast }) {
   const [note, setNote] = useState('');
   const [mode, setMode] = useState('numpad');
   const [done, setDone] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [loadingExisting, setLoadingExisting] = useState(true);
   const inputRef = useRef(null);
 
   const queue = METRICS;
@@ -15,6 +18,19 @@ export function DailyReportPage({ me, setRoute, showToast }) {
   const completed = Object.keys(values).filter(k => values[k] !== 'skip' && values[k] !== undefined).length;
   const skipped = Object.keys(values).filter(k => values[k] === 'skip').length;
   const total = Object.values(values).filter(v => typeof v === 'number').reduce((s, v) => s + v, 0);
+
+  // Load any existing report for today on mount
+  useEffect(() => {
+    loadReport(me.id, todayISO())
+      .then(existing => {
+        if (existing) {
+          setValues(existing.metrics || {});
+          setNote(existing.note || '');
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoadingExisting(false));
+  }, [me.id]);
 
   useEffect(() => {
     if (mode === 'numpad') {
@@ -55,11 +71,32 @@ export function DailyReportPage({ me, setRoute, showToast }) {
     const v = values[prev.key];
     setDraft(typeof v === 'number' ? String(v) : '');
   }
-  function finalize(final) {
-    setDone(true);
-    setTimeout(() => {
-      showToast("Report filed · " + Object.values(final).filter(v => typeof v === 'number').reduce((s,v)=>s+v,0) + " total");
-    }, 100);
+
+  async function finalize(final) {
+    setSaving(true);
+    const numericTotal = Object.values(final).filter(v => typeof v === 'number').reduce((s, v) => s + v, 0);
+    try {
+      await saveReport({
+        memberId: me.id,
+        date: todayISO(),
+        metrics: final,
+        note,
+        total: numericTotal,
+      });
+      setDone(true);
+      showToast(`Report saved · ${numericTotal} total`);
+    } catch (err) {
+      showToast('Save failed — check your connection');
+      setSaving(false);
+    }
+  }
+
+  if (loadingExisting) {
+    return (
+      <div className="page" style={{ maxWidth: 720, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 300 }}>
+        <span className="muted">Loading today's report…</span>
+      </div>
+    );
   }
 
   if (done) {
@@ -69,7 +106,7 @@ export function DailyReportPage({ me, setRoute, showToast }) {
           <div style={{ width: 56, height: 56, borderRadius: '50%', background: 'var(--accent)', color: 'var(--accent-ink)', margin: '0 auto 16px', display: 'grid', placeItems: 'center' }}>
             <Icon name="check" size={28} stroke={2} />
           </div>
-          <h2 style={{ fontSize: 20, fontWeight: 600, margin: '0 0 6px' }}>Report filed · 47 seconds</h2>
+          <h2 style={{ fontSize: 20, fontWeight: 600, margin: '0 0 6px' }}>Report saved</h2>
           <p className="muted" style={{ margin: '0 0 20px' }}>{fmtFull(todayISO())}</p>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 8, textAlign: 'left', maxWidth: 480, margin: '0 auto 24px' }}>
@@ -170,7 +207,7 @@ export function DailyReportPage({ me, setRoute, showToast }) {
               </button>
               <button className="btn ghost" onClick={skip}>Skip this metric <span className="kbd">tab</span></button>
               <div className="spacer"></div>
-              <button className="btn primary" onClick={commit}>Save & next <span className="kbd">↵</span></button>
+              <button className="btn primary" onClick={commit} disabled={saving}>Save & next <span className="kbd">↵</span></button>
             </div>
           </div>
 
@@ -242,7 +279,9 @@ export function DailyReportPage({ me, setRoute, showToast }) {
             <div style={{ fontSize: 22, fontFamily: 'var(--font-mono)', fontWeight: 500, marginTop: 4 }}>{total}</div>
             <div className="muted" style={{ fontSize: 11 }}>tasks recorded</div>
           </div>
-          <button className="btn primary lg" onClick={() => finalize(values)}>Submit report <span className="kbd">⌘ ↵</span></button>
+          <button className="btn primary lg" onClick={() => finalize(values)} disabled={saving}>
+            {saving ? 'Saving…' : <span>Submit report <span className="kbd">⌘ ↵</span></span>}
+          </button>
         </div>
       </div>
     </div>
