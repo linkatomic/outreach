@@ -1,20 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { METRICS, METRIC_GROUPS, Icon, todayISO, fmtFull, fmtDateShort } from '../data.jsx'
-import { saveReport, loadReport, loadReportsHistory } from '../lib/supabase.js'
+import { saveReport, loadReport } from '../lib/supabase.js'
 
-function daysSince(earliestISO) {
-  const days = [];
-  const end = new Date(earliestISO);
-  const cursor = new Date();
-  cursor.setHours(0, 0, 0, 0);
-  while (cursor >= end) {
-    days.push(cursor.toISOString().slice(0, 10));
-    cursor.setDate(cursor.getDate() - 1);
-  }
-  return days;
-}
-
-function ReadOnlyView({ date, record }) {
+function ReadOnlyView({ record, date }) {
   if (!record) {
     return (
       <div className="card" style={{ padding: 48, textAlign: 'center' }}>
@@ -36,7 +24,6 @@ function ReadOnlyView({ date, record }) {
         <span className="chip accent">Total: {record.total}</span>
         <span className="chip warn">Read only</span>
       </div>
-
       <div className="card">
         <div className="card-pad">
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
@@ -65,7 +52,6 @@ function ReadOnlyView({ date, record }) {
           </div>
         </div>
       </div>
-
       {record.note && (
         <div className="card" style={{ marginTop: 16, padding: 16 }}>
           <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-faint)', marginBottom: 8 }}>Notes</div>
@@ -86,7 +72,8 @@ export function DailyReportPage({ me, setRoute, showToast }) {
   const [saving, setSaving] = useState(false);
   const [loadingToday, setLoadingToday] = useState(true);
   const [selectedDate, setSelectedDate] = useState(todayISO());
-  const [historyRecords, setHistoryRecords] = useState([]);
+  const [selectedRecord, setSelectedRecord] = useState(null);
+  const [loadingRecord, setLoadingRecord] = useState(false);
   const inputRef = useRef(null);
 
   const queue = METRICS;
@@ -96,31 +83,31 @@ export function DailyReportPage({ me, setRoute, showToast }) {
   const total = Object.values(values).filter(v => typeof v === 'number').reduce((s, v) => s + v, 0);
   const isToday = selectedDate === todayISO();
 
-  // Load last 30 days of history
-  useEffect(() => {
-    loadReportsHistory(me.id, 30)
-      .then(records => setHistoryRecords(records))
-      .catch(() => {});
-  }, [me.id]);
-
-  // Pre-fill today's form if a report already exists
+  // Pre-fill today's form if already submitted
   useEffect(() => {
     loadReport(me.id, todayISO())
       .then(existing => {
-        if (existing) {
-          setValues(existing.metrics || {});
-          setNote(existing.note || '');
-        }
+        if (existing) { setValues(existing.metrics || {}); setNote(existing.note || ''); }
       })
       .catch(() => {})
       .finally(() => setLoadingToday(false));
   }, [me.id]);
 
-  // Keyboard shortcuts (only active when editing today)
+  // Load record when a past date is selected
   useEffect(() => {
-    if (mode !== 'numpad' || !isToday) return;
+    if (isToday) return;
+    setLoadingRecord(true);
+    setSelectedRecord(null);
+    loadReport(me.id, selectedDate)
+      .then(record => setSelectedRecord(record))
+      .catch(() => setSelectedRecord(null))
+      .finally(() => setLoadingRecord(false));
+  }, [selectedDate, me.id, isToday]);
+
+  // Keyboard shortcuts (today only)
+  useEffect(() => {
+    if (mode !== 'numpad' || !isToday || done) return;
     const onKey = (e) => {
-      if (done) return;
       if ((e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') && e.target !== inputRef.current) return;
       if (/^[0-9]$/.test(e.key)) { e.preventDefault(); setDraft(d => (d === '0' ? e.key : d + e.key).slice(0, 4)); }
       else if (e.key === 'Backspace') { e.preventDefault(); setDraft(d => d.slice(0, -1)); }
@@ -161,14 +148,6 @@ export function DailyReportPage({ me, setRoute, showToast }) {
     const numericTotal = Object.values(final).filter(v => typeof v === 'number').reduce((s, v) => s + v, 0);
     try {
       await saveReport({ memberId: me.id, date: todayISO(), metrics: final, note, total: numericTotal });
-      // Keep history in sync so the sidebar updates without a reload
-      setHistoryRecords(prev => {
-        const exists = prev.find(r => r.date === todayISO());
-        const updated = { date: todayISO(), member_id: me.id, metrics: final, note, total: numericTotal };
-        return exists
-          ? prev.map(r => r.date === todayISO() ? updated : r)
-          : [updated, ...prev];
-      });
       setDone(true);
       showToast(`Report saved · ${numericTotal} total`);
     } catch {
@@ -177,12 +156,13 @@ export function DailyReportPage({ me, setRoute, showToast }) {
     }
   }
 
-  const earliest = historyRecords.length > 0
-    ? historyRecords[historyRecords.length - 1].date
-    : todayISO();
-  const days = daysSince(earliest);
+  function handleDateChange(e) {
+    const val = e.target.value;
+    if (!val) return;
+    setSelectedDate(val);
+  }
 
-  // Post-submit confirmation screen
+  // Post-submit confirmation
   if (done) {
     return (
       <div className="page" style={{ maxWidth: 720 }}>
@@ -206,10 +186,8 @@ export function DailyReportPage({ me, setRoute, showToast }) {
           </div>
           <div className="hint-line" style={{ justifyContent: 'center', marginBottom: 20 }}>
             <span>Total: <b style={{ color: 'var(--text)' }} className="mono">{total}</b></span>
-            <span>·</span>
-            <span>{completed} logged</span>
-            <span>·</span>
-            <span>{skipped} skipped</span>
+            <span>·</span><span>{completed} logged</span>
+            <span>·</span><span>{skipped} skipped</span>
           </div>
           <div className="row-flex" style={{ justifyContent: 'center' }}>
             <button className="btn" onClick={() => setRoute('home')}>Back to home</button>
@@ -221,7 +199,7 @@ export function DailyReportPage({ me, setRoute, showToast }) {
   }
 
   return (
-    <div className="page" style={{ maxWidth: 1280 }}>
+    <div className="page" style={{ maxWidth: 1080 }}>
       <div className="page-head">
         <div>
           <h1>Daily Report</h1>
@@ -230,7 +208,48 @@ export function DailyReportPage({ me, setRoute, showToast }) {
           </div>
         </div>
         <div className="actions">
-          {isToday ? (
+          {/* Date picker */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <button
+              className="btn ghost"
+              style={{ width: 28, height: 28, padding: 0 }}
+              onClick={() => {
+                const d = new Date(selectedDate);
+                d.setDate(d.getDate() - 1);
+                setSelectedDate(d.toISOString().slice(0, 10));
+              }}
+              title="Previous day"
+            >
+              ‹
+            </button>
+            <input
+              type="date"
+              className="input"
+              value={selectedDate}
+              max={todayISO()}
+              onChange={handleDateChange}
+              style={{ fontFamily: 'var(--font-mono)', fontSize: 13, width: 148, cursor: 'pointer' }}
+            />
+            <button
+              className="btn ghost"
+              style={{ width: 28, height: 28, padding: 0 }}
+              disabled={isToday}
+              onClick={() => {
+                const d = new Date(selectedDate);
+                d.setDate(d.getDate() + 1);
+                const next = d.toISOString().slice(0, 10);
+                if (next <= todayISO()) setSelectedDate(next);
+              }}
+              title="Next day"
+            >
+              ›
+            </button>
+            {!isToday && (
+              <button className="btn" onClick={() => setSelectedDate(todayISO())}>Today</button>
+            )}
+          </div>
+
+          {isToday && (
             <>
               <span className="seg">
                 <button className={mode === 'numpad' ? 'on' : ''} onClick={() => setMode('numpad')}>Numpad</button>
@@ -238,68 +257,22 @@ export function DailyReportPage({ me, setRoute, showToast }) {
               </span>
               <button className="btn ghost" onClick={() => setRoute('home')}><Icon name="x" size={12} />Discard</button>
             </>
-          ) : (
-            <>
-              <span className="chip warn">Past reports are read-only</span>
-              <button className="btn" onClick={() => setSelectedDate(todayISO())}>Back to today</button>
-            </>
           )}
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '200px 1fr', gap: 16, alignItems: 'start' }}>
+      {/* Past date — read only */}
+      {!isToday && (
+        loadingRecord
+          ? <div className="card" style={{ padding: 48, textAlign: 'center' }}><span className="muted">Loading…</span></div>
+          : <ReadOnlyView date={selectedDate} record={selectedRecord} />
+      )}
 
-        {/* History sidebar */}
-        <div className="card" style={{ padding: 0, overflow: 'hidden', position: 'sticky', top: 16 }}>
-          <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border)', fontSize: 11, fontWeight: 600, color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-            History
-          </div>
-          <div style={{ maxHeight: 560, overflowY: 'auto' }}>
-            {days.map(date => {
-              const record = historyRecords.find(r => r.date === date);
-              const isTodayDate = date === todayISO();
-              const isSelected = date === selectedDate;
-              return (
-                <div key={date}
-                     onClick={() => setSelectedDate(date)}
-                     style={{
-                       padding: '9px 14px', cursor: 'pointer',
-                       background: isSelected ? 'var(--surface-2)' : 'transparent',
-                       borderLeft: `2px solid ${isSelected ? 'var(--accent)' : 'transparent'}`,
-                       display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                     }}>
-                  <div>
-                    {isTodayDate && (
-                      <div style={{ fontSize: 9, color: 'var(--accent)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 1 }}>
-                        Today
-                      </div>
-                    )}
-                    <div style={{ fontSize: 12.5, color: isSelected ? 'var(--text)' : 'var(--text-dim)' }}>
-                      {fmtDateShort(date)}
-                    </div>
-                  </div>
-                  <div style={{ fontSize: 12, fontFamily: 'var(--font-mono)' }}>
-                    {record
-                      ? <span style={{ color: 'var(--accent)', fontWeight: 500 }}>{record.total}</span>
-                      : <span style={{ color: 'var(--text-faint)' }}>—</span>
-                    }
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Main content */}
-        <div>
-          {!isToday ? (
-            <ReadOnlyView date={selectedDate} record={historyRecords.find(r => r.date === selectedDate)} />
-          ) : loadingToday ? (
-            <div className="card" style={{ padding: 48, textAlign: 'center' }}>
-              <span className="muted">Loading today's report…</span>
-            </div>
-          ) : (
-            <>
+      {/* Today — editable form */}
+      {isToday && (
+        loadingToday
+          ? <div className="card" style={{ padding: 48, textAlign: 'center' }}><span className="muted">Loading today's report…</span></div>
+          : <>
               <div className="card" style={{ marginBottom: 16, padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 14 }}>
                 <span className="faint" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Progress</span>
                 <div className="bar" style={{ flex: 1 }}>
@@ -330,8 +303,7 @@ export function DailyReportPage({ me, setRoute, showToast }) {
                     </div>
                     <div className="numpad-keys">
                       {['1','2','3','4','5','6','7','8','9'].map(n => (
-                        <button key={n} className="numpad-key"
-                                onClick={() => setDraft(d => (d === '0' ? n : d + n).slice(0, 4))}>{n}</button>
+                        <button key={n} className="numpad-key" onClick={() => setDraft(d => (d === '0' ? n : d + n).slice(0, 4))}>{n}</button>
                       ))}
                       <button className="numpad-key" onClick={() => setDraft(d => d.slice(0, -1))}>⌫</button>
                       <button className="numpad-key" onClick={() => setDraft(d => (d === '0' ? '0' : d + '0').slice(0, 4))}>0</button>
@@ -427,9 +399,7 @@ export function DailyReportPage({ me, setRoute, showToast }) {
                 </div>
               </div>
             </>
-          )}
-        </div>
-      </div>
+      )}
     </div>
   );
 }
