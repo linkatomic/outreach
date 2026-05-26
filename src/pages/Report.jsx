@@ -2,12 +2,16 @@ import { useState, useEffect, useRef } from 'react'
 import { METRICS, METRIC_GROUPS, Icon, todayISO, fmtFull, fmtDateShort } from '../data.jsx'
 import { saveReport, loadReport, loadReportsHistory } from '../lib/supabase.js'
 
-function last30Days() {
-  return Array.from({ length: 30 }, (_, i) => {
-    const d = new Date();
-    d.setDate(d.getDate() - i);
-    return d.toISOString().slice(0, 10);
-  });
+function daysSince(earliestISO) {
+  const days = [];
+  const end = new Date(earliestISO);
+  const cursor = new Date();
+  cursor.setHours(0, 0, 0, 0);
+  while (cursor >= end) {
+    days.push(cursor.toISOString().slice(0, 10));
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  return days;
 }
 
 function ReadOnlyView({ date, record }) {
@@ -173,7 +177,10 @@ export function DailyReportPage({ me, setRoute, showToast }) {
     }
   }
 
-  const days = last30Days();
+  const earliest = historyRecords.length > 0
+    ? historyRecords[historyRecords.length - 1].date
+    : todayISO();
+  const days = daysSince(earliest);
 
   // Post-submit confirmation screen
   if (done) {
@@ -245,7 +252,7 @@ export function DailyReportPage({ me, setRoute, showToast }) {
         {/* History sidebar */}
         <div className="card" style={{ padding: 0, overflow: 'hidden', position: 'sticky', top: 16 }}>
           <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border)', fontSize: 11, fontWeight: 600, color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-            30-Day History
+            History
           </div>
           <div style={{ maxHeight: 560, overflowY: 'auto' }}>
             {days.map(date => {
