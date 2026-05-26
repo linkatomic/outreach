@@ -23,6 +23,19 @@ export async function loadReport(memberId, date) {
   return data
 }
 
+export async function loadReportsHistory(memberId, days = 30) {
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - days);
+  const { data, error } = await supabase
+    .from('daily_reports')
+    .select('*')
+    .eq('member_id', memberId)
+    .gte('date', cutoff.toISOString().slice(0, 10))
+    .order('date', { ascending: false })
+  if (error) throw error
+  return data || []
+}
+
 export async function loadAllReportsForDate(date) {
   const { data, error } = await supabase
     .from('daily_reports')
