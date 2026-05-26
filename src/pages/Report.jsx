@@ -1,13 +1,15 @@
 import { useState, useEffect, useRef } from 'react'
-import { METRICS, METRIC_GROUPS, Icon, todayISO, fmtFull, fmtDateShort } from '../data.jsx'
+import { METRICS, METRIC_GROUPS, TEAM, Icon, todayISO, fmtFull, fmtDateShort } from '../data.jsx'
 import { saveReport, loadReport } from '../lib/supabase.js'
 
-function ReadOnlyView({ record, date }) {
+function ReadOnlyView({ record, date, memberName }) {
   if (!record) {
     return (
       <div className="card" style={{ padding: 48, textAlign: 'center' }}>
         <div style={{ fontSize: 32, marginBottom: 12, opacity: 0.3 }}>—</div>
-        <div style={{ fontSize: 14, color: 'var(--text-dim)' }}>No report filed for this day</div>
+        <div style={{ fontSize: 14, color: 'var(--text-dim)' }}>
+          No report filed{memberName ? ` by ${memberName}` : ''} for this day
+        </div>
         <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 6 }}>{fmtFull(date)}</div>
       </div>
     );
@@ -76,6 +78,12 @@ export function DailyReportPage({ me, setRoute, showToast }) {
   const [loadingRecord, setLoadingRecord] = useState(false);
   const inputRef = useRef(null);
 
+  const isLead = me.role === 'lead';
+  const members = TEAM.filter(m => m.role === 'member');
+  const [selectedMemberId, setSelectedMemberId] = useState(members[0]?.id || '');
+  const [leadRecord, setLeadRecord] = useState(null);
+  const [loadingLeadRecord, setLoadingLeadRecord] = useState(false);
+
   const queue = METRICS;
   const current = queue[stepIdx];
   const completed = Object.keys(values).filter(k => values[k] !== 'skip' && values[k] !== undefined).length;
@@ -93,16 +101,27 @@ export function DailyReportPage({ me, setRoute, showToast }) {
       .finally(() => setLoadingToday(false));
   }, [me.id]);
 
-  // Load record when a past date is selected
+  // Load record when a past date is selected (member view)
   useEffect(() => {
-    if (isToday) return;
+    if (isToday || isLead) return;
     setLoadingRecord(true);
     setSelectedRecord(null);
     loadReport(me.id, selectedDate)
       .then(record => setSelectedRecord(record))
       .catch(() => setSelectedRecord(null))
       .finally(() => setLoadingRecord(false));
-  }, [selectedDate, me.id, isToday]);
+  }, [selectedDate, me.id, isToday, isLead]);
+
+  // Load record for lead view whenever member or date changes
+  useEffect(() => {
+    if (!isLead) return;
+    setLoadingLeadRecord(true);
+    setLeadRecord(null);
+    loadReport(selectedMemberId, selectedDate)
+      .then(record => setLeadRecord(record))
+      .catch(() => setLeadRecord(null))
+      .finally(() => setLoadingLeadRecord(false));
+  }, [isLead, selectedMemberId, selectedDate]);
 
   // Keyboard shortcuts (today only)
   useEffect(() => {
@@ -162,6 +181,54 @@ export function DailyReportPage({ me, setRoute, showToast }) {
     setSelectedDate(val);
   }
 
+  // Shared date picker controls
+  const datePicker = (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <button className="btn ghost" style={{ width: 28, height: 28, padding: 0 }}
+              onClick={() => { const d = new Date(selectedDate); d.setDate(d.getDate() - 1); setSelectedDate(d.toISOString().slice(0, 10)); }}
+              title="Previous day">‹</button>
+      <input type="date" className="input" value={selectedDate} max={todayISO()} onChange={handleDateChange}
+             style={{ fontFamily: 'var(--font-mono)', fontSize: 13, width: 148, cursor: 'pointer' }} />
+      <button className="btn ghost" style={{ width: 28, height: 28, padding: 0 }}
+              disabled={isToday}
+              onClick={() => { const d = new Date(selectedDate); d.setDate(d.getDate() + 1); const next = d.toISOString().slice(0, 10); if (next <= todayISO()) setSelectedDate(next); }}
+              title="Next day">›</button>
+      {!isToday && <button className="btn" onClick={() => setSelectedDate(todayISO())}>Today</button>}
+    </div>
+  );
+
+  // Lead view — browse any member's report, read-only
+  if (isLead) {
+    const selectedMember = members.find(m => m.id === selectedMemberId);
+    return (
+      <div className="page" style={{ maxWidth: 1080 }}>
+        <div className="page-head">
+          <div>
+            <h1>Daily Report</h1>
+            <div className="sub">{fmtFull(selectedDate)}</div>
+          </div>
+          <div className="actions">
+            <select
+              className="input"
+              value={selectedMemberId}
+              onChange={e => setSelectedMemberId(e.target.value)}
+              style={{ fontFamily: 'var(--font-mono)', fontSize: 13, width: 180, cursor: 'pointer' }}
+            >
+              {members.map(m => (
+                <option key={m.id} value={m.id}>{m.name}</option>
+              ))}
+            </select>
+            {datePicker}
+          </div>
+        </div>
+        {loadingLeadRecord
+          ? <div className="card" style={{ padding: 48, textAlign: 'center' }}><span className="muted">Loading…</span></div>
+          : <ReadOnlyView date={selectedDate} record={leadRecord} memberName={selectedMember?.name} />
+        }
+      </div>
+    );
+  }
+
   // Post-submit confirmation
   if (done) {
     return (
@@ -208,47 +275,7 @@ export function DailyReportPage({ me, setRoute, showToast }) {
           </div>
         </div>
         <div className="actions">
-          {/* Date picker */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <button
-              className="btn ghost"
-              style={{ width: 28, height: 28, padding: 0 }}
-              onClick={() => {
-                const d = new Date(selectedDate);
-                d.setDate(d.getDate() - 1);
-                setSelectedDate(d.toISOString().slice(0, 10));
-              }}
-              title="Previous day"
-            >
-              ‹
-            </button>
-            <input
-              type="date"
-              className="input"
-              value={selectedDate}
-              max={todayISO()}
-              onChange={handleDateChange}
-              style={{ fontFamily: 'var(--font-mono)', fontSize: 13, width: 148, cursor: 'pointer' }}
-            />
-            <button
-              className="btn ghost"
-              style={{ width: 28, height: 28, padding: 0 }}
-              disabled={isToday}
-              onClick={() => {
-                const d = new Date(selectedDate);
-                d.setDate(d.getDate() + 1);
-                const next = d.toISOString().slice(0, 10);
-                if (next <= todayISO()) setSelectedDate(next);
-              }}
-              title="Next day"
-            >
-              ›
-            </button>
-            {!isToday && (
-              <button className="btn" onClick={() => setSelectedDate(todayISO())}>Today</button>
-            )}
-          </div>
-
+          {datePicker}
           {isToday && (
             <>
               <span className="seg">
