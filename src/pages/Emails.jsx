@@ -38,7 +38,8 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
   const [myTodayCount, setMyTodayCount]     = useState(0)
   const [teamTodayCount, setTeamTodayCount] = useState(0)
   const [bulkOpen, setBulkOpen]       = useState(false)
-  const [selectedRows, setSelectedRows] = useState(new Set()) // IDs of selected rows
+  const [selectedRows, setSelectedRows] = useState(new Set())
+  const [confirmDel, setConfirmDel]   = useState(null) // null | { type:'single'|'bulk', id?, ids? }
 
   // Fixed-position label menu portal: { row, x, y } or null
   const [labelMenu, setLabelMenu]     = useState(null)
@@ -240,26 +241,33 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
     fetchRows(); fetchKpis()
   }
 
-  async function delRow(id, e) {
+  function delRow(id, e) {
     e.stopPropagation()
-    try {
-      await deleteEmail(id)
-      setRows(prev => prev.filter(r => r.id !== id))
-      setSelectedRows(prev => { const s = new Set(prev); s.delete(id); return s })
-      showToast('Deleted')
-      fetchKpis()
-    } catch (err) { showToast('Delete failed: ' + err.message) }
+    setConfirmDel({ type: 'single', id })
   }
 
-  async function deleteSelected() {
-    const ids = [...selectedRows]
+  function deleteSelected() {
+    setConfirmDel({ type: 'bulk', ids: [...selectedRows] })
+  }
+
+  async function executeDelete() {
     try {
-      await Promise.all(ids.map(id => deleteEmail(id)))
-      setRows(prev => prev.filter(r => !selectedRows.has(r.id)))
-      setSelectedRows(new Set())
-      showToast(`Deleted ${ids.length} entr${ids.length === 1 ? 'y' : 'ies'}`)
+      if (confirmDel.type === 'single') {
+        await deleteEmail(confirmDel.id)
+        setRows(prev => prev.filter(r => r.id !== confirmDel.id))
+        setSelectedRows(prev => { const s = new Set(prev); s.delete(confirmDel.id); return s })
+        showToast('Deleted')
+      } else {
+        const ids = confirmDel.ids
+        await Promise.all(ids.map(id => deleteEmail(id)))
+        const idSet = new Set(ids)
+        setRows(prev => prev.filter(r => !idSet.has(r.id)))
+        setSelectedRows(new Set())
+        showToast(`Deleted ${ids.length} entr${ids.length === 1 ? 'y' : 'ies'}`)
+      }
       fetchKpis()
-    } catch (err) { showToast('Bulk delete failed: ' + err.message) }
+    } catch (err) { showToast('Delete failed: ' + err.message) }
+    finally { setConfirmDel(null) }
   }
 
   function toggleRow(id) {
@@ -606,6 +614,33 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
             )}
           </div>
         </>
+      )}
+
+      {/* ── Delete confirmation modal ── */}
+      {confirmDel && (
+        <div className="modal-back" onClick={() => setConfirmDel(null)}>
+          <div className="modal" style={{ maxWidth: 380 }} onClick={e => e.stopPropagation()}>
+            <div className="modal-head">
+              <h2>Delete {confirmDel.type === 'bulk' ? `${confirmDel.ids.length} entries` : 'entry'}?</h2>
+              <button className="btn ghost" onClick={() => setConfirmDel(null)}><Icon name="x" size={13} /></button>
+            </div>
+            <div className="modal-body">
+              <p style={{ margin: 0, fontSize: 13, color: 'var(--text-dim)', lineHeight: 1.6 }}>
+                {confirmDel.type === 'single'
+                  ? 'This email entry will be permanently removed. This action cannot be undone.'
+                  : `${confirmDel.ids.length} selected email entr${confirmDel.ids.length === 1 ? 'y' : 'ies'} will be permanently removed. This cannot be undone.`
+                }
+              </p>
+            </div>
+            <div className="modal-foot">
+              <button className="btn ghost" onClick={() => setConfirmDel(null)}>Cancel</button>
+              <button onClick={executeDelete}
+                      style={{ background: '#fb7185', color: '#fff', border: 'none', borderRadius: 6, padding: '0 16px', height: 32, fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
+                <Icon name="trash" size={12} /> Delete{confirmDel.type === 'bulk' ? ` ${confirmDel.ids.length}` : ''}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ── Bulk modal ── */}

@@ -203,6 +203,59 @@ export async function getTeamEmailCountToday() {
   return data.reduce((sum, row) => sum + 1 + (row.replies || 0), 0);
 }
 
+// ── Ideas ─────────────────────────────────────────────
+
+export async function loadIdeas({ statusFilter = 'all', memberId = null } = {}) {
+  let query = supabase
+    .from('ideas')
+    .select('*, idea_comments(count)')
+    .order('created_at', { ascending: false })
+  if (statusFilter !== 'all') {
+    if (statusFilter === 'mine' && memberId) query = query.eq('member_id', memberId)
+    else if (statusFilter !== 'mine') query = query.eq('status', statusFilter)
+  }
+  const { data, error } = await query
+  if (error) throw error
+  return (data || []).map(r => ({
+    ...r,
+    commentCount: r.idea_comments?.[0]?.count ?? 0,
+  }))
+}
+
+export async function createIdea({ memberId, title, description }) {
+  const { data, error } = await supabase
+    .from('ideas')
+    .insert({ member_id: memberId, title, description, status: 'pending' })
+    .select().single()
+  if (error) throw error
+  return data
+}
+
+export async function updateIdeaStatus(ideaId, status) {
+  const { error } = await supabase
+    .from('ideas').update({ status }).eq('id', ideaId)
+  if (error) throw error
+}
+
+export async function loadIdeaComments(ideaId) {
+  const { data, error } = await supabase
+    .from('idea_comments')
+    .select('*')
+    .eq('idea_id', ideaId)
+    .order('created_at', { ascending: true })
+  if (error) throw error
+  return data || []
+}
+
+export async function addIdeaComment({ ideaId, memberId, content, type = 'comment' }) {
+  const { data, error } = await supabase
+    .from('idea_comments')
+    .insert({ idea_id: ideaId, member_id: memberId, content, type })
+    .select().single()
+  if (error) throw error
+  return data
+}
+
 export async function loadAllReportsForDate(date) {
   const { data, error } = await supabase
     .from('daily_reports')
