@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { TEAM, Icon } from '../data.jsx'
 import { loadTasks, createTask, updateTask, deleteTask } from '../lib/supabase.js'
 
@@ -243,14 +243,33 @@ const COLS = [
 ]
 
 function KanbanView({ tasks, onTaskClick, onMove }) {
+  const [draggingId,  setDraggingId]  = useState(null)
+  const [dragOverCol, setDragOverCol] = useState(null)
+  const dragRef = useRef(false)  // prevents click firing after drag
+
   return (
     <div style={{ display: 'flex', gap: 14, overflowX: 'auto', paddingBottom: 16, alignItems: 'flex-start' }}>
       {COLS.map(col => {
-        const colTasks = tasks.filter(t => t.status === col.id)
+        const colTasks     = tasks.filter(t => t.status === col.id)
+        const draggingTask = tasks.find(t => t.id === draggingId)
+        const isOver       = dragOverCol === col.id
+        const canDrop      = isOver && draggingTask && draggingTask.status !== col.id
+
         return (
-          <div key={col.id} style={{ minWidth: 258, width: 258, flexShrink: 0 }}>
+          <div key={col.id} style={{ minWidth: 258, width: 258, flexShrink: 0 }}
+               onDragOver={e => { e.preventDefault(); setDragOverCol(col.id) }}
+               onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget)) setDragOverCol(null) }}
+               onDrop={e => {
+                 e.preventDefault()
+                 const task = tasks.find(t => t.id === e.dataTransfer.getData('taskId'))
+                 if (task && task.status !== col.id) onMove(task, col.id)
+                 setDragOverCol(null); setDraggingId(null)
+               }}>
+
             {/* Column header */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, padding: '4px 0' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, padding: '4px 0',
+                          borderBottom: `2px solid ${canDrop ? col.accent : 'transparent'}`,
+                          transition: 'border-color .15s' }}>
               <span style={{ width: 9, height: 9, borderRadius: '50%', background: col.accent,
                              display: 'inline-block', flexShrink: 0 }} />
               <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-dim)' }}>{col.label}</span>
@@ -259,18 +278,37 @@ function KanbanView({ tasks, onTaskClick, onMove }) {
                 {colTasks.length}
               </span>
             </div>
-            {/* Cards */}
-            <div style={{ minHeight: 60 }}>
+
+            {/* Drop zone */}
+            <div style={{ minHeight: 60, borderRadius: 10, padding: 4, transition: 'all .15s',
+                          background: canDrop ? `${col.accent}18` : 'transparent',
+                          border: `2px dashed ${canDrop ? col.accent : 'transparent'}` }}>
               {colTasks.length === 0 && (
-                <div style={{ border: '1px dashed var(--border)', borderRadius: 8, padding: '20px 10px',
+                <div style={{ border: canDrop ? 'none' : '1px dashed var(--border)',
+                              borderRadius: 8, padding: '20px 10px',
                               textAlign: 'center', fontSize: 11, color: 'var(--text-faint)' }}>
-                  No tasks
+                  {canDrop ? '📥 Drop here' : 'No tasks'}
                 </div>
               )}
               {colTasks.map(t => (
-                <TaskCard key={t.id} task={t}
-                          onClick={() => onTaskClick(t)}
-                          onMove={newStatus => onMove(t, newStatus)} />
+                <div key={t.id}
+                     draggable
+                     onDragStart={e => {
+                       dragRef.current = true
+                       setDraggingId(t.id)
+                       e.dataTransfer.setData('taskId', t.id)
+                       e.dataTransfer.effectAllowed = 'move'
+                     }}
+                     onDragEnd={() => {
+                       setDraggingId(null); setDragOverCol(null)
+                       setTimeout(() => { dragRef.current = false }, 80)
+                     }}
+                     style={{ opacity: draggingId === t.id ? 0.35 : 1,
+                              transition: 'opacity .12s', cursor: 'grab' }}>
+                  <TaskCard task={t}
+                            onClick={() => { if (!dragRef.current) onTaskClick(t) }}
+                            onMove={s => onMove(t, s)} />
+                </div>
               ))}
             </div>
           </div>
