@@ -55,8 +55,13 @@ export default function App() {
   function setAccent(id) {
     setAccentRaw(id);
     applyAccentCssVars(id);
-    if (!impersonatedId) superAccentRef.current = id; // don't overwrite when impersonating
-    if (userIdRef.current) saveUserAccent(userIdRef.current, id).catch(() => {});
+    if (!impersonatedId) {
+      superAccentRef.current = id;
+      // Per-user localStorage key — not shared between users on same browser
+      if (me?.id) localStorage.setItem(`relay_accent_${me.id}`, id);
+      // DB write for cross-device sync
+      if (userIdRef.current) saveUserAccent(userIdRef.current, id).catch(() => {});
+    }
   }
 
   // When impersonating, load that user's saved accent; restore own on exit
@@ -69,12 +74,15 @@ export default function App() {
       return;
     }
     getProfileByMemberId(impersonatedId).then(profile => {
-      const col = profile?.accent || 'lime';
+      const col = profile?.accent
+        || localStorage.getItem(`relay_accent_${impersonatedId}`)
+        || 'lime';
       setAccentRaw(col);
       applyAccentCssVars(col);
     }).catch(() => {
-      setAccentRaw('lime');
-      applyAccentCssVars('lime');
+      const col = localStorage.getItem(`relay_accent_${impersonatedId}`) || 'lime';
+      setAccentRaw(col);
+      applyAccentCssVars(col);
     });
   }, [impersonatedId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -110,11 +118,18 @@ export default function App() {
       setMe(meObj);
       userIdRef.current = uid;
 
-      // Apply per-user accent from DB
-      const savedAccent = profile.accent || 'lime';
+      // Load accent: localStorage is instant, DB is authoritative for cross-device
+      // DB wins when present; localStorage is the reliable local fallback
+      const dbAccent    = profile.accent;
+      const localAccent = localStorage.getItem(`relay_accent_${profile.member_id}`);
+      const savedAccent = dbAccent || localAccent || 'lime';
       setAccentRaw(savedAccent);
       applyAccentCssVars(savedAccent);
       superAccentRef.current = savedAccent;
+      // Keep localStorage in sync so it's always current
+      localStorage.setItem(`relay_accent_${profile.member_id}`, savedAccent);
+      // If localStorage had it but DB didn't, write it back to DB
+      if (!dbAccent && localAccent && uid) saveUserAccent(uid, localAccent).catch(() => {});
     } catch (err) {
       setMe(null);
       setLoginError(err?.message || 'Failed to load profile. Contact your admin.');
