@@ -1,4 +1,5 @@
-import { TEAM, METRICS, Icon, emailsToday, emailsCountByDay, teamEmailsCountByDay,
+import { TEAM, METRICS, NEEL_METRICS, metricsFor, teamMembers as getTeamMembers,
+         Icon, emailsToday, emailsCountByDay, teamEmailsCountByDay,
          reportsForMember, reportToday, isoNDaysAgo, fmtDateShort, fmtRel, pct, REPORTS } from '../data.jsx'
 
 // Tiny sparkline
@@ -102,6 +103,8 @@ export function MemberHome({ me, setRoute }) {
   if (todayReport) {
     for (const [k, v] of Object.entries(todayReport.metrics)) todayMetrics[k] = v;
   }
+  const myMetrics = metricsFor(me.id);
+  const isNeel = !!TEAM.find(m => m.id === me.id)?.neelOnly;
 
   return (
     <div className="page">
@@ -173,7 +176,7 @@ export function MemberHome({ me, setRoute }) {
         <div className="card">
           <div className="card-head"><h3>Today, so far</h3><span className="faint mono" style={{ fontSize: 11 }}>{Object.keys(todayMetrics).length} metrics</span></div>
           <div style={{ padding: '4px 0' }}>
-            {METRICS.slice(0, 8).map(m => {
+            {myMetrics.slice(0, 8).map(m => {
               const v = todayMetrics[m.key] || 0;
               const pctVal = m.target ? Math.min(100, (v / m.target) * 100) : (v > 0 ? 100 : 0);
               return (
@@ -206,7 +209,8 @@ export function MemberHome({ me, setRoute }) {
 
 // ──────────────── LEAD HOME ────────────────
 export function LeadHome({ me, setRoute }) {
-  const teamMembers = TEAM.filter(m => m.role === 'member');
+  // Neel is on a separate track — exclude from team analytics/stats
+  const teamMembers = getTeamMembers();
   const teamEmailsToday = teamMembers.reduce((s, m) => s + emailsToday(m.id), 0);
   const teamTargetToday = teamMembers.length * 30;
   const teamWeek = teamEmailsCountByDay(7).reduce((s, d) => s + d.count, 0);

@@ -116,14 +116,22 @@ export async function loadEmailLogs({ filter = 'today', memberId = null, search 
   return results;
 }
 
-export async function addEmail({ memberId, date, vendor, link, time, label = null }) {
+export async function addEmail({ memberId, date, vendor, link, time, label = null, bulk = false }) {
   const { data, error } = await supabase
     .from('email_logs')
-    .insert({ member_id: memberId, date, vendor, link, time, replies: 0, label })
+    .insert({ member_id: memberId, date, vendor, link, time, replies: 0, label, bulk })
     .select()
     .single();
   if (error) throw error;
   return data;
+}
+
+export async function updateEmailBulk(id, bulk) {
+  const { error } = await supabase
+    .from('email_logs')
+    .update({ bulk })
+    .eq('id', id);
+  if (error) throw error;
 }
 
 export async function findEmailByLink(memberId, link, date) {

@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
-import { METRICS, METRIC_GROUPS, TEAM, Icon, todayISO, fmtFull, fmtDateShort } from '../data.jsx'
+import { METRICS, METRIC_GROUPS, NEEL_METRICS, NEEL_METRIC_GROUPS, metricsFor, metricGroupsFor,
+         TEAM, Icon, todayISO, fmtFull, fmtDateShort } from '../data.jsx'
 import { saveReport, loadReport, loadMostRecentReport, getEmailCountToday } from '../lib/supabase.js'
 
-function ReadOnlyView({ record, date, memberName }) {
+function ReadOnlyView({ record, date, memberName, metricsDef = METRICS }) {
   if (!record) {
     return (
       <div className="card" style={{ padding: 48, textAlign: 'center' }}>
@@ -29,7 +30,7 @@ function ReadOnlyView({ record, date, memberName }) {
       <div className="card">
         <div className="card-pad">
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
-            {METRICS.map(m => {
+            {metricsDef.map(m => {
               const v = metrics[m.key];
               const isSkipped = v === 'skip';
               const isCheckbox = m.type === 'checkbox';
@@ -84,19 +85,25 @@ export function DailyReportPage({ me, setRoute, showToast }) {
 
   // lead, HR, and super (when not impersonating) all see the member-picker read-only view
   const isLead = ['lead', 'hr', 'super'].includes(me.role);
-  const members = TEAM.filter(m => m.role === 'member');
-  const [selectedMemberId, setSelectedMemberId] = useState(members[0]?.id || '');
+  // All members including Neel (lead can view his separate report)
+  const allMembers = TEAM.filter(m => m.role === 'member');
+  const [selectedMemberId, setSelectedMemberId] = useState(allMembers[0]?.id || '');
   const [leadRecord, setLeadRecord] = useState(null);
   const [loadingLeadRecord, setLoadingLeadRecord] = useState(false);
 
-  const queue = METRICS;
+  // Neel has separate metrics
+  const myMetrics = metricsFor(me.id);
+  const myGroups  = metricGroupsFor(me.id);
+  const isNeel    = !!TEAM.find(m => m.id === me.id)?.neelOnly;
+
+  const queue = myMetrics;
   const current = queue[stepIdx];
   const completed = Object.keys(values).filter(k => values[k] !== 'skip' && values[k] !== undefined).length;
   const skipped = Object.keys(values).filter(k => values[k] === 'skip').length;
   const total = Object.values(values).filter(v => typeof v === 'number').reduce((s, v) => s + v, 0);
   const isToday = selectedDate === todayISO();
 
-  // Pre-fill today's form (and auto-populate email_response from live email log)
+  // Pre-fill today's form (auto-populate email_response from live email log for non-Neel)
   useEffect(() => {
     loadReport(me.id, todayISO())
       .then(async (existing) => {
@@ -105,23 +112,24 @@ export function DailyReportPage({ me, setRoute, showToast }) {
           setNote(existing.note || '');
           setAlreadySaved(true);
         }
-        // Always fetch live email count
-        try {
-          const count = await getEmailCountToday(me.id);
-          setLiveEmailCount(count);
-          if (!existing && count > 0) {
-            // No report yet: pre-fill email_response with live count
-            setValues(prev => ({ ...prev, email_response: count }));
-          }
-        } catch { /* silent */ }
+        // Only fetch live email count for standard members (Neel uses different metrics)
+        if (!isNeel) {
+          try {
+            const count = await getEmailCountToday(me.id);
+            setLiveEmailCount(count);
+            if (!existing && count > 0) {
+              setValues(prev => ({ ...prev, email_response: count }));
+            }
+          } catch { /* silent */ }
+        }
       })
       .catch(() => {})
       .finally(() => setLoadingToday(false));
-  }, [me.id]);
+  }, [me.id, isNeel]);
 
-  // Refresh live email count every 30s while on today's view
+  // Refresh live email count every 30s (standard members only)
   useEffect(() => {
-    if (isLead) return;
+    if (isLead || isNeel) return;
     const interval = setInterval(async () => {
       try {
         const count = await getEmailCountToday(me.id);
@@ -129,7 +137,7 @@ export function DailyReportPage({ me, setRoute, showToast }) {
       } catch { /* silent */ }
     }, 30000);
     return () => clearInterval(interval);
-  }, [me.id, isLead]);
+  }, [me.id, isLead, isNeel]);
 
   async function copyLast() {
     setCopyingLast(true);
@@ -235,14 +243,12 @@ export function DailyReportPage({ me, setRoute, showToast }) {
     setSelectedDate(val);
   }
 
-  // Timezone-safe date shift: parse YYYY-MM-DD as local, add n days
   function shiftDate(iso, n) {
     const [y, m, d] = iso.split('-').map(Number);
     const date = new Date(y, m - 1, d + n);
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
   }
 
-  // Shared date picker controls
   const datePicker = (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
       <button className="btn ghost" style={{ width: 28, height: 28, padding: 0 }}
@@ -260,7 +266,9 @@ export function DailyReportPage({ me, setRoute, showToast }) {
 
   // Lead view — browse any member's report, read-only
   if (isLead) {
-    const selectedMember = members.find(m => m.id === selectedMemberId);
+    const selectedMember = allMembers.find(m => m.id === selectedMemberId);
+    // Use the right metrics for whichever member the lead is viewing
+    const viewMetrics = metricsFor(selectedMemberId);
     return (
       <div className="page" style={{ maxWidth: 1080 }}>
         <div className="page-head">
@@ -275,16 +283,21 @@ export function DailyReportPage({ me, setRoute, showToast }) {
               onChange={e => setSelectedMemberId(e.target.value)}
               style={{ fontFamily: 'var(--font-mono)', fontSize: 13, width: 180, cursor: 'pointer' }}
             >
-              {members.map(m => (
-                <option key={m.id} value={m.id}>{m.name}</option>
+              {allMembers.map(m => (
+                <option key={m.id} value={m.id}>{m.name}{m.neelOnly ? ' ★' : ''}</option>
               ))}
             </select>
             {datePicker}
           </div>
         </div>
+        {selectedMember?.neelOnly && (
+          <div style={{ marginBottom: 12, padding: '8px 14px', background: 'rgba(168,139,250,0.08)', border: '1px solid rgba(168,139,250,0.2)', borderRadius: 8, fontSize: 12, color: 'var(--text-faint)' }}>
+            ★ Neel uses a separate task track — scraping & indexing metrics, not included in team analytics
+          </div>
+        )}
         {loadingLeadRecord
           ? <div className="card" style={{ padding: 48, textAlign: 'center' }}><span className="muted">Loading…</span></div>
-          : <ReadOnlyView date={selectedDate} record={leadRecord} memberName={selectedMember?.name} />
+          : <ReadOnlyView date={selectedDate} record={leadRecord} memberName={selectedMember?.name} metricsDef={viewMetrics} />
         }
       </div>
     );
@@ -302,7 +315,8 @@ export function DailyReportPage({ me, setRoute, showToast }) {
           <p className="muted" style={{ margin: '0 0 20px' }}>{fmtFull(todayISO())}</p>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 8, textAlign: 'left', maxWidth: 480, margin: '0 auto 24px' }}>
             {Object.entries(values).filter(([_, v]) => typeof v === 'number' && v > 0).map(([k, v]) => {
-              const m = METRICS.find(mm => mm.key === k);
+              const m = myMetrics.find(mm => mm.key === k);
+              if (!m) return null;
               return (
                 <div key={k} style={{ padding: '10px 12px', background: 'var(--surface-2)', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
                   <Icon name={m.icon} size={13} />
@@ -319,7 +333,9 @@ export function DailyReportPage({ me, setRoute, showToast }) {
           </div>
           <div className="row-flex" style={{ justifyContent: 'center' }}>
             <button className="btn" onClick={() => setRoute('home')}>Back to home</button>
-            <button className="btn primary" onClick={() => setRoute('emails')}>Log emails next <Icon name="arrow" size={12} /></button>
+            {!isNeel && (
+              <button className="btn primary" onClick={() => setRoute('emails')}>Log emails next <Icon name="arrow" size={12} /></button>
+            )}
           </div>
         </div>
       </div>
@@ -333,6 +349,7 @@ export function DailyReportPage({ me, setRoute, showToast }) {
           <h1>Daily Report</h1>
           <div className="sub">
             {isToday ? `${fmtFull(todayISO())} · ${me.name}` : fmtFull(selectedDate)}
+            {isNeel && <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--text-faint)', background: 'var(--surface-2)', padding: '2px 7px', borderRadius: 4 }}>★ Scraping track</span>}
           </div>
         </div>
         <div className="actions">
@@ -356,7 +373,7 @@ export function DailyReportPage({ me, setRoute, showToast }) {
       {!isToday && (
         loadingRecord
           ? <div className="card" style={{ padding: 48, textAlign: 'center' }}><span className="muted">Loading…</span></div>
-          : <ReadOnlyView date={selectedDate} record={selectedRecord} />
+          : <ReadOnlyView date={selectedDate} record={selectedRecord} metricsDef={myMetrics} />
       )}
 
       {/* Today — editable form */}
@@ -375,14 +392,14 @@ export function DailyReportPage({ me, setRoute, showToast }) {
                 <div className="numpad">
                   <div className="numpad-stage" onClick={() => inputRef.current && inputRef.current.focus()}>
                     <input ref={inputRef} style={{ position: 'absolute', opacity: 0, pointerEvents: 'none' }} autoFocus />
-                    <div className="numpad-step"><span style={{ color: 'var(--text-dim)' }}>{METRIC_GROUPS.find(g => g.id === current.group)?.label}</span></div>
+                    <div className="numpad-step"><span style={{ color: 'var(--text-dim)' }}>{myGroups.find(g => g.id === current.group)?.label}</span></div>
                     <div className="numpad-prompt">How many today?</div>
                     <div className="numpad-metric">
                       <Icon name={current.icon} size={20} />
                       <span style={{ marginLeft: 8 }}>{current.label}</span>
                     </div>
-                    {/* Live email count hint for email_response metric */}
-                    {current.key === 'email_response' && liveEmailCount != null && (
+                    {/* Live email count hint (standard members only) */}
+                    {!isNeel && current.key === 'email_response' && liveEmailCount != null && (
                       <div className="hint-line" style={{ marginBottom: 10, padding: '6px 10px', background: 'rgba(210,254,92,0.07)', borderRadius: 6, border: '1px solid rgba(210,254,92,0.15)' }}>
                         <Icon name="mail" size={11} />
                         <span>Email log today: <b style={{ color: 'var(--accent)', fontFamily: 'var(--font-mono)' }}>{liveEmailCount}</b> (auto-filled · updates live)</span>
@@ -470,7 +487,7 @@ export function DailyReportPage({ me, setRoute, showToast }) {
                             <span className="val">
                               {isDone ? displayVal
                                : isSkip ? '—'
-                               : (m.key === 'email_response' && liveEmailCount != null)
+                               : (!isNeel && m.key === 'email_response' && liveEmailCount != null)
                                  ? <span style={{ color: 'var(--accent)', opacity: 0.7 }}>{liveEmailCount}</span>
                                  : isCurrent ? '…' : '·'}
                             </span>
@@ -488,7 +505,7 @@ export function DailyReportPage({ me, setRoute, showToast }) {
                 <div className="card">
                   <div className="card-pad">
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
-                      {METRICS.map(m => (
+                      {myMetrics.map(m => (
                         <div key={m.key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: 'var(--surface-2)', borderRadius: 8 }}>
                           <Icon name={m.icon} size={14} />
                           <span style={{ flex: 1, fontSize: 13 }}>{m.label}</span>

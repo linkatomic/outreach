@@ -6,7 +6,7 @@ export const TEAM = [
   { id: 'preeti', name: 'Preeti S',    short: 'PS', role: 'member', color: 'c', email: 'preeti@relay.io', joined: '2025-01-06' },
   { id: 'keyur',  name: 'Keyur D',     short: 'KD', role: 'member', color: 'd', email: 'keyur@relay.io',  joined: '2024-11-18' },
   { id: 'arjun',  name: 'Arjun M',     short: 'AM', role: 'member', color: 'e', email: 'arjun@relay.io',  joined: '2025-03-02' },
-  { id: 'neel',   name: 'Neel P',      short: 'NP', role: 'member', color: 'f', email: 'neel@relay.io',   joined: '2025-05-19' },
+  { id: 'neel',   name: 'Neel P',      short: 'NP', role: 'member', color: 'f', email: 'neel@relay.io',   joined: '2025-05-19', neelOnly: true },
 ];
 
 export const METRICS = [
@@ -40,6 +40,39 @@ export const VENDORS = [
   'Soylent Foods', 'Massive Dynamic', 'Vehement Capital', 'Vandelay Industries',
   'Sterling Cooper', 'Dunder Mifflin', 'Pendant Publishing', 'Bluth Co',
 ];
+
+// Members who participate in standard team metrics (excludes Neel's separate track)
+export function teamMembers() {
+  return TEAM.filter(m => m.role === 'member' && !m.neelOnly);
+}
+
+// ─── Neel's separate metric track ───────────────
+// His work is scraping/indexing, not tracked in team analytics
+export const NEEL_METRICS = [
+  { key: 'domains_scraped',  label: 'Domains scraped',             unit: 'domains',  target: 80,  group: 'scraping', icon: 'search' },
+  { key: 'google_index',     label: 'Google indexing check',       unit: 'domains',  target: 500, group: 'scraping', icon: 'globe' },
+  { key: 'matrix_check',     label: 'Matrix check',                unit: 'items',    target: 0,   group: 'scraping', icon: 'shield' },
+  { key: 'web_added_tool',   label: 'Websites added in tool',      unit: 'sites',    target: 0,   group: 'scraping', icon: 'plus' },
+  { key: 'ri_reminder',      label: 'RI + reminder emails',        unit: 'emails',   target: 0,   group: 'outreach', icon: 'mail' },
+  { key: 'email_close',      label: 'Self-assigned email close',   unit: 'emails',   target: 0,   group: 'outreach', icon: 'check' },
+  { key: 'email_write',      label: 'Emails written',              unit: 'emails',   target: 0,   group: 'outreach', icon: 'edit' },
+  { key: 'reseller_emails',  label: 'Reseller emails updated',     unit: '',         target: 0,   group: 'admin',    icon: 'building', type: 'checkbox' },
+  { key: 'shared_sheet',     label: 'Working on shared sheet',     unit: '',         target: 0,   group: 'admin',    icon: 'check',    type: 'checkbox' },
+  { key: 'auto_categories',  label: 'Auto categories check',       unit: '',         target: 0,   group: 'admin',    icon: 'tag',      type: 'checkbox' },
+];
+
+export const NEEL_METRIC_GROUPS = [
+  { id: 'scraping', label: 'Scraping' },
+  { id: 'outreach', label: 'Outreach' },
+  { id: 'admin',    label: 'Admin' },
+];
+
+export function metricsFor(memberId) {
+  return TEAM.find(m => m.id === memberId)?.neelOnly ? NEEL_METRICS : METRICS;
+}
+export function metricGroupsFor(memberId) {
+  return TEAM.find(m => m.id === memberId)?.neelOnly ? NEEL_METRIC_GROUPS : METRIC_GROUPS;
+}
 
 export const ACCENT_PRESETS = [
   { id: 'lime',    name: 'Lime',     hex: '#d2fe5c', ink: '#0a0a0a' },

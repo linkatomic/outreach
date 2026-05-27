@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { TEAM, VENDORS, Icon, todayISO, fmtDateShort } from '../data.jsx'
+import { TEAM, Icon, todayISO, fmtDateShort } from '../data.jsx'
 import {
   loadEmailLogs, addEmail, findEmailByLink,
-  incrementEmailReplies, decrementEmailReplies, updateEmailLabel, deleteEmail,
+  incrementEmailReplies, decrementEmailReplies, updateEmailLabel, updateEmailBulk, deleteEmail,
   getEmailCountToday, getTeamEmailCountToday
 } from '../lib/supabase.js'
 
@@ -26,8 +26,9 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
   const [mode, setMode]               = useState('quick')
   const [vendor, setVendor]           = useState('')
   const [link, setLink]               = useState('')
+  const [bulkEntry, setBulkEntry]     = useState(false)  // bulk? checkbox for quick add
   const [filter, setFilter]           = useState('today')
-  const [filterMember, setFilterMember] = useState('all')
+  const [filterMember, setFilterMember] = useState(me.id) // default to self
   const [filterLabel, setFilterLabel] = useState(null)
   const [search, setSearch]           = useState('')
   const [bulkText, setBulkText]       = useState('')
@@ -81,9 +82,7 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
   const fetchRows = useCallback(async () => {
     setLoading(true)
     try {
-      const memberId = filterMember === 'me'  ? me.id
-                     : filterMember === 'all' ? null
-                     : filterMember
+      const memberId = filterMember === 'all' ? null : filterMember
       const data = await loadEmailLogs({ filter, memberId, search, label: filterLabel })
       setRows(data)
     } catch (err) {
@@ -124,6 +123,15 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
     } catch (err) { showToast('Label update failed: ' + err.message) }
   }
 
+  async function toggleBulk(row, e) {
+    e.stopPropagation()
+    const newVal = !row.bulk
+    try {
+      await updateEmailBulk(row.id, newVal)
+      setRows(prev => prev.map(r => r.id === row.id ? { ...r, bulk: newVal } : r))
+    } catch (err) { showToast('Error: ' + err.message) }
+  }
+
   // ── Submit quick entry ───────────────────────────────
   async function submitQuick() {
     const normLink = normalizeLink(link)
@@ -154,15 +162,15 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
       const tempId = 'temp_' + Date.now()
       const optimistic = {
         id: tempId, member_id: me.id, date: today,
-        vendor: vendorName, link: normLink, time: now, replies: 0, label: null,
+        vendor: vendorName, link: normLink, time: now, replies: 0, label: null, bulk: bulkEntry,
         created_at: new Date().toISOString()
       }
       if (filter === 'today' || filter === 'all') setRows(prev => [optimistic, ...prev])
 
-      const saved = await addEmail({ memberId: me.id, date: today, vendor: vendorName, link: normLink, time: now })
+      const saved = await addEmail({ memberId: me.id, date: today, vendor: vendorName, link: normLink, time: now, bulk: bulkEntry })
       setRows(prev => prev.map(r => r.id === tempId ? saved : r))
       showToast(`Logged · ${vendorName}`)
-      setVendor(''); setLink(''); setLinkStatus(null); setLinkThread(null)
+      setVendor(''); setLink(''); setBulkEntry(false); setLinkStatus(null); setLinkThread(null)
       fetchKpis()
     } catch (err) {
       setRows(prev => prev.filter(r => !r.id?.startsWith('temp_')))
@@ -284,10 +292,9 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
                    placeholder={linkStatus === 'thread' ? `Vendor (optional — replying to ${linkThread?.vendor})` : 'Vendor name…'}
                    style={{ flex: '1 1 220px', maxWidth: 300, opacity: linkStatus === 'thread' ? 0.55 : 1 }}
                    value={vendor}
-                   list="vendors-list"
+                   autoComplete="off"
                    onChange={e => setVendor(e.target.value)}
                    onKeyDown={e => { if (e.key === 'Enter') linkRef.current?.focus() }} />
-            <datalist id="vendors-list">{VENDORS.map(v => <option key={v} value={v} />)}</datalist>
             <input ref={linkRef} className="input"
                    placeholder="Missive link or URL…"
                    style={{
@@ -298,6 +305,12 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
                    value={link}
                    onChange={e => setLink(e.target.value)}
                    onKeyDown={e => { if (e.key === 'Enter') submitQuick() }} />
+            {/* Bulk checkbox */}
+            <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: bulkEntry ? 'var(--text)' : 'var(--text-faint)', cursor: 'pointer', flexShrink: 0, userSelect: 'none' }}>
+              <input type="checkbox" checked={bulkEntry} onChange={e => setBulkEntry(e.target.checked)}
+                     style={{ accentColor: 'var(--accent)', width: 13, height: 13 }} />
+              Bulk?
+            </label>
             {linkStatus === 'thread' && (
               <span className="chip" style={{ background: 'rgba(210,254,92,.12)', color: 'var(--accent)', fontSize: 11, flexShrink: 0 }}>
                 ↩ Thread
@@ -337,10 +350,9 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
           ))}
         </span>
 
-        {/* Member filter — always show all members */}
+        {/* Member filter — names only, no duplicate "Just me" */}
         <span className="seg">
           <button className={filterMember === 'all' ? 'on' : ''} onClick={() => setFilterMember('all')}>Everyone</button>
-          <button className={filterMember === 'me'  ? 'on' : ''} onClick={() => setFilterMember('me')}>Just me</button>
           {members.map(m => (
             <button key={m.id} className={filterMember === m.id ? 'on' : ''} onClick={() => setFilterMember(m.id)}>
               {m.name.split(' ')[0]}
@@ -367,6 +379,7 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
           <div>Vendor</div>
           <div>Missive Link</div>
           <div>Label</div>
+          <div style={{ textAlign: 'center' }}>Bulk?</div>
           <div>Replies</div>
           <div>By</div>
           <div></div>
@@ -377,9 +390,10 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
             <div className="num">+</div>
             <div className="muted mono">{fmtDateShort(todayISO())}</div>
             <div className="mono muted">now</div>
-            <div><input className="input-bare" placeholder="Vendor…" value={vendor} onChange={e => setVendor(e.target.value)} list="vendors-list" /></div>
+            <div><input className="input-bare" placeholder="Vendor…" autoComplete="off" value={vendor} onChange={e => setVendor(e.target.value)} /></div>
             <div><input className="input-bare mono" placeholder="missive.app/…" value={link} onChange={e => setLink(e.target.value)} onKeyDown={e => e.key === 'Enter' && submitQuick()} /></div>
             <div>—</div>
+            <div style={{ textAlign: 'center' }}>—</div>
             <div>—</div>
             <div className="row-flex"><div className={`avatar sm ${me.color}`}>{me.short}</div></div>
             <div><button className="btn primary" style={{ height: 22, padding: '0 8px', fontSize: 11 }} onClick={submitQuick}>↵</button></div>
@@ -399,13 +413,23 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
               <div className="vendor">{r.vendor || <span className="muted">—</span>}</div>
               <div className="link"><Icon name="link" size={10} /> {r.link}</div>
 
-              {/* Label cell — triggers fixed portal menu */}
+              {/* Label cell */}
               <div className="label-cell">
                 {r.label
                   ? <LabelChip label={r.label} onClick={canEdit ? e => openLabelMenu(e, r) : undefined} />
                   : canEdit
                     ? <button className="label-add-btn" onClick={e => openLabelMenu(e, r)}>+ label</button>
                     : <span className="muted" style={{ fontSize: 11 }}>—</span>
+                }
+              </div>
+
+              {/* Bulk? checkbox */}
+              <div style={{ textAlign: 'center' }}>
+                {canEdit
+                  ? <input type="checkbox" checked={!!r.bulk} onChange={e => toggleBulk(r, e)}
+                           style={{ accentColor: 'var(--accent)', width: 13, height: 13, cursor: 'pointer' }}
+                           title={r.bulk ? 'Bulk email (target relaxed)' : 'Mark as bulk'} />
+                  : r.bulk ? <span style={{ fontSize: 11 }}>✓</span> : null
                 }
               </div>
 

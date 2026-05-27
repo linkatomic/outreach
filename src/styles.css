@@ -816,7 +816,7 @@ hr { border: 0; border-top: 1px solid var(--border); margin: 0; }
 }
 .eg-head, .eg-row {
   display: grid;
-  grid-template-columns: 36px 80px 54px 1.3fr 1.1fr 100px 96px 82px 28px;
+  grid-template-columns: 36px 80px 54px 1.3fr 1.1fr 100px 44px 96px 82px 28px;
   align-items: center;
   font-size: 12.5px;
 }
