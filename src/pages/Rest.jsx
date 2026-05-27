@@ -485,32 +485,42 @@ export function SettingsPage({ theme, toggleTheme, role, accent, setAccent }) {
           <div style={{ paddingTop: 16 }}>
             <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 4 }}>Accent colour</div>
             <div style={{ fontSize: 11, color: 'var(--text-faint)', marginBottom: 14 }}>Changes buttons, highlights, graphs, and progress bars</div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-              {ACCENT_PRESETS.map(p => (
-                <button
-                  key={p.id}
-                  onClick={() => setAccent(p.id)}
-                  title={p.name}
-                  style={{
-                    width: 36, height: 36,
-                    borderRadius: '50%',
-                    background: p.hex,
-                    border: accent === p.id ? `3px solid var(--text)` : '3px solid transparent',
-                    outline: accent === p.id ? `2px solid ${p.hex}` : 'none',
-                    outlineOffset: 2,
-                    cursor: 'pointer',
-                    transition: 'all .15s',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    flexShrink: 0,
-                  }}
-                >
-                  {accent === p.id && (
-                    <span style={{ color: p.ink, fontSize: 16, lineHeight: 1 }}>✓</span>
-                  )}
-                </button>
-              ))}
-            </div>
-            <div style={{ marginTop: 10, fontSize: 11, color: 'var(--text-faint)' }}>
+            {[
+              { label: 'Classics', ids: ['lime','blue','violet','emerald','orange','cyan','pink','rose'] },
+              { label: 'Reds',     ids: ['red','crimson'] },
+              { label: 'Gold',     ids: ['gold','amber'] },
+              { label: 'Neons',    ids: ['neon-green','electric','neon-pink','neon-purple','neon-yellow'] },
+            ].map(group => (
+              <div key={group.label} style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-faint)', marginBottom: 8 }}>{group.label}</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                  {ACCENT_PRESETS.filter(p => group.ids.includes(p.id)).map(p => (
+                    <button
+                      key={p.id}
+                      onClick={() => setAccent(p.id)}
+                      title={p.name}
+                      style={{
+                        width: 34, height: 34,
+                        borderRadius: '50%',
+                        background: p.hex,
+                        border: accent === p.id ? `3px solid var(--text)` : '3px solid transparent',
+                        outline: accent === p.id ? `2px solid ${p.hex}` : 'none',
+                        outlineOffset: 2,
+                        cursor: 'pointer',
+                        transition: 'all .15s',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        flexShrink: 0,
+                      }}
+                    >
+                      {accent === p.id && (
+                        <span style={{ color: p.ink, fontSize: 15, lineHeight: 1 }}>✓</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+            <div style={{ marginTop: 4, fontSize: 11, color: 'var(--text-faint)' }}>
               Selected: <span style={{ color: 'var(--accent)', fontWeight: 500 }}>{ACCENT_PRESETS.find(p => p.id === accent)?.name || 'Lime'}</span>
             </div>
           </div>

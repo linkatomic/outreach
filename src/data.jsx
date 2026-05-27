@@ -75,14 +75,27 @@ export function metricGroupsFor(memberId) {
 }
 
 export const ACCENT_PRESETS = [
+  // Classics
   { id: 'lime',    name: 'Lime',     hex: '#d2fe5c', ink: '#0a0a0a' },
-  { id: 'pink',    name: 'Hot Pink', hex: '#f472b6', ink: '#0a0a0a' },
-  { id: 'violet',  name: 'Violet',   hex: '#a78bfa', ink: '#ffffff' },
   { id: 'blue',    name: 'Blue',     hex: '#60a5fa', ink: '#0a0a0a' },
+  { id: 'violet',  name: 'Violet',   hex: '#a78bfa', ink: '#ffffff' },
+  { id: 'emerald', name: 'Emerald',  hex: '#34d399', ink: '#0a0a0a' },
   { id: 'orange',  name: 'Orange',   hex: '#fb923c', ink: '#0a0a0a' },
   { id: 'cyan',    name: 'Cyan',     hex: '#22d3ee', ink: '#0a0a0a' },
-  { id: 'emerald', name: 'Emerald',  hex: '#34d399', ink: '#0a0a0a' },
+  { id: 'pink',    name: 'Hot Pink', hex: '#f472b6', ink: '#0a0a0a' },
   { id: 'rose',    name: 'Rose',     hex: '#fb7185', ink: '#0a0a0a' },
+  // Reds
+  { id: 'red',     name: 'Red',      hex: '#ef4444', ink: '#ffffff' },
+  { id: 'crimson', name: 'Crimson',  hex: '#e11d48', ink: '#ffffff' },
+  // Gold & warm
+  { id: 'gold',    name: 'Gold',     hex: '#facc15', ink: '#0a0a0a' },
+  { id: 'amber',   name: 'Amber',    hex: '#f59e0b', ink: '#0a0a0a' },
+  // Neons
+  { id: 'neon-green',  name: 'Neon Green',  hex: '#39ff14', ink: '#0a0a0a' },
+  { id: 'electric',    name: 'Electric',    hex: '#00d4ff', ink: '#0a0a0a' },
+  { id: 'neon-pink',   name: 'Neon Pink',   hex: '#ff2d78', ink: '#ffffff' },
+  { id: 'neon-purple', name: 'Neon Purple', hex: '#bf00ff', ink: '#ffffff' },
+  { id: 'neon-yellow', name: 'Neon Yellow', hex: '#fff01f', ink: '#0a0a0a' },
 ]
 
 export function hash(str) {
