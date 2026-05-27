@@ -158,7 +158,8 @@ export default function App() {
   return (
     <div className="app">
       <Sidebar route={route} setRoute={setRoute} role={role} me={me}
-               openCmdK={() => setCmdOpen(true)} todayDone={todayDone} />
+               openCmdK={() => setCmdOpen(true)} todayDone={todayDone}
+               onLogout={() => supabase.auth.signOut()} />
       <div className="main">
         <Topbar route={route} role={role}
                 theme={theme} toggleTheme={() => setTweak('dark', !t.dark)}

@@ -181,9 +181,35 @@ hr { border: 0; border-top: 1px solid var(--border); margin: 0; }
   padding: 8px;
   border-top: 1px solid var(--border);
   display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.sidebar-foot-identity {
+  display: flex;
   align-items: center;
   gap: 8px;
 }
+.signout-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-faint);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  width: 100%;
+  transition: all .15s;
+}
+.signout-btn:hover {
+  background: rgba(239, 68, 68, .1);
+  border-color: rgba(239, 68, 68, .35);
+  color: #f87171;
+}
+.signout-btn svg { transform: rotate(180deg); }
 .avatar {
   width: 24px; height: 24px; border-radius: 50%;
   background: linear-gradient(135deg, #444, #222);

@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { TEAM, Icon, fmtDateShort, fmtRel } from '../data.jsx'
 
 // ────────────────────── Sidebar ──────────────────────
-export function Sidebar({ route, setRoute, role, me, openCmdK, todayDone }) {
+export function Sidebar({ route, setRoute, role, me, openCmdK, todayDone, onLogout }) {
   const navItems = [
     { id: 'home',      label: 'Home',         icon: 'home',   kbd: 'G H' },
     { id: 'report',    label: 'Daily Report', icon: 'report', kbd: 'G R', badge: todayDone ? 'done' : 'todo' },
@@ -74,11 +74,17 @@ export function Sidebar({ route, setRoute, role, me, openCmdK, todayDone }) {
       </div>
 
       <div className="sidebar-foot">
-        <div className={`avatar ${me.color}`}>{me.short}</div>
-        <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-          <div style={{ fontSize: 12, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{me.name}</div>
-          <div style={{ fontSize: 10, color: 'var(--text-faint)' }}>{role === 'lead' ? 'Team Lead' : 'Member'}</div>
+        <div className="sidebar-foot-identity">
+          <div className={`avatar ${me.color}`}>{me.short}</div>
+          <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}>
+            <div style={{ fontSize: 12, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{me.name}</div>
+            <div style={{ fontSize: 10, color: 'var(--text-faint)' }}>{role === 'lead' ? 'Team Lead' : 'Member'}</div>
+          </div>
         </div>
+        <button className="signout-btn" onClick={onLogout}>
+          <Icon name="arrow" size={13} />
+          Sign out
+        </button>
       </div>
     </aside>
   );

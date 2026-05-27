@@ -16,31 +16,9 @@ function LabelChip({ label, onClick }) {
   const def = LABELS.find(l => l.id === label)
   if (!def) return null
   return (
-    <span className={`label-chip lc-${label}`} onClick={onClick} title={`Label: ${def.label}`}>
+    <span className={`label-chip lc-${label}`} onClick={onClick}>
       {def.dot} {def.label}
     </span>
-  )
-}
-
-function LabelMenu({ row, onApply, onClose }) {
-  const ref = useRef(null)
-  useEffect(() => {
-    function handler(e) { if (ref.current && !ref.current.contains(e.target)) onClose() }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [onClose])
-
-  return (
-    <div className="label-menu" ref={ref}>
-      {LABELS.map(l => (
-        <button key={l.id} onClick={() => onApply(l.id)}>
-          <span className={`label-chip lc-${l.id}`} style={{ pointerEvents: 'none' }}>{l.dot} {l.label}</span>
-        </button>
-      ))}
-      {row.label && (
-        <button className="remove-label" onClick={() => onApply(null)}>✕ Remove label</button>
-      )}
-    </div>
   )
 }
 
@@ -56,12 +34,14 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
   const [rows, setRows]               = useState([])
   const [loading, setLoading]         = useState(true)
   const [submitting, setSubmitting]   = useState(false)
-  const [myTodayCount, setMyTodayCount]   = useState(0)
+  const [myTodayCount, setMyTodayCount]     = useState(0)
   const [teamTodayCount, setTeamTodayCount] = useState(0)
   const [bulkOpen, setBulkOpen]       = useState(false)
-  const [labelMenuRow, setLabelMenuRow] = useState(null)
 
-  // Link-status detection (vendor becomes optional for known threads)
+  // Fixed-position label menu portal: { row, x, y } or null
+  const [labelMenu, setLabelMenu]     = useState(null)
+
+  // Link-status: vendor becomes optional for known same-day threads
   const [linkStatus, setLinkStatus]   = useState(null) // null | 'checking' | 'new' | 'thread'
   const [linkThread, setLinkThread]   = useState(null)
 
@@ -76,7 +56,7 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return
       if (e.key === 'n' || e.key === 'N') { e.preventDefault(); quickRef.current?.focus() }
       if (e.key === 'b' || e.key === 'B') { e.preventDefault(); setBulkOpen(true) }
-      if (e.key === 'Escape') setLabelMenuRow(null)
+      if (e.key === 'Escape') setLabelMenu(null)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -101,7 +81,7 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
   const fetchRows = useCallback(async () => {
     setLoading(true)
     try {
-      const memberId = filterMember === 'me' ? me.id
+      const memberId = filterMember === 'me'  ? me.id
                      : filterMember === 'all' ? null
                      : filterMember
       const data = await loadEmailLogs({ filter, memberId, search, label: filterLabel })
@@ -126,11 +106,28 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
 
   function normalizeLink(raw) { return raw.trim().replace(/^https?:\/\//, '') }
 
-  // ── Submit ───────────────────────────────────────────
+  // ── Label menu (fixed portal) ────────────────────────
+  function openLabelMenu(e, row) {
+    e.stopPropagation()
+    if (labelMenu?.row?.id === row.id) { setLabelMenu(null); return }
+    const rect = e.currentTarget.getBoundingClientRect()
+    setLabelMenu({ row, x: rect.left, y: rect.bottom + 4 })
+  }
+
+  async function applyLabel(label) {
+    if (!labelMenu) return
+    const row = labelMenu.row
+    setLabelMenu(null)
+    try {
+      await updateEmailLabel(row.id, label)
+      setRows(prev => prev.map(r => r.id === row.id ? { ...r, label } : r))
+    } catch (err) { showToast('Label update failed: ' + err.message) }
+  }
+
+  // ── Submit quick entry ───────────────────────────────
   async function submitQuick() {
     const normLink = normalizeLink(link)
     if (!normLink) return
-    // Vendor required only for new links
     if (!vendor.trim() && linkStatus !== 'thread') {
       showToast('Enter a vendor name for new links')
       quickRef.current?.focus()
@@ -141,7 +138,6 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
 
     setSubmitting(true)
     try {
-      // Re-check for dup (in case status check is still in flight)
       const existing = linkThread || await findEmailByLink(me.id, normLink, today)
       if (existing) {
         await incrementEmailReplies(existing.id, existing.replies)
@@ -182,15 +178,8 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
     try {
       await incrementEmailReplies(row.id, row.replies)
       setRows(prev => prev.map(r => r.id === row.id ? { ...r, replies: r.replies + 1 } : r))
+      fetchKpis()
     } catch (err) { showToast('Error: ' + err.message) }
-  }
-
-  async function applyLabel(row, label) {
-    setLabelMenuRow(null)
-    try {
-      await updateEmailLabel(row.id, label)
-      setRows(prev => prev.map(r => r.id === row.id ? { ...r, label } : r))
-    } catch (err) { showToast('Label update failed: ' + err.message) }
   }
 
   async function submitBulk() {
@@ -200,13 +189,13 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
     let imported = 0
     for (const line of lines) {
       const m = line.match(/(missive\.app\/\d+)/i)
-      const linkVal  = m ? m[1] : normalizeLink(line)
+      const linkVal    = m ? m[1] : normalizeLink(line)
       const vendorName = m ? line.replace(m[0], '').replace(/[—\-|·,]/g, '').trim() || 'Untagged' : 'Untagged'
       try {
         const existing = await findEmailByLink(me.id, linkVal, today)
         if (existing) { await incrementEmailReplies(existing.id, existing.replies) }
         else { await addEmail({ memberId: me.id, date: today, vendor: vendorName, link: linkVal, time: now }); imported++ }
-      } catch { /* skip */ }
+      } catch { /* skip bad lines */ }
     }
     setBulkText(''); setBulkOpen(false)
     showToast(`Imported ${imported} new entries`)
@@ -223,24 +212,21 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
     } catch (err) { showToast('Delete failed: ' + err.message) }
   }
 
-  const myTarget = 30
-  const members = TEAM.filter(m => m.role === 'member')
+  const myTarget = 40
+  const members  = TEAM.filter(m => m.role === 'member')
 
-  // ── Link status hint ─────────────────────────────────
   const linkHint = linkStatus === 'thread'
-    ? `↩ Known thread · "${linkThread?.vendor || normLink}" · Log Entry will add a reply (vendor optional)`
+    ? `↩ Known thread · "${linkThread?.vendor}" · Log Entry will add a reply (vendor optional)`
     : linkStatus === 'new'
     ? '✦ New link — vendor name required'
-    : 'Tab between fields · paste link · duplicate today → auto-adds reply instead of new row'
-
-  function normLink() { return link.trim().replace(/^https?:\/\//, '') }
+    : 'Tab between fields · same link logged today → auto-increments replies instead of new row'
 
   return (
     <div className="page">
       <div className="page-head">
         <div>
           <h1>Email Log</h1>
-          <div className="sub">Track every outbound. ~30/day soft target.</div>
+          <div className="sub">Track every outbound. ~40/day soft target.</div>
         </div>
         <div className="actions">
           <span className="seg">
@@ -254,7 +240,7 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
       {/* ── KPIs ── */}
       <div className="grid grid-4" style={{ marginBottom: 16 }}>
         <div className="kpi">
-          <div className="kpi-label">My emails today</div>
+          <div className="kpi-label">Email responses</div>
           <div className="kpi-value">
             {myTodayCount}<span style={{ color: 'var(--text-faint)', fontSize: 14 }}> / {myTarget}</span>
           </div>
@@ -270,7 +256,7 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
         <div className="kpi">
           <div className="kpi-label">Showing</div>
           <div className="kpi-value">{rows.length}</div>
-          <div className="kpi-target">in current view</div>
+          <div className="kpi-target">entries in view</div>
         </div>
         <div className="kpi">
           <div className="kpi-label">Avg per member</div>
@@ -286,7 +272,7 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
             <Icon name="plus" size={14} />
             <input ref={quickRef} className="input"
                    placeholder={linkStatus === 'thread' ? `Vendor (optional — replying to ${linkThread?.vendor})` : 'Vendor name…'}
-                   style={{ flex: '1 1 220px', maxWidth: 300, opacity: linkStatus === 'thread' ? 0.6 : 1 }}
+                   style={{ flex: '1 1 220px', maxWidth: 300, opacity: linkStatus === 'thread' ? 0.55 : 1 }}
                    value={vendor}
                    list="vendors-list"
                    onChange={e => setVendor(e.target.value)}
@@ -297,14 +283,13 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
                    style={{
                      flex: 1,
                      fontFamily: 'var(--font-mono)',
-                     borderColor: linkStatus === 'thread' ? 'var(--accent)' : linkStatus === 'new' ? 'var(--border)' : undefined
+                     borderColor: linkStatus === 'thread' ? 'var(--accent)' : undefined
                    }}
                    value={link}
                    onChange={e => setLink(e.target.value)}
                    onKeyDown={e => { if (e.key === 'Enter') submitQuick() }} />
-            {linkStatus === 'checking' && <span className="muted" style={{ fontSize: 12 }}>…</span>}
             {linkStatus === 'thread' && (
-              <span className="chip" style={{ background: 'rgba(210,254,92,.12)', color: 'var(--accent)', fontSize: 11 }}>
+              <span className="chip" style={{ background: 'rgba(210,254,92,.12)', color: 'var(--accent)', fontSize: 11, flexShrink: 0 }}>
                 ↩ Thread
               </span>
             )}
@@ -335,17 +320,18 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
         <span className="seg">
           <button className={!filterLabel ? 'on' : ''} onClick={() => setFilterLabel(null)}>All labels</button>
           {LABELS.map(l => (
-            <button key={l.id} className={filterLabel === l.id ? 'on' : ''} onClick={() => setFilterLabel(filterLabel === l.id ? null : l.id)}>
+            <button key={l.id} className={filterLabel === l.id ? 'on' : ''}
+                    onClick={() => setFilterLabel(filterLabel === l.id ? null : l.id)}>
               {l.dot} {l.label}
             </button>
           ))}
         </span>
 
-        {/* Member filter */}
+        {/* Member filter — always show all members */}
         <span className="seg">
           <button className={filterMember === 'all' ? 'on' : ''} onClick={() => setFilterMember('all')}>Everyone</button>
           <button className={filterMember === 'me'  ? 'on' : ''} onClick={() => setFilterMember('me')}>Just me</button>
-          {filter === 'all' && members.map(m => (
+          {members.map(m => (
             <button key={m.id} className={filterMember === m.id ? 'on' : ''} onClick={() => setFilterMember(m.id)}>
               {m.name.split(' ')[0]}
             </button>
@@ -359,7 +345,6 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
           <span style={{ position: 'absolute', left: 8, top: 7, color: 'var(--text-faint)' }}>
             <Icon name="search" size={13} />
           </span>
-          <span className="kbd" style={{ position: 'absolute', right: 8, top: 7 }}>/</span>
         </div>
       </div>
 
@@ -382,30 +367,20 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
             <div className="num">+</div>
             <div className="muted mono">{fmtDateShort(todayISO())}</div>
             <div className="mono muted">now</div>
-            <div>
-              <input className="input-bare" placeholder="Vendor…" value={vendor}
-                     onChange={e => setVendor(e.target.value)} list="vendors-list" />
-            </div>
-            <div>
-              <input className="input-bare mono" placeholder="missive.app/…" value={link}
-                     onChange={e => setLink(e.target.value)} onKeyDown={e => e.key === 'Enter' && submitQuick()} />
-            </div>
+            <div><input className="input-bare" placeholder="Vendor…" value={vendor} onChange={e => setVendor(e.target.value)} list="vendors-list" /></div>
+            <div><input className="input-bare mono" placeholder="missive.app/…" value={link} onChange={e => setLink(e.target.value)} onKeyDown={e => e.key === 'Enter' && submitQuick()} /></div>
             <div>—</div>
             <div>—</div>
             <div className="row-flex"><div className={`avatar sm ${me.color}`}>{me.short}</div></div>
-            <div>
-              <button className="btn primary" style={{ height: 22, padding: '0 8px', fontSize: 11 }} onClick={submitQuick}>↵</button>
-            </div>
+            <div><button className="btn primary" style={{ height: 22, padding: '0 8px', fontSize: 11 }} onClick={submitQuick}>↵</button></div>
           </div>
         )}
 
         {loading && <div className="empty">Loading…</div>}
 
         {!loading && rows.map((r, idx) => {
-          const member = TEAM.find(m => m.id === r.member_id)
+          const member  = TEAM.find(m => m.id === r.member_id)
           const canEdit = r.member_id === me.id || me.role === 'lead'
-          const showLabelMenu = labelMenuRow === r.id
-
           return (
             <div key={r.id} className="eg-row">
               <div className="num">{String(idx + 1).padStart(4, '0')}</div>
@@ -414,28 +389,19 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
               <div className="vendor">{r.vendor || <span className="muted">—</span>}</div>
               <div className="link"><Icon name="link" size={10} /> {r.link}</div>
 
-              {/* Label cell */}
+              {/* Label cell — triggers fixed portal menu */}
               <div className="label-cell">
                 {r.label
-                  ? <LabelChip label={r.label} onClick={canEdit ? () => setLabelMenuRow(showLabelMenu ? null : r.id) : undefined} />
+                  ? <LabelChip label={r.label} onClick={canEdit ? e => openLabelMenu(e, r) : undefined} />
                   : canEdit
-                    ? <button className="label-add-btn" onClick={() => setLabelMenuRow(showLabelMenu ? null : r.id)}>+ label</button>
+                    ? <button className="label-add-btn" onClick={e => openLabelMenu(e, r)}>+ label</button>
                     : <span className="muted" style={{ fontSize: 11 }}>—</span>
                 }
-                {showLabelMenu && (
-                  <LabelMenu
-                    row={r}
-                    onApply={label => applyLabel(r, label)}
-                    onClose={() => setLabelMenuRow(null)}
-                  />
-                )}
               </div>
 
               {/* Replies cell */}
               <div className="replies-cell">
-                {r.replies > 0 && (
-                  <span className="reply-count">↩ {r.replies}</span>
-                )}
+                {r.replies > 0 && <span className="reply-count">↩ {r.replies}</span>}
                 {canEdit && (
                   <button className="reply-add-btn" onClick={e => handleAddReply(r, e)} title="Add reply">+</button>
                 )}
@@ -470,16 +436,31 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
       <div className="row-flex" style={{ marginTop: 12 }}>
         <span className="faint" style={{ fontSize: 12 }}>
           {rows.length} entr{rows.length === 1 ? 'y' : 'ies'}
-          {filterLabel && <> · filtered by <LabelChip label={filterLabel} /></>}
         </span>
         <div className="spacer" />
         <div className="hint-line">
           <span className="kbd">N</span> new ·&nbsp;
           <span className="kbd">B</span> bulk ·&nbsp;
-          <span className="kbd">/</span> search ·&nbsp;
           <span className="kbd">Esc</span> close menu
         </div>
       </div>
+
+      {/* ── Label menu portal (fixed, outside overflow:hidden grid) ── */}
+      {labelMenu && (
+        <>
+          <div style={{ position: 'fixed', inset: 0, zIndex: 99 }} onClick={() => setLabelMenu(null)} />
+          <div className="label-menu" style={{ position: 'fixed', top: labelMenu.y, left: labelMenu.x, zIndex: 100 }}>
+            {LABELS.map(l => (
+              <button key={l.id} onClick={() => applyLabel(l.id)}>
+                <span className={`label-chip lc-${l.id}`} style={{ pointerEvents: 'none' }}>{l.dot} {l.label}</span>
+              </button>
+            ))}
+            {labelMenu.row.label && (
+              <button className="remove-label" onClick={() => applyLabel(null)}>✕ Remove label</button>
+            )}
+          </div>
+        </>
+      )}
 
       {/* ── Bulk modal ── */}
       {bulkOpen && (
@@ -497,7 +478,7 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
                         value={bulkText} onChange={e => setBulkText(e.target.value)} />
               <div className="hint-line" style={{ marginTop: 10 }}>
                 <Icon name="zap" size={11} />
-                <span>Same link already logged today → increments replies count, not a new row.</span>
+                <span>Same link already logged today → increments replies, not a new row.</span>
               </div>
               <div style={{ marginTop: 12, padding: 12, background: 'var(--surface-2)', borderRadius: 8, fontSize: 12 }}>
                 <span className="muted">Preview · </span>

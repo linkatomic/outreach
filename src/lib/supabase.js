@@ -149,20 +149,23 @@ export async function deleteEmail(id) {
 }
 
 export async function getEmailCountToday(memberId) {
-  const { count } = await supabase
+  const { data } = await supabase
     .from('email_logs')
-    .select('*', { count: 'exact', head: true })
+    .select('replies')
     .eq('member_id', memberId)
     .eq('date', localDateStr());
-  return count || 0;
+  if (!data) return 0;
+  // Each row = 1 email + however many replies
+  return data.reduce((sum, row) => sum + 1 + (row.replies || 0), 0);
 }
 
 export async function getTeamEmailCountToday() {
-  const { count } = await supabase
+  const { data } = await supabase
     .from('email_logs')
-    .select('*', { count: 'exact', head: true })
+    .select('replies')
     .eq('date', localDateStr());
-  return count || 0;
+  if (!data) return 0;
+  return data.reduce((sum, row) => sum + 1 + (row.replies || 0), 0);
 }
 
 export async function loadAllReportsForDate(date) {
