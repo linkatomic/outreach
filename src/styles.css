@@ -790,7 +790,7 @@ hr { border: 0; border-top: 1px solid var(--border); margin: 0; }
 }
 .eg-head, .eg-row {
   display: grid;
-  grid-template-columns: 40px 90px 100px 1.6fr 1fr 1fr 28px;
+  grid-template-columns: 40px 90px 70px 1.6fr 1fr 80px 1fr 28px;
   align-items: center;
   font-size: 12.5px;
 }

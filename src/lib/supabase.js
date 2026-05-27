@@ -71,6 +71,91 @@ export async function loadMostRecentReport(memberId) {
   return data
 }
 
+// ── Email Logs ────────────────────────────────────────
+
+function localDateStr(daysAgo = 0) {
+  const d = new Date();
+  d.setDate(d.getDate() - daysAgo);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+export async function loadEmailLogs({ filter = 'today', memberId = null, search = '' } = {}) {
+  let query = supabase
+    .from('email_logs')
+    .select('*')
+    .order('date', { ascending: false })
+    .order('created_at', { ascending: false })
+    .limit(300);
+
+  if (filter === 'today') query = query.eq('date', localDateStr());
+  else if (filter === 'week') query = query.gte('date', localDateStr(7));
+
+  if (memberId) query = query.eq('member_id', memberId);
+
+  const { data, error } = await query;
+  if (error) throw error;
+
+  let results = data || [];
+  if (search) {
+    const q = search.toLowerCase();
+    results = results.filter(e =>
+      e.vendor.toLowerCase().includes(q) || e.link.toLowerCase().includes(q)
+    );
+  }
+  return results;
+}
+
+export async function addEmail({ memberId, date, vendor, link, time }) {
+  const { data, error } = await supabase
+    .from('email_logs')
+    .insert({ member_id: memberId, date, vendor, link, time, replies: 0 })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function findEmailByLink(memberId, link, date) {
+  const { data } = await supabase
+    .from('email_logs')
+    .select('*')
+    .eq('member_id', memberId)
+    .eq('date', date)
+    .eq('link', link)
+    .maybeSingle();
+  return data || null;
+}
+
+export async function incrementEmailReplies(id, currentReplies) {
+  const { error } = await supabase
+    .from('email_logs')
+    .update({ replies: currentReplies + 1 })
+    .eq('id', id);
+  if (error) throw error;
+}
+
+export async function deleteEmail(id) {
+  const { error } = await supabase.from('email_logs').delete().eq('id', id);
+  if (error) throw error;
+}
+
+export async function getEmailCountToday(memberId) {
+  const { count } = await supabase
+    .from('email_logs')
+    .select('*', { count: 'exact', head: true })
+    .eq('member_id', memberId)
+    .eq('date', localDateStr());
+  return count || 0;
+}
+
+export async function getTeamEmailCountToday() {
+  const { count } = await supabase
+    .from('email_logs')
+    .select('*', { count: 'exact', head: true })
+    .eq('date', localDateStr());
+  return count || 0;
+}
+
 export async function loadAllReportsForDate(date) {
   const { data, error } = await supabase
     .from('daily_reports')
