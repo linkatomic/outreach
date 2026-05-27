@@ -256,6 +256,11 @@ export async function addIdeaComment({ ideaId, memberId, content, type = 'commen
   return data
 }
 
+export async function deleteIdea(id) {
+  const { error } = await supabase.from('ideas').delete().eq('id', id)
+  if (error) throw error
+}
+
 export async function loadAllReportsForDate(date) {
   const { data, error } = await supabase
     .from('daily_reports')

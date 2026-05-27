@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { TEAM, Icon, fmtRel } from '../data.jsx'
-import { loadIdeas, createIdea, updateIdeaStatus, loadIdeaComments, addIdeaComment } from '../lib/supabase.js'
+import { loadIdeas, createIdea, updateIdeaStatus, loadIdeaComments, addIdeaComment, deleteIdea } from '../lib/supabase.js'
 
 // ── Status config ────────────────────────────────────
 const STATUS = {
@@ -31,7 +31,7 @@ function StatusChip({ status, style = {} }) {
 }
 
 // ── Thread modal ────────────────────────────────────
-function IdeaThread({ idea: initialIdea, me, onClose, onUpdate }) {
+function IdeaThread({ idea: initialIdea, me, onClose, onUpdate, onDelete }) {
   const [idea, setIdea]             = useState(initialIdea)
   const [comments, setComments]     = useState([])
   const [loadingCmts, setLoadingCmts] = useState(true)
@@ -128,7 +128,15 @@ function IdeaThread({ idea: initialIdea, me, onClose, onUpdate }) {
               </span>
             </div>
           </div>
-          <button className="btn ghost" style={{ flexShrink: 0 }} onClick={onClose}><Icon name="x" size={14} /></button>
+          <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+            {onDelete && (
+              <button className="btn ghost" onClick={onDelete} title="Delete idea"
+                      style={{ color: '#fb7185' }}>
+                <Icon name="trash" size={14} />
+              </button>
+            )}
+            <button className="btn ghost" onClick={onClose}><Icon name="x" size={14} /></button>
+          </div>
         </div>
 
         {/* Original idea body */}
@@ -236,6 +244,7 @@ export function IdeasPage({ me, showToast }) {
   const [loading, setLoading]   = useState(true)
   const [openIdea, setOpenIdea] = useState(null)
   const [showForm, setShowForm] = useState(false)
+  const [confirmDeleteIdea, setConfirmDeleteIdea] = useState(null) // idea to delete
 
   // Submit form state
   const [title, setTitle]       = useState('')
@@ -276,6 +285,20 @@ export function IdeasPage({ me, showToast }) {
   function handleIdeaUpdate(updated) {
     setIdeas(prev => prev.map(i => i.id === updated.id ? { ...i, status: updated.status } : i))
     if (openIdea?.id === updated.id) setOpenIdea(prev => ({ ...prev, status: updated.status }))
+  }
+
+  async function handleDelete() {
+    if (!confirmDeleteIdea) return
+    try {
+      await deleteIdea(confirmDeleteIdea.id)
+      setIdeas(prev => prev.filter(i => i.id !== confirmDeleteIdea.id))
+      if (openIdea?.id === confirmDeleteIdea.id) setOpenIdea(null)
+      showToast('Idea deleted.')
+    } catch (err) {
+      showToast('Delete failed: ' + err.message)
+    } finally {
+      setConfirmDeleteIdea(null)
+    }
   }
 
   const FILTERS = [
@@ -379,7 +402,21 @@ export function IdeasPage({ me, showToast }) {
                     )}
                   </div>
                 </div>
-                <Icon name="arrow" size={13} style={{ color: 'var(--text-faint)', flexShrink: 0, marginTop: 4 }} />
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                  {isLead && (
+                    <button
+                      onClick={e => { e.stopPropagation(); setConfirmDeleteIdea(idea) }}
+                      title="Delete idea"
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, borderRadius: 5,
+                               color: 'var(--text-faint)', display: 'flex', alignItems: 'center',
+                               opacity: 0.5, transition: 'opacity 0.15s' }}
+                      onMouseEnter={e => e.currentTarget.style.opacity = 1}
+                      onMouseLeave={e => e.currentTarget.style.opacity = 0.5}>
+                      <Icon name="trash" size={13} />
+                    </button>
+                  )}
+                  <Icon name="arrow" size={13} style={{ color: 'var(--text-faint)', marginTop: 4 }} />
+                </div>
               </div>
             </div>
           )
@@ -433,7 +470,32 @@ export function IdeasPage({ me, showToast }) {
           me={me}
           onClose={() => setOpenIdea(null)}
           onUpdate={handleIdeaUpdate}
+          onDelete={isLead ? () => setConfirmDeleteIdea(openIdea) : null}
         />
+      )}
+
+      {/* Delete confirmation modal */}
+      {confirmDeleteIdea && (
+        <div className="modal-back" onClick={() => setConfirmDeleteIdea(null)}>
+          <div className="modal" style={{ maxWidth: 400 }} onClick={e => e.stopPropagation()}>
+            <div className="modal-head">
+              <h2 style={{ color: '#fb7185' }}>🗑 Delete idea?</h2>
+              <button className="btn ghost" onClick={() => setConfirmDeleteIdea(null)}><Icon name="x" size={13} /></button>
+            </div>
+            <div className="modal-body">
+              <p style={{ fontSize: 13.5, lineHeight: 1.6, margin: 0 }}>
+                Are you sure you want to delete <strong>"{confirmDeleteIdea.title}"</strong>? This will also remove all comments in the thread. This cannot be undone.
+              </p>
+            </div>
+            <div className="modal-foot">
+              <button className="btn ghost" onClick={() => setConfirmDeleteIdea(null)}>Cancel</button>
+              <button onClick={handleDelete}
+                      style={{ background: '#fb7185', color: '#fff', border: 'none', borderRadius: 6, padding: '0 16px', height: 32, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
