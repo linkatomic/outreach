@@ -10,6 +10,7 @@ import { AnalyticsPage, TeamPage, LeaderboardPage, ReviewPage, MemberDetailPanel
 import { BriefPage } from './pages/Brief.jsx'
 import { LoginPage } from './pages/Login.jsx'
 import { IdeasPage } from './pages/Ideas.jsx'
+import { TasksPage } from './pages/Tasks.jsx'
 
 const TWEAK_DEFAULTS = { dark: true };
 
@@ -162,7 +163,7 @@ export default function App() {
       if (e.key === '?') { e.preventDefault(); setRoute('shortcuts'); return; }
       if (e.key === '/') { e.preventDefault(); setCmdOpen(true); return; }
       if (gPressed) {
-        const map = { h: 'home', r: 'report', e: 'emails', a: 'analytics', t: 'team', i: 'ideas' };
+        const map = { h: 'home', r: 'report', e: 'emails', a: 'analytics', t: 'team', i: 'ideas', k: 'tasks' };
         const dest = map[e.key.toLowerCase()];
         if (dest) { e.preventDefault(); setRoute(dest); }
         gPressed = false; clearTimeout(gTimer); return;
@@ -198,6 +199,7 @@ export default function App() {
       case 'shortcuts':  return <ShortcutsPage />;
       case 'brief':      return ['lead','super'].includes(me?.role) ? <BriefPage /> : <MemberHome me={m} setRoute={setRoute} />;
       case 'ideas':      return <IdeasPage me={m} showToast={showToast} />;
+      case 'tasks':      return <TasksPage me={m} showToast={showToast} />;
       default:           return <MemberHome me={m} setRoute={setRoute} />;
     }
   }

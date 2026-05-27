@@ -261,6 +261,40 @@ export async function deleteIdea(id) {
   if (error) throw error
 }
 
+// ── Tasks ─────────────────────────────────────────────
+
+export async function loadTasks() {
+  const { data, error } = await supabase
+    .from('tasks')
+    .select('*')
+    .order('created_at', { ascending: false })
+  if (error) throw error
+  return data || []
+}
+
+export async function createTask({ title, description, assignee_id, created_by, status = 'todo', priority = 'medium', due_date }) {
+  const { data, error } = await supabase
+    .from('tasks')
+    .insert({ title, description: description || null, assignee_id, created_by, status, priority, due_date: due_date || null })
+    .select()
+    .single()
+  if (error) throw error
+  return data
+}
+
+export async function updateTask(id, updates) {
+  const { error } = await supabase
+    .from('tasks')
+    .update(updates)
+    .eq('id', id)
+  if (error) throw error
+}
+
+export async function deleteTask(id) {
+  const { error } = await supabase.from('tasks').delete().eq('id', id)
+  if (error) throw error
+}
+
 export async function loadAllReportsForDate(date) {
   const { data, error } = await supabase
     .from('daily_reports')
