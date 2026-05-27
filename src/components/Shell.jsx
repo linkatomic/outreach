@@ -103,7 +103,9 @@ export function Topbar({ route, role, theme, toggleTheme, openCmdK, notifOpen, s
           </span>
         ))}
       </div>
-      <span className="faint" style={{ fontSize: 11, marginLeft: 8 }}>· Tuesday, May 26</span>
+      <span className="faint" style={{ fontSize: 11, marginLeft: 8 }}>
+        · {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+      </span>
 
       <div className="spacer"></div>
 

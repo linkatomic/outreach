@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { METRICS, METRIC_GROUPS, TEAM, Icon, todayISO, fmtFull, fmtDateShort } from '../data.jsx'
-import { saveReport, loadReport } from '../lib/supabase.js'
+import { saveReport, loadReport, loadMostRecentReport } from '../lib/supabase.js'
 
 function ReadOnlyView({ record, date, memberName }) {
   if (!record) {
@@ -72,6 +72,8 @@ export function DailyReportPage({ me, setRoute, showToast }) {
   const [mode, setMode] = useState('numpad');
   const [done, setDone] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [copyingLast, setCopyingLast] = useState(false);
+  const [alreadySaved, setAlreadySaved] = useState(false);
   const [loadingToday, setLoadingToday] = useState(true);
   const [selectedDate, setSelectedDate] = useState(todayISO());
   const [selectedRecord, setSelectedRecord] = useState(null);
@@ -95,11 +97,31 @@ export function DailyReportPage({ me, setRoute, showToast }) {
   useEffect(() => {
     loadReport(me.id, todayISO())
       .then(existing => {
-        if (existing) { setValues(existing.metrics || {}); setNote(existing.note || ''); }
+        if (existing) {
+          setValues(existing.metrics || {});
+          setNote(existing.note || '');
+          setAlreadySaved(true);
+        }
       })
       .catch(() => {})
       .finally(() => setLoadingToday(false));
   }, [me.id]);
+
+  async function copyLast() {
+    setCopyingLast(true);
+    try {
+      const report = await loadMostRecentReport(me.id);
+      if (!report) { showToast('No previous report found'); return; }
+      setValues(report.metrics || {});
+      setNote(report.note || '');
+      setStepIdx(0);
+      showToast(`Copied from ${fmtDateShort(report.date)} — adjust values then submit`);
+    } catch {
+      showToast('Could not load previous report');
+    } finally {
+      setCopyingLast(false);
+    }
+  }
 
   // Load record when a past date is selected (member view)
   useEffect(() => {
@@ -181,17 +203,24 @@ export function DailyReportPage({ me, setRoute, showToast }) {
     setSelectedDate(val);
   }
 
+  // Timezone-safe date shift: parse YYYY-MM-DD as local, add n days
+  function shiftDate(iso, n) {
+    const [y, m, d] = iso.split('-').map(Number);
+    const date = new Date(y, m - 1, d + n);
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  }
+
   // Shared date picker controls
   const datePicker = (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
       <button className="btn ghost" style={{ width: 28, height: 28, padding: 0 }}
-              onClick={() => { const d = new Date(selectedDate); d.setDate(d.getDate() - 1); setSelectedDate(d.toISOString().slice(0, 10)); }}
+              onClick={() => setSelectedDate(shiftDate(selectedDate, -1))}
               title="Previous day">‹</button>
       <input type="date" className="input" value={selectedDate} max={todayISO()} onChange={handleDateChange}
              style={{ fontFamily: 'var(--font-mono)', fontSize: 13, width: 148, cursor: 'pointer' }} />
       <button className="btn ghost" style={{ width: 28, height: 28, padding: 0 }}
               disabled={isToday}
-              onClick={() => { const d = new Date(selectedDate); d.setDate(d.getDate() + 1); const next = d.toISOString().slice(0, 10); if (next <= todayISO()) setSelectedDate(next); }}
+              onClick={() => { const next = shiftDate(selectedDate, 1); if (next <= todayISO()) setSelectedDate(next); }}
               title="Next day">›</button>
       {!isToday && <button className="btn" onClick={() => setSelectedDate(todayISO())}>Today</button>}
     </div>
@@ -281,6 +310,9 @@ export function DailyReportPage({ me, setRoute, showToast }) {
               <span className="seg">
                 <button className={mode === 'numpad' ? 'on' : ''} onClick={() => setMode('numpad')}>Numpad</button>
                 <button className={mode === 'grid' ? 'on' : ''} onClick={() => setMode('grid')}>Grid</button>
+                <button onClick={copyLast} disabled={copyingLast}>
+                  {copyingLast ? 'Copying…' : 'Copy last'}
+                </button>
               </span>
               <button className="btn ghost" onClick={() => setRoute('home')}><Icon name="x" size={12} />Discard</button>
             </>
@@ -300,6 +332,12 @@ export function DailyReportPage({ me, setRoute, showToast }) {
         loadingToday
           ? <div className="card" style={{ padding: 48, textAlign: 'center' }}><span className="muted">Loading today's report…</span></div>
           : <>
+              {alreadySaved && (
+                <div style={{ marginBottom: 12, padding: '8px 14px', background: 'rgba(210,254,92,0.08)', border: '1px solid rgba(210,254,92,0.2)', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+                  <Icon name="check" size={13} />
+                  <span>You already submitted today's report — values are pre-filled. Edit and resubmit to update.</span>
+                </div>
+              )}
               <div className="card" style={{ marginBottom: 16, padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 14 }}>
                 <span className="faint" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Progress</span>
                 <div className="bar" style={{ flex: 1 }}>

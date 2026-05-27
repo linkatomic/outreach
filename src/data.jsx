@@ -53,10 +53,13 @@ export function rnd(seed) {
 export function rndInt(seed, min, max) { return Math.floor(rnd(seed) * (max - min + 1)) + min; }
 
 // ─────────── Date helpers ───────────
-export function todayISO() { return new Date('2026-05-26').toISOString().slice(0, 10); }
+function localISODate(d = new Date()) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+export function todayISO() { return localISODate(); }
 export function isoNDaysAgo(n) {
-  const d = new Date('2026-05-26'); d.setDate(d.getDate() - n);
-  return d.toISOString().slice(0, 10);
+  const d = new Date(); d.setDate(d.getDate() - n);
+  return localISODate(d);
 }
 export function fmtDateShort(iso) {
   const d = new Date(iso + 'T00:00:00');

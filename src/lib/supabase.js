@@ -56,6 +56,21 @@ export async function loadReportsHistory(memberId) {
   return data || []
 }
 
+export async function loadMostRecentReport(memberId) {
+  const today = new Date();
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+  const { data, error } = await supabase
+    .from('daily_reports')
+    .select('*')
+    .eq('member_id', memberId)
+    .lt('date', todayStr)
+    .order('date', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  if (error) throw error
+  return data
+}
+
 export async function loadAllReportsForDate(date) {
   const { data, error } = await supabase
     .from('daily_reports')
