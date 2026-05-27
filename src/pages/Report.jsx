@@ -338,22 +338,12 @@ export function DailyReportPage({ me, setRoute, showToast }) {
                   <span>You already submitted today's report — values are pre-filled. Edit and resubmit to update.</span>
                 </div>
               )}
-              <div className="card" style={{ marginBottom: 16, padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 14 }}>
-                <span className="faint" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Progress</span>
-                <div className="bar" style={{ flex: 1 }}>
-                  <div className="bar-fill" style={{ width: ((stepIdx) / queue.length) * 100 + '%' }}></div>
-                </div>
-                <span className="mono" style={{ fontSize: 12 }}>{stepIdx} / {queue.length}</span>
-                <span className="faint">·</span>
-                <span className="mono" style={{ fontSize: 12, color: 'var(--accent)' }}>{completed} logged</span>
-                <span className="faint" style={{ fontSize: 12 }}>{skipped} skipped</span>
-              </div>
 
               {mode === 'numpad' ? (
                 <div className="numpad">
                   <div className="numpad-stage" onClick={() => inputRef.current && inputRef.current.focus()}>
                     <input ref={inputRef} style={{ position: 'absolute', opacity: 0, pointerEvents: 'none' }} autoFocus />
-                    <div className="numpad-step">Step {stepIdx + 1} of {queue.length} · <span style={{ color: 'var(--text-dim)' }}>{METRIC_GROUPS.find(g => g.id === current.group)?.label}</span></div>
+                    <div className="numpad-step"><span style={{ color: 'var(--text-dim)' }}>{METRIC_GROUPS.find(g => g.id === current.group)?.label}</span></div>
                     <div className="numpad-prompt">How many today?</div>
                     <div className="numpad-metric">
                       <Icon name={current.icon} size={20} />
@@ -392,8 +382,8 @@ export function DailyReportPage({ me, setRoute, showToast }) {
 
                   <div className="numpad-queue">
                     <div className="numpad-queue-head">
-                      <span>Today's queue</span>
-                      <span className="mono faint" style={{ fontSize: 11 }}>{completed + skipped}/{queue.length}</span>
+                      <span>Today's metrics</span>
+                      <span className="mono faint" style={{ fontSize: 11 }}>{completed} logged</span>
                     </div>
                     <div className="numpad-queue-list">
                       {queue.map((m, i) => {
