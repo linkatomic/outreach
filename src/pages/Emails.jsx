@@ -38,6 +38,7 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
   const [myTodayCount, setMyTodayCount]     = useState(0)
   const [teamTodayCount, setTeamTodayCount] = useState(0)
   const [bulkOpen, setBulkOpen]       = useState(false)
+  const [selectedRows, setSelectedRows] = useState(new Set()) // IDs of selected rows
 
   // Fixed-position label menu portal: { row, x, y } or null
   const [labelMenu, setLabelMenu]     = useState(null)
@@ -81,6 +82,7 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
   // ── Data fetching ────────────────────────────────────
   const fetchRows = useCallback(async () => {
     setLoading(true)
+    setSelectedRows(new Set()) // clear selection on data reload
     try {
       const memberId = filterMember === 'all' ? null : filterMember
       const data = await loadEmailLogs({ filter, memberId, search, label: filterLabel })
@@ -243,9 +245,37 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
     try {
       await deleteEmail(id)
       setRows(prev => prev.filter(r => r.id !== id))
+      setSelectedRows(prev => { const s = new Set(prev); s.delete(id); return s })
       showToast('Deleted')
       fetchKpis()
     } catch (err) { showToast('Delete failed: ' + err.message) }
+  }
+
+  async function deleteSelected() {
+    const ids = [...selectedRows]
+    try {
+      await Promise.all(ids.map(id => deleteEmail(id)))
+      setRows(prev => prev.filter(r => !selectedRows.has(r.id)))
+      setSelectedRows(new Set())
+      showToast(`Deleted ${ids.length} entr${ids.length === 1 ? 'y' : 'ies'}`)
+      fetchKpis()
+    } catch (err) { showToast('Bulk delete failed: ' + err.message) }
+  }
+
+  function toggleRow(id) {
+    setSelectedRows(prev => {
+      const s = new Set(prev)
+      s.has(id) ? s.delete(id) : s.add(id)
+      return s
+    })
+  }
+
+  function toggleAll(editableIds) {
+    if (editableIds.every(id => selectedRows.has(id))) {
+      setSelectedRows(new Set()) // all already selected → deselect all
+    } else {
+      setSelectedRows(new Set(editableIds)) // select all editable
+    }
   }
 
   const myTarget = 40
@@ -254,8 +284,8 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
   // Time column only visible to lead/HR/super
   const showTime = ['lead', 'hr', 'super'].includes(me.role)
   const colTemplate = showTime
-    ? '40px 80px 54px 0.85fr 1fr 100px 44px 96px 78px 28px'
-    : '40px 80px 0.85fr 1fr 100px 44px 96px 78px 28px'
+    ? '28px 40px 80px 54px 0.85fr 1fr 100px 44px 96px 78px 28px'
+    : '28px 40px 80px 0.85fr 1fr 100px 44px 96px 78px 28px'
 
   const linkHint = linkStatus === 'thread'
     ? `↩ Known thread · "${linkThread?.vendor}" · Log Entry will add a reply (vendor optional)`
@@ -394,23 +424,63 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
         </div>
       </div>
 
+      {/* ── Selection action bar ── */}
+      {selectedRows.size > 0 && (
+        <div style={{
+          marginBottom: 8, padding: '9px 14px',
+          background: 'var(--accent)', color: 'var(--accent-ink)',
+          borderRadius: 8, display: 'flex', alignItems: 'center', gap: 10,
+          fontSize: 13, fontWeight: 500,
+        }}>
+          <span>{selectedRows.size} row{selectedRows.size !== 1 ? 's' : ''} selected</span>
+          <div style={{ flex: 1 }} />
+          <button onClick={() => setSelectedRows(new Set())}
+                  style={{ background: 'rgba(0,0,0,0.15)', border: 'none', borderRadius: 5, padding: '3px 10px', fontSize: 12, cursor: 'pointer', color: 'inherit' }}>
+            Deselect all
+          </button>
+          <button onClick={deleteSelected}
+                  style={{ background: 'rgba(0,0,0,0.25)', border: 'none', borderRadius: 5, padding: '4px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer', color: 'inherit' }}>
+            🗑 Delete {selectedRows.size}
+          </button>
+        </div>
+      )}
+
       {/* ── Email grid ── */}
       <div className="email-grid" style={{'--eg-cols': colTemplate}}>
-        <div className="eg-head">
-          <div>#</div>
-          <div>Date</div>
-          {showTime && <div>Time</div>}
-          <div>Vendor</div>
-          <div>Link</div>
-          <div>Label</div>
-          <div style={{ textAlign: 'center' }}>Bulk?</div>
-          <div>Replies</div>
-          <div>By</div>
-          <div></div>
-        </div>
+        {(() => {
+          const editableIds = rows
+            .filter(r => r.member_id === me.id || ['lead','hr','super'].includes(me.role))
+            .map(r => r.id)
+          const allSelected = editableIds.length > 0 && editableIds.every(id => selectedRows.has(id))
+          const someSelected = editableIds.some(id => selectedRows.has(id))
+          return (
+            <div className="eg-head">
+              <div style={{ textAlign: 'center', padding: '8px 6px' }}>
+                {editableIds.length > 0 && (
+                  <input type="checkbox"
+                         checked={allSelected}
+                         ref={el => { if (el) el.indeterminate = someSelected && !allSelected }}
+                         onChange={() => toggleAll(editableIds)}
+                         style={{ accentColor: 'var(--accent)', width: 13, height: 13, cursor: 'pointer' }} />
+                )}
+              </div>
+              <div>#</div>
+              <div>Date</div>
+              {showTime && <div>Time</div>}
+              <div>Vendor</div>
+              <div>Link</div>
+              <div>Label</div>
+              <div style={{ textAlign: 'center' }}>Bulk?</div>
+              <div>Replies</div>
+              <div>By</div>
+              <div></div>
+            </div>
+          )
+        })()}
 
         {mode === 'grid' && (
           <div className="eg-row add">
+            <div></div>
             <div className="num">+</div>
             <div className="muted mono">{fmtDateShort(todayISO())}</div>
             {showTime && <div className="mono muted">now</div>}
@@ -430,8 +500,16 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
           const member  = TEAM.find(m => m.id === r.member_id)
           const canEdit = r.member_id === me.id || ['lead','hr','super'].includes(me.role)
           const href    = r.link.startsWith('http') ? r.link : `https://${r.link}`
+          const isSelected = selectedRows.has(r.id)
           return (
-            <div key={r.id} className="eg-row">
+            <div key={r.id} className="eg-row" style={isSelected ? { background: 'rgba(210,254,92,0.06)' } : {}}>
+              <div style={{ textAlign: 'center', padding: '8px 6px' }}>
+                {canEdit && (
+                  <input type="checkbox" checked={isSelected} onChange={() => toggleRow(r.id)}
+                         onClick={e => e.stopPropagation()}
+                         style={{ accentColor: 'var(--accent)', width: 13, height: 13, cursor: 'pointer' }} />
+                )}
+              </div>
               <div className="num" style={{ color: 'var(--text-faint)', fontSize: 11 }}>{idx + 1}</div>
               <div className="muted mono">{fmtDateShort(r.date)}</div>
               {showTime && <div className="mono muted">{r.time}</div>}
