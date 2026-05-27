@@ -135,6 +135,15 @@ export async function incrementEmailReplies(id, currentReplies) {
   if (error) throw error;
 }
 
+export async function decrementEmailReplies(id, currentReplies) {
+  if (currentReplies <= 0) return;
+  const { error } = await supabase
+    .from('email_logs')
+    .update({ replies: currentReplies - 1 })
+    .eq('id', id);
+  if (error) throw error;
+}
+
 export async function updateEmailLabel(id, label) {
   const { error } = await supabase
     .from('email_logs')

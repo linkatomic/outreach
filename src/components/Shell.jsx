@@ -13,6 +13,7 @@ export function Sidebar({ route, setRoute, role, me, openCmdK, todayDone, onLogo
   const leadItems = [
     { id: 'review',      label: 'Review Queue', icon: 'eye',    badge: 3 },
     { id: 'leaderboard', label: 'Leaderboard',  icon: 'trophy' },
+    { id: 'brief',       label: 'Design Brief', icon: 'layers' },
   ];
   return (
     <aside className="sidebar">
@@ -64,9 +65,6 @@ export function Sidebar({ route, setRoute, role, me, openCmdK, todayDone, onLogo
         <div className="nav-section-title">More</div>
         <div className={`nav-item ${route === 'shortcuts' ? 'active' : ''}`} onClick={() => setRoute('shortcuts')}>
           <Icon name="keyboard" size={15} /><span>Shortcuts</span><span className="kbd" style={{ marginLeft: 'auto' }}>?</span>
-        </div>
-        <div className={`nav-item ${route === 'brief' ? 'active' : ''}`} onClick={() => setRoute('brief')}>
-          <Icon name="layers" size={15} /><span>Design Brief</span>
         </div>
         <div className={`nav-item ${route === 'settings' ? 'active' : ''}`} onClick={() => setRoute('settings')}>
           <Icon name="settings" size={15} /><span>Settings</span>

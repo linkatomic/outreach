@@ -1,6 +1,7 @@
 import { useState } from 'react'
-import { TEAM, METRICS, REPORTS, Icon, rnd, todayISO, isoNDaysAgo, fmtDateShort, fmtFull, fmtRel,
+import { TEAM, METRICS, REPORTS, ACCENT_PRESETS, Icon, rnd, todayISO, isoNDaysAgo, fmtDateShort, fmtFull, fmtRel,
          emailsToday, emailsCountByDay, teamEmailsCountByDay, reportsForMember, reportToday, pct } from '../data.jsx'
+import { supabase } from '../lib/supabase.js'
 import { Sparkline, LineChart } from './Home.jsx'
 
 // ──────────────── ANALYTICS ────────────────
@@ -438,25 +439,125 @@ export function MemberDetailPanel({ memberId, onClose, setRoute }) {
 }
 
 // ──────────────── SETTINGS ────────────────
-export function SettingsPage({ theme, toggleTheme, role }) {
+export function SettingsPage({ theme, toggleTheme, role, accent, setAccent }) {
+  const [newPwd, setNewPwd]       = useState('')
+  const [confirmPwd, setConfirmPwd] = useState('')
+  const [pwdMsg, setPwdMsg]       = useState(null) // { type: 'ok'|'err', text }
+  const [pwdSaving, setPwdSaving] = useState(false)
+
+  async function handlePasswordReset(e) {
+    e.preventDefault()
+    setPwdMsg(null)
+    if (newPwd.length < 8)         { setPwdMsg({ type: 'err', text: 'Password must be at least 8 characters' }); return }
+    if (newPwd !== confirmPwd)     { setPwdMsg({ type: 'err', text: "Passwords don't match" }); return }
+    setPwdSaving(true)
+    try {
+      const { error } = await supabase.auth.updateUser({ password: newPwd })
+      if (error) throw error
+      setNewPwd(''); setConfirmPwd('')
+      setPwdMsg({ type: 'ok', text: 'Password updated successfully' })
+    } catch (err) {
+      setPwdMsg({ type: 'err', text: err.message })
+    } finally {
+      setPwdSaving(false)
+    }
+  }
+
   return (
     <div className="page" style={{ maxWidth: 800 }}>
       <div className="page-head"><div><h1>Settings</h1><div className="sub">Workspace preferences for {role === 'lead' ? 'team leads' : 'members'}.</div></div></div>
+
+      {/* Appearance */}
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="card-head"><h3>Appearance</h3></div>
         <div className="card-pad">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14, paddingBottom: 16, borderBottom: '1px solid var(--border)' }}>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 13, fontWeight: 500 }}>Theme</div>
-              <div className="faint" style={{ fontSize: 11 }}>Tweak it from the Tweaks panel too · ⌘ ⇧ L</div>
+              <div className="faint" style={{ fontSize: 11 }}>⌘ ⇧ L to toggle anywhere</div>
             </div>
             <span className="seg">
               <button className={theme === 'light' ? 'on' : ''} onClick={() => theme === 'dark' && toggleTheme()}>Light</button>
               <button className={theme === 'dark' ? 'on' : ''} onClick={() => theme === 'light' && toggleTheme()}>Dark</button>
             </span>
           </div>
+
+          <div style={{ paddingTop: 16 }}>
+            <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 4 }}>Accent colour</div>
+            <div style={{ fontSize: 11, color: 'var(--text-faint)', marginBottom: 14 }}>Changes buttons, highlights, graphs, and progress bars</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+              {ACCENT_PRESETS.map(p => (
+                <button
+                  key={p.id}
+                  onClick={() => setAccent(p.id)}
+                  title={p.name}
+                  style={{
+                    width: 36, height: 36,
+                    borderRadius: '50%',
+                    background: p.hex,
+                    border: accent === p.id ? `3px solid var(--text)` : '3px solid transparent',
+                    outline: accent === p.id ? `2px solid ${p.hex}` : 'none',
+                    outlineOffset: 2,
+                    cursor: 'pointer',
+                    transition: 'all .15s',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    flexShrink: 0,
+                  }}
+                >
+                  {accent === p.id && (
+                    <span style={{ color: p.ink, fontSize: 16, lineHeight: 1 }}>✓</span>
+                  )}
+                </button>
+              ))}
+            </div>
+            <div style={{ marginTop: 10, fontSize: 11, color: 'var(--text-faint)' }}>
+              Selected: <span style={{ color: 'var(--accent)', fontWeight: 500 }}>{ACCENT_PRESETS.find(p => p.id === accent)?.name || 'Lime'}</span>
+            </div>
+          </div>
         </div>
       </div>
+
+      {/* Security */}
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card-head"><h3>Security</h3></div>
+        <div className="card-pad">
+          <form onSubmit={handlePasswordReset}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--text-faint)', marginBottom: 6 }}>New password</div>
+                <input
+                  className="input" type="password" placeholder="Min. 8 characters"
+                  value={newPwd} onChange={e => { setNewPwd(e.target.value); setPwdMsg(null) }}
+                  style={{ width: '100%' }}
+                />
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--text-faint)', marginBottom: 6 }}>Confirm password</div>
+                <input
+                  className="input" type="password" placeholder="Repeat password"
+                  value={confirmPwd} onChange={e => { setConfirmPwd(e.target.value); setPwdMsg(null) }}
+                  style={{ width: '100%' }}
+                />
+              </div>
+            </div>
+            {pwdMsg && (
+              <div style={{
+                marginBottom: 12, padding: '8px 12px', borderRadius: 6, fontSize: 12,
+                background: pwdMsg.type === 'ok' ? 'rgba(74,222,128,.12)' : 'rgba(248,113,113,.12)',
+                color: pwdMsg.type === 'ok' ? '#4ade80' : '#f87171',
+                border: `1px solid ${pwdMsg.type === 'ok' ? 'rgba(74,222,128,.25)' : 'rgba(248,113,113,.25)'}`,
+              }}>
+                {pwdMsg.type === 'ok' ? '✓ ' : '✕ '}{pwdMsg.text}
+              </div>
+            )}
+            <button type="submit" className="btn primary" disabled={pwdSaving || !newPwd || !confirmPwd}>
+              {pwdSaving ? 'Updating…' : 'Update password'}
+            </button>
+          </form>
+        </div>
+      </div>
+
+      {/* Daily targets */}
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="card-head"><h3>Daily targets · soft</h3></div>
         <div className="card-pad">
@@ -472,6 +573,8 @@ export function SettingsPage({ theme, toggleTheme, role }) {
           </div>
         </div>
       </div>
+
+      {/* Reminders */}
       <div className="card">
         <div className="card-head"><h3>Reminders</h3></div>
         <div className="card-pad">

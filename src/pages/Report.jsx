@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { METRICS, METRIC_GROUPS, TEAM, Icon, todayISO, fmtFull, fmtDateShort } from '../data.jsx'
-import { saveReport, loadReport, loadMostRecentReport } from '../lib/supabase.js'
+import { saveReport, loadReport, loadMostRecentReport, getEmailCountToday } from '../lib/supabase.js'
 
 function ReadOnlyView({ record, date, memberName }) {
   if (!record) {
@@ -79,6 +79,7 @@ export function DailyReportPage({ me, setRoute, showToast }) {
   const [selectedDate, setSelectedDate] = useState(todayISO());
   const [selectedRecord, setSelectedRecord] = useState(null);
   const [loadingRecord, setLoadingRecord] = useState(false);
+  const [liveEmailCount, setLiveEmailCount] = useState(null);
   const inputRef = useRef(null);
 
   const isLead = me.role === 'lead';
@@ -94,19 +95,40 @@ export function DailyReportPage({ me, setRoute, showToast }) {
   const total = Object.values(values).filter(v => typeof v === 'number').reduce((s, v) => s + v, 0);
   const isToday = selectedDate === todayISO();
 
-  // Pre-fill today's form if already submitted
+  // Pre-fill today's form (and auto-populate email_response from live email log)
   useEffect(() => {
     loadReport(me.id, todayISO())
-      .then(existing => {
+      .then(async (existing) => {
         if (existing) {
           setValues(existing.metrics || {});
           setNote(existing.note || '');
           setAlreadySaved(true);
         }
+        // Always fetch live email count
+        try {
+          const count = await getEmailCountToday(me.id);
+          setLiveEmailCount(count);
+          if (!existing && count > 0) {
+            // No report yet: pre-fill email_response with live count
+            setValues(prev => ({ ...prev, email_response: count }));
+          }
+        } catch { /* silent */ }
       })
       .catch(() => {})
       .finally(() => setLoadingToday(false));
   }, [me.id]);
+
+  // Refresh live email count every 30s while on today's view
+  useEffect(() => {
+    if (isLead) return;
+    const interval = setInterval(async () => {
+      try {
+        const count = await getEmailCountToday(me.id);
+        setLiveEmailCount(count);
+      } catch { /* silent */ }
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [me.id, isLead]);
 
   async function copyLast() {
     setCopyingLast(true);
@@ -358,6 +380,13 @@ export function DailyReportPage({ me, setRoute, showToast }) {
                       <Icon name={current.icon} size={20} />
                       <span style={{ marginLeft: 8 }}>{current.label}</span>
                     </div>
+                    {/* Live email count hint for email_response metric */}
+                    {current.key === 'email_response' && liveEmailCount != null && (
+                      <div className="hint-line" style={{ marginBottom: 10, padding: '6px 10px', background: 'rgba(210,254,92,0.07)', borderRadius: 6, border: '1px solid rgba(210,254,92,0.15)' }}>
+                        <Icon name="mail" size={11} />
+                        <span>Email log today: <b style={{ color: 'var(--accent)', fontFamily: 'var(--font-mono)' }}>{liveEmailCount}</b> (auto-filled · updates live)</span>
+                      </div>
+                    )}
                     {current.type === 'checkbox' ? (
                       <>
                         <div style={{ margin: '20px 0' }}>
@@ -437,7 +466,13 @@ export function DailyReportPage({ me, setRoute, showToast }) {
                               <Icon name={m.icon} size={12} />
                               {m.label}
                             </span>
-                            <span className="val">{isDone ? displayVal : isSkip ? '—' : (isCurrent ? '…' : '·')}</span>
+                            <span className="val">
+                              {isDone ? displayVal
+                               : isSkip ? '—'
+                               : (m.key === 'email_response' && liveEmailCount != null)
+                                 ? <span style={{ color: 'var(--accent)', opacity: 0.7 }}>{liveEmailCount}</span>
+                                 : isCurrent ? '…' : '·'}
+                            </span>
                           </div>
                         );
                       })}

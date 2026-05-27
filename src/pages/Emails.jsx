@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { TEAM, VENDORS, Icon, todayISO, fmtDateShort } from '../data.jsx'
 import {
   loadEmailLogs, addEmail, findEmailByLink,
-  incrementEmailReplies, updateEmailLabel, deleteEmail,
+  incrementEmailReplies, decrementEmailReplies, updateEmailLabel, deleteEmail,
   getEmailCountToday, getTeamEmailCountToday
 } from '../lib/supabase.js'
 
@@ -178,6 +178,16 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
     try {
       await incrementEmailReplies(row.id, row.replies)
       setRows(prev => prev.map(r => r.id === row.id ? { ...r, replies: r.replies + 1 } : r))
+      fetchKpis()
+    } catch (err) { showToast('Error: ' + err.message) }
+  }
+
+  async function handleRemoveReply(row, e) {
+    e.stopPropagation()
+    if (row.replies <= 0) return
+    try {
+      await decrementEmailReplies(row.id, row.replies)
+      setRows(prev => prev.map(r => r.id === row.id ? { ...r, replies: r.replies - 1 } : r))
       fetchKpis()
     } catch (err) { showToast('Error: ' + err.message) }
   }
@@ -401,6 +411,9 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
 
               {/* Replies cell */}
               <div className="replies-cell">
+                {canEdit && r.replies > 0 && (
+                  <button className="reply-add-btn" onClick={e => handleRemoveReply(r, e)} title="Remove reply" style={{ color: 'var(--text-faint)' }}>−</button>
+                )}
                 {r.replies > 0 && <span className="reply-count">↩ {r.replies}</span>}
                 {canEdit && (
                   <button className="reply-add-btn" onClick={e => handleAddReply(r, e)} title="Add reply">+</button>

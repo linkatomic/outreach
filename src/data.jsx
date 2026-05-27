@@ -41,6 +41,17 @@ export const VENDORS = [
   'Sterling Cooper', 'Dunder Mifflin', 'Pendant Publishing', 'Bluth Co',
 ];
 
+export const ACCENT_PRESETS = [
+  { id: 'lime',    name: 'Lime',     hex: '#d2fe5c', ink: '#0a0a0a' },
+  { id: 'pink',    name: 'Hot Pink', hex: '#f472b6', ink: '#0a0a0a' },
+  { id: 'violet',  name: 'Violet',   hex: '#a78bfa', ink: '#ffffff' },
+  { id: 'blue',    name: 'Blue',     hex: '#60a5fa', ink: '#0a0a0a' },
+  { id: 'orange',  name: 'Orange',   hex: '#fb923c', ink: '#0a0a0a' },
+  { id: 'cyan',    name: 'Cyan',     hex: '#22d3ee', ink: '#0a0a0a' },
+  { id: 'emerald', name: 'Emerald',  hex: '#34d399', ink: '#0a0a0a' },
+  { id: 'rose',    name: 'Rose',     hex: '#fb7185', ink: '#0a0a0a' },
+]
+
 export function hash(str) {
   let h = 2166136261;
   for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = (h * 16777619) >>> 0; }

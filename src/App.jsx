@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { TEAM, reportToday } from './data.jsx'
+import { TEAM, ACCENT_PRESETS, reportToday } from './data.jsx'
 import { supabase, getProfile } from './lib/supabase.js'
 import { useTweaks, TweaksPanel, TweakSection, TweakToggle } from './components/TweaksPanel.jsx'
 import { Sidebar, Topbar, CommandPalette, Toast, ShortcutsPage } from './components/Shell.jsx'
@@ -15,6 +15,17 @@ const TWEAK_DEFAULTS = { dark: true };
 export default function App() {
   const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
   const theme = t.dark ? 'dark' : 'light';
+
+  // Accent color
+  const [accent, setAccentRaw] = useState(() => localStorage.getItem('relay-accent') || 'lime');
+  function setAccent(id) {
+    setAccentRaw(id);
+    const preset = ACCENT_PRESETS.find(p => p.id === id) || ACCENT_PRESETS[0];
+    document.documentElement.style.setProperty('--accent', preset.hex);
+    document.documentElement.style.setProperty('--accent-ink', preset.ink);
+    localStorage.setItem('relay-accent', id);
+  }
+  useEffect(() => { setAccent(accent); }, []); // apply on mount
 
   // Auth state
   const [authLoading, setAuthLoading] = useState(true);
@@ -116,9 +127,9 @@ export default function App() {
       case 'team': return <TeamPage role={role} me={me} setRoute={setRoute} openDetailFor={setDetail} />;
       case 'leaderboard': return <LeaderboardPage setRoute={setRoute} openDetailFor={setDetail} />;
       case 'review': return <ReviewPage setRoute={setRoute} showToast={showToast} />;
-      case 'settings': return <SettingsPage theme={theme} toggleTheme={() => setTweak('dark', !t.dark)} role={role} />;
+      case 'settings': return <SettingsPage theme={theme} toggleTheme={() => setTweak('dark', !t.dark)} role={role} accent={accent} setAccent={setAccent} />;
       case 'shortcuts': return <ShortcutsPage />;
-      case 'brief': return <BriefPage />;
+      case 'brief': return role === 'lead' ? <BriefPage /> : <MemberHome me={me} setRoute={setRoute} />;
       default: return <MemberHome me={me} setRoute={setRoute} />;
     }
   }
