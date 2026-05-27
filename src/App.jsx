@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { TEAM, ACCENT_PRESETS, reportToday } from './data.jsx'
-import { supabase, getProfile, saveUserAccent } from './lib/supabase.js'
+import { supabase, getProfile, getProfileByMemberId, saveUserAccent } from './lib/supabase.js'
 import { useTweaks, TweaksPanel, TweakSection, TweakToggle } from './components/TweaksPanel.jsx'
 import { Sidebar, Topbar, CommandPalette, Toast, ShortcutsPage } from './components/Shell.jsx'
 import { MemberHome, LeadHome } from './pages/Home.jsx'
@@ -30,6 +30,7 @@ export default function App() {
 
   // Super-user impersonation
   const [impersonatedId, setImpersonatedId] = useState(null);
+  const superAccentRef = useRef('lime'); // remembers super's own accent for restoration
 
   // App state
   const [route, setRoute]           = useState('home');
@@ -54,8 +55,28 @@ export default function App() {
   function setAccent(id) {
     setAccentRaw(id);
     applyAccentCssVars(id);
+    if (!impersonatedId) superAccentRef.current = id; // don't overwrite when impersonating
     if (userIdRef.current) saveUserAccent(userIdRef.current, id).catch(() => {});
   }
+
+  // When impersonating, load that user's saved accent; restore own on exit
+  useEffect(() => {
+    if (!me || me.role !== 'super') return;
+    if (!impersonatedId) {
+      // Restore super's own accent
+      setAccentRaw(superAccentRef.current);
+      applyAccentCssVars(superAccentRef.current);
+      return;
+    }
+    getProfileByMemberId(impersonatedId).then(profile => {
+      const col = profile?.accent || 'lime';
+      setAccentRaw(col);
+      applyAccentCssVars(col);
+    }).catch(() => {
+      setAccentRaw('lime');
+      applyAccentCssVars('lime');
+    });
+  }, [impersonatedId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Auth ────────────────────────────────────────────
   useEffect(() => {
@@ -65,7 +86,7 @@ export default function App() {
     });
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session) loadProfile(session.user.id);
-      else { setMe(null); setImpersonatedId(null); setAuthLoading(false); }
+      else { setMe(null); setImpersonatedId(null); setAuthLoading(false); setAccentRaw('lime'); applyAccentCssVars('lime'); superAccentRef.current = 'lime'; }
     });
     return () => subscription.unsubscribe();
   }, []);
@@ -93,6 +114,7 @@ export default function App() {
       const savedAccent = profile.accent || 'lime';
       setAccentRaw(savedAccent);
       applyAccentCssVars(savedAccent);
+      superAccentRef.current = savedAccent;
     } catch (err) {
       setMe(null);
       setLoginError(err?.message || 'Failed to load profile. Contact your admin.');

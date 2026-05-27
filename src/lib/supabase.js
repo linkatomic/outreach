@@ -16,6 +16,15 @@ export async function signOut() {
   await supabase.auth.signOut()
 }
 
+export async function getProfileByMemberId(memberId) {
+  const { data } = await supabase
+    .from('user_profiles')
+    .select('accent')
+    .eq('member_id', memberId)
+    .maybeSingle()
+  return data || null
+}
+
 export async function getProfile(userId) {
   const { data, error } = await supabase
     .from('user_profiles')
