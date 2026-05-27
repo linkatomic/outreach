@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { supabase } from '../lib/supabase.js'
 import { Icon } from '../data.jsx'
 
-export function LoginPage() {
+export function LoginPage({ profileError, onClearError }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -14,6 +14,7 @@ export function LoginPage() {
     if (!email || !password) return;
     setLoading(true);
     setError('');
+    if (onClearError) onClearError();
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
       setError('Wrong email or password. Try again.');
@@ -21,6 +22,8 @@ export function LoginPage() {
     setLoading(false);
     // On success, App.jsx auth listener handles the redirect automatically
   }
+
+  const displayError = profileError || error;
 
   return (
     <div style={{
@@ -91,14 +94,14 @@ export function LoginPage() {
               </div>
             </div>
 
-            {error && (
+            {displayError && (
               <div style={{
                 padding: '9px 12px', borderRadius: 6,
                 background: 'rgba(255, 80, 80, 0.1)',
                 border: '1px solid rgba(255, 80, 80, 0.25)',
                 color: '#ff7070', fontSize: 13,
               }}>
-                {error}
+                {displayError}
               </div>
             )}
 

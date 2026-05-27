@@ -35,6 +35,7 @@ export default function App() {
   const [route, setRoute]           = useState('home');
   const [cmdOpen, setCmdOpen]       = useState(false);
   const [toast, setToast]           = useState(null);
+  const [loginError, setLoginError] = useState(null);
   const [notifOpen, setNotifOpen]   = useState(false);
   const [detail, setDetail]         = useState(null);
   const [emailFocus, setEmailFocus] = useState(0);
@@ -92,8 +93,9 @@ export default function App() {
       const savedAccent = profile.accent || 'lime';
       setAccentRaw(savedAccent);
       applyAccentCssVars(savedAccent);
-    } catch {
+    } catch (err) {
       setMe(null);
+      setLoginError(err?.message || 'Failed to load profile. Contact your admin.');
     } finally {
       setAuthLoading(false);
     }
@@ -177,7 +179,7 @@ export default function App() {
   if (!me) {
     return (
       <>
-        <LoginPage />
+        <LoginPage profileError={loginError} onClearError={() => setLoginError(null)} />
         <Toast msg={toast} onDone={() => setToast(null)} />
         <TweaksPanel>
           <TweakSection label="Appearance" />
