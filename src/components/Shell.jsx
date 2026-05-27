@@ -85,7 +85,7 @@ export function Sidebar({ route, setRoute, role, me, openCmdK, todayDone }) {
 }
 
 // ────────────────────── Topbar ──────────────────────
-export function Topbar({ route, role, setRole, theme, toggleTheme, openCmdK, openNotif, notifOpen, setNotifOpen }) {
+export function Topbar({ route, role, theme, toggleTheme, openCmdK, notifOpen, setNotifOpen, onLogout }) {
   const crumbs = {
     home: ['Home'], report: ['Daily Report'], emails: ['Email Log'],
     analytics: ['Analytics'], team: ['Team'], review: ['Manage', 'Review Queue'],
@@ -107,11 +107,6 @@ export function Topbar({ route, role, setRole, theme, toggleTheme, openCmdK, ope
 
       <div className="spacer"></div>
 
-      <button className="role-pill" onClick={() => setRole(role === 'lead' ? 'member' : 'lead')} title="Switch role (demo)">
-        <span className="swap-icon"><Icon name="swap" size={11} /></span>
-        Viewing as {role === 'lead' ? 'Team Lead' : 'Member'}
-      </button>
-
       <button className="search-trigger" onClick={openCmdK}>
         <Icon name="search" size={13} />
         <span>Search anything…</span>
@@ -124,6 +119,9 @@ export function Topbar({ route, role, setRole, theme, toggleTheme, openCmdK, ope
       </button>
       <button className="icon-btn" title={theme === 'dark' ? 'Light mode' : 'Dark mode'} onClick={toggleTheme}>
         <Icon name={theme === 'dark' ? 'sun' : 'moon'} size={15} />
+      </button>
+      <button className="icon-btn" title="Sign out" onClick={onLogout} style={{ color: 'var(--text-faint)' }}>
+        <Icon name="arrow" size={15} style={{ transform: 'rotate(180deg)' }} />
       </button>
 
       {notifOpen && <NotificationsPanel onClose={() => setNotifOpen(false)} />}
