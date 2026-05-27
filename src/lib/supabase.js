@@ -79,18 +79,19 @@ function localDateStr(daysAgo = 0) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
 
-export async function loadEmailLogs({ filter = 'today', memberId = null, search = '' } = {}) {
+export async function loadEmailLogs({ filter = 'today', memberId = null, search = '', label = null } = {}) {
   let query = supabase
     .from('email_logs')
     .select('*')
     .order('date', { ascending: false })
     .order('created_at', { ascending: false })
-    .limit(300);
+    .limit(500);
 
   if (filter === 'today') query = query.eq('date', localDateStr());
   else if (filter === 'week') query = query.gte('date', localDateStr(7));
 
   if (memberId) query = query.eq('member_id', memberId);
+  if (label)    query = query.eq('label', label);
 
   const { data, error } = await query;
   if (error) throw error;
@@ -99,16 +100,16 @@ export async function loadEmailLogs({ filter = 'today', memberId = null, search 
   if (search) {
     const q = search.toLowerCase();
     results = results.filter(e =>
-      e.vendor.toLowerCase().includes(q) || e.link.toLowerCase().includes(q)
+      (e.vendor || '').toLowerCase().includes(q) || e.link.toLowerCase().includes(q)
     );
   }
   return results;
 }
 
-export async function addEmail({ memberId, date, vendor, link, time }) {
+export async function addEmail({ memberId, date, vendor, link, time, label = null }) {
   const { data, error } = await supabase
     .from('email_logs')
-    .insert({ member_id: memberId, date, vendor, link, time, replies: 0 })
+    .insert({ member_id: memberId, date, vendor, link, time, replies: 0, label })
     .select()
     .single();
   if (error) throw error;
@@ -130,6 +131,14 @@ export async function incrementEmailReplies(id, currentReplies) {
   const { error } = await supabase
     .from('email_logs')
     .update({ replies: currentReplies + 1 })
+    .eq('id', id);
+  if (error) throw error;
+}
+
+export async function updateEmailLabel(id, label) {
+  const { error } = await supabase
+    .from('email_logs')
+    .update({ label })
     .eq('id', id);
   if (error) throw error;
 }
