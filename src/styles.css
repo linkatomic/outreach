@@ -813,10 +813,11 @@ hr { border: 0; border-top: 1px solid var(--border); margin: 0; }
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
   overflow: hidden;
+  /* Default col template set by JSX via --eg-cols CSS variable */
 }
 .eg-head, .eg-row {
   display: grid;
-  grid-template-columns: 36px 80px 54px 1.3fr 1.1fr 100px 44px 96px 82px 28px;
+  grid-template-columns: var(--eg-cols, 40px 80px 0.85fr 1fr 100px 44px 96px 78px 28px);
   align-items: center;
   font-size: 12.5px;
 }
@@ -824,10 +825,10 @@ hr { border: 0; border-top: 1px solid var(--border); margin: 0; }
   background: var(--surface-2);
   border-bottom: 1px solid var(--border);
   font-size: 11px;
-  color: var(--text-faint);
+  color: var(--text-dim);
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  font-weight: 500;
+  font-weight: 600;
 }
 .eg-head > div, .eg-row > div {
   padding: 8px 10px;

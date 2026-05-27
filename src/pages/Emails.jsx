@@ -200,15 +200,33 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
     } catch (err) { showToast('Error: ' + err.message) }
   }
 
+  // Parse a single paste line: handles Google Sheets tab-separated and plain Missive links
+  function parseBulkLine(line) {
+    // Google Sheets paste: tab-separated columns
+    if (line.includes('\t')) {
+      const parts = line.split('\t').map(p => p.trim()).filter(Boolean)
+      const linkPart   = parts.find(p => /missive\.app\//i.test(p) || /^https?:\/\//i.test(p))
+      const vendorPart = parts.find(p => p !== linkPart && p.length > 0) || ''
+      if (linkPart) return { link: normalizeLink(linkPart), vendor: vendorPart || 'Untagged' }
+    }
+    // Missive link pattern anywhere in line
+    const m = line.match(/(missive\.app\/[\w\d]+)/i)
+    if (m) {
+      const vendor = line.replace(m[0], '').replace(/[—\-|·,\t]/g, '').trim() || 'Untagged'
+      return { link: m[1], vendor }
+    }
+    // Plain URL
+    return { link: normalizeLink(line), vendor: 'Untagged' }
+  }
+
   async function submitBulk() {
     const lines = bulkText.split('\n').map(l => l.trim()).filter(Boolean)
     const today = todayISO()
     const now = new Date().toTimeString().slice(0, 5)
     let imported = 0
     for (const line of lines) {
-      const m = line.match(/(missive\.app\/\d+)/i)
-      const linkVal    = m ? m[1] : normalizeLink(line)
-      const vendorName = m ? line.replace(m[0], '').replace(/[—\-|·,]/g, '').trim() || 'Untagged' : 'Untagged'
+      const { link: linkVal, vendor: vendorName } = parseBulkLine(line)
+      if (!linkVal) continue
       try {
         const existing = await findEmailByLink(me.id, linkVal, today)
         if (existing) { await incrementEmailReplies(existing.id, existing.replies) }
@@ -231,7 +249,13 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
   }
 
   const myTarget = 40
-  const members  = TEAM.filter(m => m.role === 'member')
+  // Neel is on a separate track — exclude from email log member filter
+  const members  = TEAM.filter(m => m.role === 'member' && !m.neelOnly)
+  // Time column only visible to lead/HR/super
+  const showTime = ['lead', 'hr', 'super'].includes(me.role)
+  const colTemplate = showTime
+    ? '40px 80px 54px 0.85fr 1fr 100px 44px 96px 78px 28px'
+    : '40px 80px 0.85fr 1fr 100px 44px 96px 78px 28px'
 
   const linkHint = linkStatus === 'thread'
     ? `↩ Known thread · "${linkThread?.vendor}" · Log Entry will add a reply (vendor optional)`
@@ -371,13 +395,13 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
       </div>
 
       {/* ── Email grid ── */}
-      <div className="email-grid">
+      <div className="email-grid" style={{'--eg-cols': colTemplate}}>
         <div className="eg-head">
-          <div>SR</div>
+          <div>#</div>
           <div>Date</div>
-          <div>Time</div>
+          {showTime && <div>Time</div>}
           <div>Vendor</div>
-          <div>Missive Link</div>
+          <div>Link</div>
           <div>Label</div>
           <div style={{ textAlign: 'center' }}>Bulk?</div>
           <div>Replies</div>
@@ -389,7 +413,7 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
           <div className="eg-row add">
             <div className="num">+</div>
             <div className="muted mono">{fmtDateShort(todayISO())}</div>
-            <div className="mono muted">now</div>
+            {showTime && <div className="mono muted">now</div>}
             <div><input className="input-bare" placeholder="Vendor…" autoComplete="off" value={vendor} onChange={e => setVendor(e.target.value)} /></div>
             <div><input className="input-bare mono" placeholder="missive.app/…" value={link} onChange={e => setLink(e.target.value)} onKeyDown={e => e.key === 'Enter' && submitQuick()} /></div>
             <div>—</div>
@@ -404,14 +428,21 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
 
         {!loading && rows.map((r, idx) => {
           const member  = TEAM.find(m => m.id === r.member_id)
-          const canEdit = r.member_id === me.id || me.role === 'lead'
+          const canEdit = r.member_id === me.id || ['lead','hr','super'].includes(me.role)
+          const href    = r.link.startsWith('http') ? r.link : `https://${r.link}`
           return (
             <div key={r.id} className="eg-row">
-              <div className="num">{String(idx + 1).padStart(4, '0')}</div>
+              <div className="num" style={{ color: 'var(--text-faint)', fontSize: 11 }}>{idx + 1}</div>
               <div className="muted mono">{fmtDateShort(r.date)}</div>
-              <div className="mono muted">{r.time}</div>
+              {showTime && <div className="mono muted">{r.time}</div>}
               <div className="vendor">{r.vendor || <span className="muted">—</span>}</div>
-              <div className="link"><Icon name="link" size={10} /> {r.link}</div>
+              <div className="link">
+                <a href={href} target="_blank" rel="noreferrer"
+                   onClick={e => e.stopPropagation()}
+                   style={{ color: 'inherit', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <Icon name="link" size={10} />{r.link}
+                </a>
+              </div>
 
               {/* Label cell */}
               <div className="label-cell">
