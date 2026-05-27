@@ -82,7 +82,8 @@ export function DailyReportPage({ me, setRoute, showToast }) {
   const [liveEmailCount, setLiveEmailCount] = useState(null);
   const inputRef = useRef(null);
 
-  const isLead = me.role === 'lead';
+  // lead, HR, and super (when not impersonating) all see the member-picker read-only view
+  const isLead = ['lead', 'hr', 'super'].includes(me.role);
   const members = TEAM.filter(m => m.role === 'member');
   const [selectedMemberId, setSelectedMemberId] = useState(members[0]?.id || '');
   const [leadRecord, setLeadRecord] = useState(null);

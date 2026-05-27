@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { TEAM, ACCENT_PRESETS, reportToday } from './data.jsx'
-import { supabase, getProfile } from './lib/supabase.js'
+import { supabase, getProfile, saveUserAccent } from './lib/supabase.js'
 import { useTweaks, TweaksPanel, TweakSection, TweakToggle } from './components/TweaksPanel.jsx'
 import { Sidebar, Topbar, CommandPalette, Toast, ShortcutsPage } from './components/Shell.jsx'
 import { MemberHome, LeadHome } from './pages/Home.jsx'
@@ -12,57 +12,86 @@ import { LoginPage } from './pages/Login.jsx'
 
 const TWEAK_DEFAULTS = { dark: true };
 
+function applyAccentCssVars(id) {
+  const preset = ACCENT_PRESETS.find(p => p.id === id) || ACCENT_PRESETS[0];
+  document.documentElement.style.setProperty('--accent', preset.hex);
+  document.documentElement.style.setProperty('--accent-ink', preset.ink);
+}
+
 export default function App() {
   const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
   const theme = t.dark ? 'dark' : 'light';
 
-  // Accent color
-  const [accent, setAccentRaw] = useState(() => localStorage.getItem('relay-accent') || 'lime');
-  function setAccent(id) {
-    setAccentRaw(id);
-    const preset = ACCENT_PRESETS.find(p => p.id === id) || ACCENT_PRESETS[0];
-    document.documentElement.style.setProperty('--accent', preset.hex);
-    document.documentElement.style.setProperty('--accent-ink', preset.ink);
-    localStorage.setItem('relay-accent', id);
-  }
-  useEffect(() => { setAccent(accent); }, []); // apply on mount
-
   // Auth state
   const [authLoading, setAuthLoading] = useState(true);
-  const [me, setMe] = useState(null);
+  const [me, setMe]       = useState(null);   // real logged-in user
+  const userIdRef         = useRef(null);      // Supabase auth UUID for DB writes
+  const [accent, setAccentRaw] = useState('lime');
+
+  // Super-user impersonation
+  const [impersonatedId, setImpersonatedId] = useState(null);
 
   // App state
-  const [route, setRoute] = useState('home');
-  const [cmdOpen, setCmdOpen] = useState(false);
-  const [toast, setToast] = useState(null);
-  const [notifOpen, setNotifOpen] = useState(false);
-  const [detail, setDetail] = useState(null);
+  const [route, setRoute]           = useState('home');
+  const [cmdOpen, setCmdOpen]       = useState(false);
+  const [toast, setToast]           = useState(null);
+  const [notifOpen, setNotifOpen]   = useState(false);
+  const [detail, setDetail]         = useState(null);
   const [emailFocus, setEmailFocus] = useState(0);
-  const [bulkPaste, setBulkPaste] = useState(0);
+  const [bulkPaste, setBulkPaste]   = useState(0);
 
-  const role = me?.role || 'member';
-  const todayDone = me ? !!reportToday(me.id) : false;
+  // Effective user: when super is impersonating, pages see the impersonated member
+  const effectiveMe = (me?.role === 'super' && impersonatedId)
+    ? { ...TEAM.find(m => m.id === impersonatedId) }
+    : me;
 
-  // Check session on mount and listen for auth changes
+  // Role used for nav guards (reflects effectiveMe when impersonating)
+  const role = effectiveMe?.role || 'member';
+  const todayDone = effectiveMe ? !!reportToday(effectiveMe.id) : false;
+
+  // ── Accent ─────────────────────────────────────────
+  function setAccent(id) {
+    setAccentRaw(id);
+    applyAccentCssVars(id);
+    if (userIdRef.current) saveUserAccent(userIdRef.current, id).catch(() => {});
+  }
+
+  // ── Auth ────────────────────────────────────────────
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session) loadProfile(session.user.id);
       else setAuthLoading(false);
     });
-
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session) loadProfile(session.user.id);
-      else { setMe(null); setAuthLoading(false); }
+      else { setMe(null); setImpersonatedId(null); setAuthLoading(false); }
     });
-
     return () => subscription.unsubscribe();
   }, []);
 
-  async function loadProfile(userId) {
+  async function loadProfile(uid) {
     try {
-      const profile = await getProfile(userId);
-      const teamMember = TEAM.find(m => m.id === profile.member_id);
-      setMe(teamMember || null);
+      const profile = await getProfile(uid);
+      // Resolve base member info — fall back for HR/super users not in TEAM array
+      let base = TEAM.find(m => m.id === profile.member_id);
+      if (!base) {
+        base = {
+          id: profile.member_id,
+          name: profile.name || 'Unknown',
+          short: profile.short || '??',
+          color: profile.color || 'a',
+          email: '',
+        };
+      }
+      // DB role always wins (overrides TEAM array hardcoded role)
+      const meObj = { ...base, role: profile.role || base.role || 'member' };
+      setMe(meObj);
+      userIdRef.current = uid;
+
+      // Apply per-user accent from DB
+      const savedAccent = profile.accent || 'lime';
+      setAccentRaw(savedAccent);
+      applyAccentCssVars(savedAccent);
     } catch {
       setMe(null);
     } finally {
@@ -70,22 +99,20 @@ export default function App() {
     }
   }
 
-  // Theme
+  // ── Theme ───────────────────────────────────────────
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
     document.body.setAttribute('data-theme', theme);
   }, [theme]);
 
-  // Role class on body
   useEffect(() => {
     document.body.setAttribute('data-role', role);
   }, [role]);
 
-  // Global hotkeys (only when logged in)
+  // ── Global hotkeys ──────────────────────────────────
   useEffect(() => {
     if (!me) return;
-    let gPressed = false;
-    let gTimer = null;
+    let gPressed = false, gTimer = null;
     function onKey(e) {
       const tag = e.target.tagName;
       const inField = tag === 'INPUT' || tag === 'TEXTAREA' || e.target.isContentEditable;
@@ -96,11 +123,9 @@ export default function App() {
       if (e.key === '/') { e.preventDefault(); setCmdOpen(true); return; }
       if (gPressed) {
         const map = { h: 'home', r: 'report', e: 'emails', a: 'analytics', t: 'team' };
-        const m = map[e.key.toLowerCase()];
-        if (m) { e.preventDefault(); setRoute(m); }
-        gPressed = false;
-        clearTimeout(gTimer);
-        return;
+        const dest = map[e.key.toLowerCase()];
+        if (dest) { e.preventDefault(); setRoute(dest); }
+        gPressed = false; clearTimeout(gTimer); return;
       }
       if (e.key.toLowerCase() === 'g') { gPressed = true; gTimer = setTimeout(() => { gPressed = false; }, 800); }
     }
@@ -111,47 +136,44 @@ export default function App() {
   function showToast(msg) { setToast(msg); }
 
   function openModal(action) {
-    if (action.startsWith('toast:')) { showToast(action.slice(6)); }
-    else if (action === 'toggleTheme') { setTweak('dark', !t.dark); }
-    else if (action === 'focusEmail') { setEmailFocus(c => c + 1); }
-    else if (action === 'bulkPaste') { setBulkPaste(c => c + 1); }
-    else if (action.startsWith('focusMember:')) { setDetail(action.slice('focusMember:'.length)); }
+    if (action.startsWith('toast:'))       showToast(action.slice(6));
+    else if (action === 'toggleTheme')     setTweak('dark', !t.dark);
+    else if (action === 'focusEmail')      setEmailFocus(c => c + 1);
+    else if (action === 'bulkPaste')       setBulkPaste(c => c + 1);
+    else if (action.startsWith('focusMember:')) setDetail(action.slice('focusMember:'.length));
   }
 
   function renderPage() {
+    // Pages all receive effectiveMe so impersonation is transparent
+    const m = effectiveMe;
     switch (route) {
-      case 'home': return role === 'lead' ? <LeadHome me={me} setRoute={setRoute} /> : <MemberHome me={me} setRoute={setRoute} />;
-      case 'report': return <DailyReportPage me={me} setRoute={setRoute} showToast={showToast} />;
-      case 'emails': return <EmailLogPage me={me} setRoute={setRoute} showToast={showToast} focusEmailOnMount={emailFocus} bulkPasteOnMount={bulkPaste} />;
-      case 'analytics': return <AnalyticsPage setRoute={setRoute} />;
-      case 'team': return <TeamPage role={role} me={me} setRoute={setRoute} openDetailFor={setDetail} />;
+      case 'home':       return ['lead','super'].includes(m.role) ? <LeadHome me={m} setRoute={setRoute} /> : <MemberHome me={m} setRoute={setRoute} />;
+      case 'report':     return <DailyReportPage me={m} setRoute={setRoute} showToast={showToast} />;
+      case 'emails':     return <EmailLogPage me={m} setRoute={setRoute} showToast={showToast} focusEmailOnMount={emailFocus} bulkPasteOnMount={bulkPaste} />;
+      case 'analytics':  return <AnalyticsPage setRoute={setRoute} />;
+      case 'team':       return <TeamPage role={role} me={m} setRoute={setRoute} openDetailFor={setDetail} />;
       case 'leaderboard': return <LeaderboardPage setRoute={setRoute} openDetailFor={setDetail} />;
-      case 'review': return <ReviewPage setRoute={setRoute} showToast={showToast} />;
-      case 'settings': return <SettingsPage theme={theme} toggleTheme={() => setTweak('dark', !t.dark)} role={role} accent={accent} setAccent={setAccent} />;
-      case 'shortcuts': return <ShortcutsPage />;
-      case 'brief': return role === 'lead' ? <BriefPage /> : <MemberHome me={me} setRoute={setRoute} />;
-      default: return <MemberHome me={me} setRoute={setRoute} />;
+      case 'review':     return <ReviewPage setRoute={setRoute} showToast={showToast} />;
+      case 'settings':   return <SettingsPage theme={theme} toggleTheme={() => setTweak('dark', !t.dark)} role={role} accent={accent} setAccent={setAccent} />;
+      case 'shortcuts':  return <ShortcutsPage />;
+      case 'brief':      return ['lead','super'].includes(me?.role) ? <BriefPage /> : <MemberHome me={m} setRoute={setRoute} />;
+      default:           return <MemberHome me={m} setRoute={setRoute} />;
     }
   }
 
-  // Loading splash while checking session
+  // ── Loading splash ───────────────────────────────────
   if (authLoading) {
     return (
       <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', background: 'var(--bg)' }}>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
-          <div style={{
-            width: 44, height: 44, borderRadius: 10,
-            background: 'var(--accent)', color: 'var(--accent-ink)',
-            display: 'grid', placeItems: 'center',
-            fontSize: 20, fontWeight: 800,
-          }}>R</div>
+          <div style={{ width: 44, height: 44, borderRadius: 10, background: 'var(--accent)', color: 'var(--accent-ink)', display: 'grid', placeItems: 'center', fontSize: 20, fontWeight: 800 }}>R</div>
           <div style={{ color: 'var(--text-faint)', fontSize: 13 }}>Loading…</div>
         </div>
       </div>
     );
   }
 
-  // Not logged in — show login page
+  // ── Login ────────────────────────────────────────────
   if (!me) {
     return (
       <>
@@ -165,18 +187,21 @@ export default function App() {
     );
   }
 
-  // Logged in — full app
+  // ── Full app ─────────────────────────────────────────
   return (
     <div className="app">
       <Sidebar route={route} setRoute={setRoute} role={role} me={me}
+               impersonatedId={impersonatedId}
                openCmdK={() => setCmdOpen(true)} todayDone={todayDone}
-               onLogout={() => supabase.auth.signOut()} />
+               onLogout={() => { setImpersonatedId(null); supabase.auth.signOut(); }} />
       <div className="main">
         <Topbar route={route} role={role}
                 theme={theme} toggleTheme={() => setTweak('dark', !t.dark)}
                 openCmdK={() => setCmdOpen(true)}
                 notifOpen={notifOpen} setNotifOpen={setNotifOpen}
-                onLogout={() => supabase.auth.signOut()} />
+                onLogout={() => { setImpersonatedId(null); supabase.auth.signOut(); }}
+                me={me}
+                impersonatedId={impersonatedId} setImpersonatedId={setImpersonatedId} />
         <div className="canvas" onClick={() => { if (notifOpen) setNotifOpen(false); }}>
           {renderPage()}
         </div>

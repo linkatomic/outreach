@@ -135,6 +135,14 @@ export async function incrementEmailReplies(id, currentReplies) {
   if (error) throw error;
 }
 
+export async function saveUserAccent(userId, accent) {
+  const { error } = await supabase
+    .from('user_profiles')
+    .update({ accent })
+    .eq('id', userId);
+  if (error) throw error;
+}
+
 export async function decrementEmailReplies(id, currentReplies) {
   if (currentReplies <= 0) return;
   const { error } = await supabase

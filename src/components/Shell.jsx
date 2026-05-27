@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { TEAM, Icon, fmtDateShort, fmtRel } from '../data.jsx'
 
 // ────────────────────── Sidebar ──────────────────────
-export function Sidebar({ route, setRoute, role, me, openCmdK, todayDone, onLogout }) {
+export function Sidebar({ route, setRoute, role, me, impersonatedId, openCmdK, todayDone, onLogout }) {
   const navItems = [
     { id: 'home',      label: 'Home',         icon: 'home',   kbd: 'G H' },
     { id: 'report',    label: 'Daily Report', icon: 'report', kbd: 'G R', badge: todayDone ? 'done' : 'todo' },
@@ -15,6 +15,22 @@ export function Sidebar({ route, setRoute, role, me, openCmdK, todayDone, onLogo
     { id: 'leaderboard', label: 'Leaderboard',  icon: 'trophy' },
     { id: 'brief',       label: 'Design Brief', icon: 'layers' },
   ];
+
+  // Show manage section for: lead, super (when not impersonating), or impersonating a lead
+  const showManageItems = me.role === 'lead'
+    || (me.role === 'super' && !impersonatedId)
+    || role === 'lead';
+
+  // Identity shown in footer: impersonated user or real user
+  const displayUser = impersonatedId
+    ? TEAM.find(m => m.id === impersonatedId) || me
+    : me;
+  const displayRoleLabel = impersonatedId
+    ? (displayUser.role === 'lead' ? 'Team Lead' : 'Member')
+    : me.role === 'super' ? 'Super Admin'
+    : me.role === 'hr' ? 'HR'
+    : me.role === 'lead' ? 'Team Lead' : 'Member';
+
   return (
     <aside className="sidebar">
       <div className="brand">
@@ -35,9 +51,7 @@ export function Sidebar({ route, setRoute, role, me, openCmdK, todayDone, onLogo
       <div className="nav-section">
         <div className="nav-section-title">Workspace</div>
         {navItems.map(it => (
-          <div key={it.id}
-               className={`nav-item ${route === it.id ? 'active' : ''}`}
-               onClick={() => setRoute(it.id)}>
+          <div key={it.id} className={`nav-item ${route === it.id ? 'active' : ''}`} onClick={() => setRoute(it.id)}>
             <Icon name={it.icon} size={15} />
             <span>{it.label}</span>
             {it.badge === 'done' && <span className="badge" style={{ background: 'transparent', color: 'var(--accent)' }}>✓</span>}
@@ -46,13 +60,11 @@ export function Sidebar({ route, setRoute, role, me, openCmdK, todayDone, onLogo
         ))}
       </div>
 
-      {role === 'lead' && (
+      {showManageItems && (
         <div className="nav-section">
           <div className="nav-section-title">Manage</div>
           {leadItems.map(it => (
-            <div key={it.id}
-                 className={`nav-item ${route === it.id ? 'active' : ''}`}
-                 onClick={() => setRoute(it.id)}>
+            <div key={it.id} className={`nav-item ${route === it.id ? 'active' : ''}`} onClick={() => setRoute(it.id)}>
               <Icon name={it.icon} size={15} />
               <span>{it.label}</span>
               {typeof it.badge === 'number' && <span className="badge">{it.badge}</span>}
@@ -72,11 +84,16 @@ export function Sidebar({ route, setRoute, role, me, openCmdK, todayDone, onLogo
       </div>
 
       <div className="sidebar-foot">
+        {impersonatedId && (
+          <div style={{ padding: '4px 8px 8px', fontSize: 11, color: 'var(--accent)', background: 'rgba(210,254,92,.06)', borderRadius: 6, border: '1px solid rgba(210,254,92,.15)', marginBottom: 4 }}>
+            👁 Viewing as {displayUser.name}
+          </div>
+        )}
         <div className="sidebar-foot-identity">
-          <div className={`avatar ${me.color}`}>{me.short}</div>
+          <div className={`avatar ${displayUser.color}`}>{displayUser.short}</div>
           <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}>
-            <div style={{ fontSize: 12, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{me.name}</div>
-            <div style={{ fontSize: 10, color: 'var(--text-faint)' }}>{role === 'lead' ? 'Team Lead' : 'Member'}</div>
+            <div style={{ fontSize: 12, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{displayUser.name}</div>
+            <div style={{ fontSize: 10, color: 'var(--text-faint)' }}>{displayRoleLabel}</div>
           </div>
         </div>
         <button className="signout-btn" onClick={onLogout}>
@@ -89,7 +106,7 @@ export function Sidebar({ route, setRoute, role, me, openCmdK, todayDone, onLogo
 }
 
 // ────────────────────── Topbar ──────────────────────
-export function Topbar({ route, role, theme, toggleTheme, openCmdK, notifOpen, setNotifOpen, onLogout }) {
+export function Topbar({ route, role, theme, toggleTheme, openCmdK, notifOpen, setNotifOpen, onLogout, me, impersonatedId, setImpersonatedId }) {
   const crumbs = {
     home: ['Home'], report: ['Daily Report'], emails: ['Email Log'],
     analytics: ['Analytics'], team: ['Team'], review: ['Manage', 'Review Queue'],
@@ -112,6 +129,29 @@ export function Topbar({ route, role, theme, toggleTheme, openCmdK, notifOpen, s
       </span>
 
       <div className="spacer"></div>
+
+      {/* Super-user impersonation switcher */}
+      {me?.role === 'super' && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginRight: 4 }}>
+          {impersonatedId ? (
+            <>
+              <span style={{ fontSize: 11, color: 'var(--accent)' }}>
+                👁 {TEAM.find(m => m.id === impersonatedId)?.name}
+              </span>
+              <button className="btn ghost" style={{ height: 24, padding: '0 8px', fontSize: 11 }}
+                      onClick={() => setImpersonatedId(null)}>Exit</button>
+            </>
+          ) : (
+            <select className="input" style={{ height: 28, fontSize: 12, width: 150, cursor: 'pointer' }}
+                    value="" onChange={e => e.target.value && setImpersonatedId(e.target.value)}>
+              <option value="">Switch to user…</option>
+              {TEAM.filter(m => m.id !== me.id).map(m => (
+                <option key={m.id} value={m.id}>{m.name} ({m.role})</option>
+              ))}
+            </select>
+          )}
+        </div>
+      )}
 
       <button className="search-trigger" onClick={openCmdK}>
         <Icon name="search" size={13} />
