@@ -32,7 +32,8 @@ function ReadOnlyView({ record, date, memberName }) {
             {METRICS.map(m => {
               const v = metrics[m.key];
               const isSkipped = v === 'skip';
-              const hasValue = typeof v === 'number';
+              const isCheckbox = m.type === 'checkbox';
+              const hasValue = typeof v === 'number' || typeof v === 'boolean';
               return (
                 <div key={m.key} style={{
                   display: 'flex', alignItems: 'center', gap: 10,
@@ -43,10 +44,10 @@ function ReadOnlyView({ record, date, memberName }) {
                   <span style={{ flex: 1, fontSize: 13 }}>{m.label}</span>
                   <span className="mono" style={{
                     fontSize: 14,
-                    fontWeight: hasValue && v > 0 ? 600 : 400,
-                    color: isSkipped || (hasValue && v === 0) ? 'var(--text-faint)' : 'var(--text)',
+                    fontWeight: hasValue ? 600 : 400,
+                    color: isSkipped ? 'var(--text-faint)' : (isCheckbox && v === false) ? 'var(--text-faint)' : 'var(--text)',
                   }}>
-                    {isSkipped ? '—' : hasValue ? v : '0'}
+                    {isSkipped ? '—' : isCheckbox ? (v ? '✓' : '✗') : (hasValue ? v : '0')}
                   </span>
                 </div>
               );
@@ -150,12 +151,18 @@ export function DailyReportPage({ me, setRoute, showToast }) {
     if (mode !== 'numpad' || !isToday || done) return;
     const onKey = (e) => {
       if ((e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') && e.target !== inputRef.current) return;
-      if (/^[0-9]$/.test(e.key)) { e.preventDefault(); setDraft(d => (d === '0' ? e.key : d + e.key).slice(0, 4)); }
-      else if (e.key === 'Backspace') { e.preventDefault(); setDraft(d => d.slice(0, -1)); }
-      else if (e.key === 'Enter') { e.preventDefault(); commit(); }
-      else if (e.key === 'Tab') { e.preventDefault(); skip(); }
-      else if (e.key === '+') { e.preventDefault(); setDraft(d => String((parseInt(d || '0', 10) || 0) + 1)); }
-      else if (e.key === '-') { e.preventDefault(); setDraft(d => String(Math.max(0, (parseInt(d || '0', 10) || 0) - 1))); }
+      if (current?.type === 'checkbox') {
+        if (e.key === ' ') { e.preventDefault(); setValues(p => ({...p, [current.key]: !p[current.key]})); }
+        else if (e.key === 'Enter') { e.preventDefault(); commit(); }
+        else if (e.key === 'Tab') { e.preventDefault(); skip(); }
+      } else {
+        if (/^[0-9]$/.test(e.key)) { e.preventDefault(); setDraft(d => (d === '0' ? e.key : d + e.key).slice(0, 4)); }
+        else if (e.key === 'Backspace') { e.preventDefault(); setDraft(d => d.slice(0, -1)); }
+        else if (e.key === 'Enter') { e.preventDefault(); commit(); }
+        else if (e.key === 'Tab') { e.preventDefault(); skip(); }
+        else if (e.key === '+') { e.preventDefault(); setDraft(d => String((parseInt(d || '0', 10) || 0) + 1)); }
+        else if (e.key === '-') { e.preventDefault(); setDraft(d => String(Math.max(0, (parseInt(d || '0', 10) || 0) - 1))); }
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -163,7 +170,9 @@ export function DailyReportPage({ me, setRoute, showToast }) {
 
   function commit() {
     if (!current) return;
-    const v = draft === '' ? 0 : parseInt(draft, 10);
+    const v = current.type === 'checkbox'
+      ? (values[current.key] === true ? true : false)
+      : (draft === '' ? 0 : parseInt(draft, 10));
     setValues(prev => ({ ...prev, [current.key]: v }));
     setDraft('');
     if (stepIdx < queue.length - 1) setStepIdx(stepIdx + 1);
@@ -349,27 +358,55 @@ export function DailyReportPage({ me, setRoute, showToast }) {
                       <Icon name={current.icon} size={20} />
                       <span style={{ marginLeft: 8 }}>{current.label}</span>
                     </div>
-                    <div className="numpad-input">
-                      <span className={`numpad-number ${draft === '' ? 'ghost' : ''}`}>{draft || '0'}</span>
-                      <span className="numpad-unit">{current.unit}</span>
-                      {current.target > 0 && draft && parseInt(draft, 10) >= current.target && (
-                        <span className="chip accent" style={{ marginLeft: 8 }}>target hit</span>
-                      )}
-                    </div>
-                    <div className="numpad-keys">
-                      {['1','2','3','4','5','6','7','8','9'].map(n => (
-                        <button key={n} className="numpad-key" onClick={() => setDraft(d => (d === '0' ? n : d + n).slice(0, 4))}>{n}</button>
-                      ))}
-                      <button className="numpad-key" onClick={() => setDraft(d => d.slice(0, -1))}>⌫</button>
-                      <button className="numpad-key" onClick={() => setDraft(d => (d === '0' ? '0' : d + '0').slice(0, 4))}>0</button>
-                      <button className="numpad-key acc" onClick={commit}>↵</button>
-                    </div>
-                    <div className="hint-line" style={{ marginBottom: 12 }}>
-                      <span className="kbd">↵</span> save & next
-                      <span style={{ marginLeft: 8 }} className="kbd">tab</span> skip
-                      <span style={{ marginLeft: 8 }} className="kbd">+</span> / <span className="kbd">−</span> nudge
-                      <span style={{ marginLeft: 8 }} className="kbd">⌫</span> erase
-                    </div>
+                    {current.type === 'checkbox' ? (
+                      <>
+                        <div style={{ margin: '20px 0' }}>
+                          <button
+                            onClick={() => setValues(p => ({...p, [current.key]: !p[current.key]}))}
+                            style={{
+                              width: '100%', height: 80, borderRadius: 12, cursor: 'pointer',
+                              background: values[current.key] ? 'var(--accent)' : 'var(--surface-2)',
+                              color: values[current.key] ? 'var(--accent-ink)' : 'var(--text-dim)',
+                              border: '2px solid ' + (values[current.key] ? 'var(--accent)' : 'var(--border)'),
+                              fontSize: 18, fontWeight: 600, display: 'flex', alignItems: 'center',
+                              justifyContent: 'center', gap: 10, transition: 'all 0.15s',
+                            }}
+                          >
+                            <span style={{ fontSize: 22 }}>{values[current.key] ? '✓' : '○'}</span>
+                            {values[current.key] ? 'Done today' : 'Not done yet'}
+                          </button>
+                        </div>
+                        <div className="hint-line" style={{ marginBottom: 12 }}>
+                          <span className="kbd">Space</span> toggle
+                          <span style={{ marginLeft: 8 }} className="kbd">↵</span> confirm & next
+                          <span style={{ marginLeft: 8 }} className="kbd">tab</span> skip
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="numpad-input">
+                          <span className={`numpad-number ${draft === '' ? 'ghost' : ''}`}>{draft || '0'}</span>
+                          <span className="numpad-unit">{current.unit}</span>
+                          {current.target > 0 && draft && parseInt(draft, 10) >= current.target && (
+                            <span className="chip accent" style={{ marginLeft: 8 }}>target hit</span>
+                          )}
+                        </div>
+                        <div className="numpad-keys">
+                          {['1','2','3','4','5','6','7','8','9'].map(n => (
+                            <button key={n} className="numpad-key" onClick={() => setDraft(d => (d === '0' ? n : d + n).slice(0, 4))}>{n}</button>
+                          ))}
+                          <button className="numpad-key" onClick={() => setDraft(d => d.slice(0, -1))}>⌫</button>
+                          <button className="numpad-key" onClick={() => setDraft(d => (d === '0' ? '0' : d + '0').slice(0, 4))}>0</button>
+                          <button className="numpad-key acc" onClick={commit}>↵</button>
+                        </div>
+                        <div className="hint-line" style={{ marginBottom: 12 }}>
+                          <span className="kbd">↵</span> save & next
+                          <span style={{ marginLeft: 8 }} className="kbd">tab</span> skip
+                          <span style={{ marginLeft: 8 }} className="kbd">+</span> / <span className="kbd">−</span> nudge
+                          <span style={{ marginLeft: 8 }} className="kbd">⌫</span> erase
+                        </div>
+                      </>
+                    )}
                     <div className="skip-row">
                       <button className="btn ghost" onClick={back} disabled={stepIdx === 0}>
                         <Icon name="arrow" size={11} style={{ transform: 'rotate(180deg)' }} /> Back
@@ -389,8 +426,9 @@ export function DailyReportPage({ me, setRoute, showToast }) {
                       {queue.map((m, i) => {
                         const v = values[m.key];
                         const isCurrent = i === stepIdx;
-                        const isDone = typeof v === 'number';
+                        const isDone = typeof v === 'number' || typeof v === 'boolean';
                         const isSkip = v === 'skip';
+                        const displayVal = typeof v === 'boolean' ? (v ? '✓' : '✗') : v;
                         return (
                           <div key={m.key}
                                className={`numpad-queue-row ${isCurrent ? 'active' : ''} ${isDone ? 'done' : ''} ${isSkip ? 'skip' : ''}`}
@@ -399,7 +437,7 @@ export function DailyReportPage({ me, setRoute, showToast }) {
                               <Icon name={m.icon} size={12} />
                               {m.label}
                             </span>
-                            <span className="val">{isDone ? v : isSkip ? '—' : (isCurrent ? '…' : '·')}</span>
+                            <span className="val">{isDone ? displayVal : isSkip ? '—' : (isCurrent ? '…' : '·')}</span>
                           </div>
                         );
                       })}
@@ -418,14 +456,31 @@ export function DailyReportPage({ me, setRoute, showToast }) {
                         <div key={m.key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: 'var(--surface-2)', borderRadius: 8 }}>
                           <Icon name={m.icon} size={14} />
                           <span style={{ flex: 1, fontSize: 13 }}>{m.label}</span>
-                          <button className="btn ghost" style={{ width: 24, height: 24, padding: 0 }}
-                                  onClick={() => setValues(p => ({...p, [m.key]: Math.max(0, (p[m.key] || 0) - 1)}))}>−</button>
-                          <input className="input" style={{ width: 60, textAlign: 'center', fontFamily: 'var(--font-mono)' }}
-                                 value={typeof values[m.key] === 'number' ? values[m.key] : ''}
-                                 placeholder="0"
-                                 onChange={(e) => setValues(p => ({...p, [m.key]: parseInt(e.target.value || '0', 10) || 0}))} />
-                          <button className="btn ghost" style={{ width: 24, height: 24, padding: 0 }}
-                                  onClick={() => setValues(p => ({...p, [m.key]: (typeof p[m.key] === 'number' ? p[m.key] : 0) + 1}))}>+</button>
+                          {m.type === 'checkbox' ? (
+                            <button
+                              onClick={() => setValues(p => ({...p, [m.key]: !p[m.key]}))}
+                              style={{
+                                height: 30, padding: '0 14px', borderRadius: 6, cursor: 'pointer', fontWeight: 600,
+                                fontSize: 13, border: '1.5px solid ' + (values[m.key] ? 'var(--accent)' : 'var(--border)'),
+                                background: values[m.key] ? 'var(--accent)' : 'transparent',
+                                color: values[m.key] ? 'var(--accent-ink)' : 'var(--text-faint)',
+                                transition: 'all 0.15s',
+                              }}
+                            >
+                              {values[m.key] ? '✓ Done' : 'Not done'}
+                            </button>
+                          ) : (
+                            <>
+                              <button className="btn ghost" style={{ width: 24, height: 24, padding: 0 }}
+                                      onClick={() => setValues(p => ({...p, [m.key]: Math.max(0, (p[m.key] || 0) - 1)}))}>−</button>
+                              <input className="input" style={{ width: 60, textAlign: 'center', fontFamily: 'var(--font-mono)' }}
+                                     value={typeof values[m.key] === 'number' ? values[m.key] : ''}
+                                     placeholder="0"
+                                     onChange={(e) => setValues(p => ({...p, [m.key]: parseInt(e.target.value || '0', 10) || 0}))} />
+                              <button className="btn ghost" style={{ width: 24, height: 24, padding: 0 }}
+                                      onClick={() => setValues(p => ({...p, [m.key]: (typeof p[m.key] === 'number' ? p[m.key] : 0) + 1}))}>+</button>
+                            </>
+                          )}
                         </div>
                       ))}
                     </div>

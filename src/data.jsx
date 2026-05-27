@@ -13,7 +13,7 @@ export const METRICS = [
   { key: 'email_response',  label: 'Email responses',         unit: 'emails',   target: 30, group: 'inbox',   icon: 'mail' },
   { key: 'email_review',    label: 'Email review',            unit: 'emails',   target: 0,  group: 'inbox',   icon: 'eye' },
   { key: 'email_draft',     label: 'Email drafts',            unit: 'drafts',   target: 0,  group: 'inbox',   icon: 'edit' },
-  { key: 'inbox_assigned',  label: 'Inbox assignments',       unit: 'items',    target: 0,  group: 'inbox',   icon: 'inbox' },
+  { key: 'inbox_assigned',  label: 'Inbox assignments',       unit: 'items',    target: 0,  group: 'inbox',   icon: 'inbox',    type: 'checkbox' },
   { key: 'web_added',       label: 'Websites added',          unit: 'sites',    target: 15, group: 'sites',   icon: 'plus' },
   { key: 'web_audited',     label: 'Websites audited',        unit: 'sites',    target: 25, group: 'sites',   icon: 'search' },
   { key: 'web_live',        label: 'Websites live',           unit: 'sites',    target: 0,  group: 'sites',   icon: 'globe' },
@@ -21,8 +21,8 @@ export const METRICS = [
   { key: 'domain_index',    label: 'Domain index checks',     unit: 'domains',  target: 0,  group: 'sites',   icon: 'shield' },
   { key: 'ai_categories',   label: 'AI categories updated',   unit: 'cats',     target: 0,  group: 'sites',   icon: 'tag' },
   { key: 'vendor_updates',  label: 'Vendor updates',          unit: 'vendors',  target: 0,  group: 'vendors', icon: 'building' },
-  { key: 'teams_tasks',     label: 'MS Teams tasks',          unit: 'tasks',    target: 0,  group: 'comms',   icon: 'check' },
-  { key: 'whatsapp_checks', label: 'WhatsApp checks',         unit: 'chats',    target: 0,  group: 'comms',   icon: 'chat' },
+  { key: 'teams_tasks',     label: 'MS Teams tasks',          unit: 'tasks',    target: 0,  group: 'comms',   icon: 'check',    type: 'checkbox' },
+  { key: 'whatsapp_checks', label: 'WhatsApp checks',         unit: 'chats',    target: 0,  group: 'comms',   icon: 'chat',     type: 'checkbox' },
   { key: 'order_issues',    label: 'Order issues handled',    unit: 'issues',   target: 0,  group: 'comms',   icon: 'alert' },
 ];
 
