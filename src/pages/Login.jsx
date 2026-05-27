@@ -17,8 +17,8 @@ export function LoginPage() {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
       setError('Wrong email or password. Try again.');
-      setLoading(false);
     }
+    setLoading(false);
     // On success, App.jsx auth listener handles the redirect automatically
   }
 
