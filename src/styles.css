@@ -364,7 +364,7 @@ hr { border: 0; border-top: 1px solid var(--border); margin: 0; }
   border-color: var(--accent);
   font-weight: 600;
 }
-.btn.primary:hover { background: #BDE852; }
+.btn.primary:hover { filter: brightness(0.88); }
 .btn.ghost { background: transparent; border-color: transparent; color: var(--text-dim); }
 .btn.ghost:hover { background: var(--surface-2); color: var(--text); }
 .btn.lg { height: 34px; padding: 6px 14px; font-size: 13px; }
@@ -500,7 +500,7 @@ hr { border: 0; border-top: 1px solid var(--border); margin: 0; }
 .dot-status.ok { background: var(--ok); box-shadow: 0 0 6px rgba(92, 255, 161, 0.4); }
 .dot-status.warn { background: var(--warn); }
 .dot-status.danger { background: var(--danger); }
-.dot-status.accent { background: var(--accent); box-shadow: 0 0 6px rgba(210, 254, 92, 0.4); }
+.dot-status.accent { background: var(--accent); box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 40%, transparent); }
 
 /* ───────── Progress ───────── */
 
@@ -752,7 +752,7 @@ hr { border: 0; border-top: 1px solid var(--border); margin: 0; }
 }
 .numpad-key:hover { background: var(--surface-3); }
 .numpad-key.acc { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
-.numpad-key.acc:hover { background: #BDE852; }
+.numpad-key.acc:hover { filter: brightness(0.88); }
 .numpad-key.wide { grid-column: span 2; }
 
 .numpad-queue {
@@ -1051,7 +1051,7 @@ hr { border: 0; border-top: 1px solid var(--border); margin: 0; }
 }
 .bars .col:hover { background: var(--text-ghost); }
 .bars .col.accent { background: var(--accent); }
-.bars .col.accent:hover { background: #BDE852; }
+.bars .col.accent:hover { filter: brightness(0.88); }
 .bars .col .lbl {
   position: absolute;
   bottom: -22px;
