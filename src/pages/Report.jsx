@@ -333,9 +333,6 @@ export function DailyReportPage({ me, setRoute, showToast }) {
           </div>
           <div className="row-flex" style={{ justifyContent: 'center' }}>
             <button className="btn" onClick={() => setRoute('home')}>Back to home</button>
-            {!isNeel && (
-              <button className="btn primary" onClick={() => setRoute('emails')}>Log emails next <Icon name="arrow" size={12} /></button>
-            )}
           </div>
         </div>
       </div>
@@ -382,7 +379,7 @@ export function DailyReportPage({ me, setRoute, showToast }) {
           ? <div className="card" style={{ padding: 48, textAlign: 'center' }}><span className="muted">Loading today's report…</span></div>
           : <>
               {alreadySaved && (
-                <div style={{ marginBottom: 12, padding: '8px 14px', background: 'rgba(210,254,92,0.08)', border: '1px solid rgba(210,254,92,0.2)', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+                <div style={{ marginBottom: 12, padding: '8px 14px', background: 'color-mix(in srgb, var(--accent) 10%, transparent)', border: '1px solid color-mix(in srgb, var(--accent) 20%, transparent)', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
                   <Icon name="check" size={13} />
                   <span>You already submitted today's report — values are pre-filled. Edit and resubmit to update.</span>
                 </div>
@@ -400,7 +397,7 @@ export function DailyReportPage({ me, setRoute, showToast }) {
                     </div>
                     {/* Live email count hint (standard members only) */}
                     {!isNeel && current.key === 'email_response' && liveEmailCount != null && (
-                      <div className="hint-line" style={{ marginBottom: 10, padding: '6px 10px', background: 'rgba(210,254,92,0.07)', borderRadius: 6, border: '1px solid rgba(210,254,92,0.15)' }}>
+                      <div className="hint-line" style={{ marginBottom: 10, padding: '6px 10px', background: 'color-mix(in srgb, var(--accent) 8%, transparent)', borderRadius: 6, border: '1px solid color-mix(in srgb, var(--accent) 16%, transparent)' }}>
                         <Icon name="mail" size={11} />
                         <span>Email log today: <b style={{ color: 'var(--accent)', fontFamily: 'var(--font-mono)' }}>{liveEmailCount}</b> (auto-filled · updates live)</span>
                       </div>
@@ -557,7 +554,7 @@ export function DailyReportPage({ me, setRoute, showToast }) {
                     <div className="muted" style={{ fontSize: 11 }}>tasks recorded</div>
                   </div>
                   <button className="btn primary lg" onClick={() => finalize(values)} disabled={saving}>
-                    {saving ? 'Saving…' : <span>Submit report <span className="kbd">⌘ ↵</span></span>}
+                    {saving ? 'Saving…' : alreadySaved ? <span>Update report <span className="kbd">⌘ ↵</span></span> : <span>Submit report <span className="kbd">⌘ ↵</span></span>}
                   </button>
                 </div>
               </div>

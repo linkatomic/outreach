@@ -330,6 +330,15 @@ export async function deleteNote(id) {
   if (error) throw error
 }
 
+export async function updateReportStatus(memberId, date, status) {
+  const { error } = await supabase
+    .from('daily_reports')
+    .update({ status })
+    .eq('member_id', memberId)
+    .eq('date', date)
+  if (error) throw error
+}
+
 export async function loadAllReportsForDate(date) {
   const { data, error } = await supabase
     .from('daily_reports')

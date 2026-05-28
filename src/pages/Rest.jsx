@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { TEAM, METRICS, REPORTS, ACCENT_PRESETS, Icon, rnd, todayISO, isoNDaysAgo, fmtDateShort, fmtFull, fmtRel,
-         emailsToday, emailsCountByDay, teamEmailsCountByDay, reportsForMember, reportToday, pct } from '../data.jsx'
-import { supabase } from '../lib/supabase.js'
+         emailsToday, emailsCountByDay, teamEmailsCountByDay, reportsForMember, reportToday, metricsFor, pct } from '../data.jsx'
+import { supabase, loadAllReportsForDate, updateReportStatus } from '../lib/supabase.js'
 import { Sparkline, LineChart } from './Home.jsx'
 
 // ──────────────── ANALYTICS ────────────────
@@ -262,123 +262,230 @@ export function LeaderboardPage({ setRoute, openDetailFor }) {
 
 // ──────────────── REVIEW QUEUE ────────────────
 export function ReviewPage({ setRoute, showToast }) {
-  const todayReports = TEAM.filter(m => m.role === 'member').map(m => {
-    const r = reportToday(m.id);
-    return { m, r };
-  });
-  const filed = todayReports.filter(x => x.r);
-  const missing = todayReports.filter(x => !x.r);
+  const [reports, setReports] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState('pending');
-  const [selected, setSelected] = useState(filed[0]?.r?.id);
+  const [selectedId, setSelectedId] = useState(null);
+  const [acting, setActing] = useState(null); // memberId being actioned
 
-  const filtered = tab === 'pending' ? filed.filter(x => x.r.status === 'pending')
-                  : tab === 'flagged' ? filed.filter(x => x.r.status === 'flagged')
-                  : tab === 'missing' ? missing.map(x => ({ ...x, r: null }))
-                  : filed;
+  const members = TEAM.filter(m => m.role === 'member');
+  const today = todayISO();
+
+  useEffect(() => {
+    setLoading(true);
+    loadAllReportsForDate(today)
+      .then(data => {
+        setReports(data);
+        // Auto-select first pending
+        const firstPending = data.find(r => (r.status || 'pending') === 'pending');
+        if (firstPending) setSelectedId(firstPending.member_id);
+      })
+      .catch(() => showToast('Failed to load reports'))
+      .finally(() => setLoading(false));
+  }, [today]);
+
+  function getReport(memberId) {
+    return reports.find(r => r.member_id === memberId) || null;
+  }
+
+  const filed = members.map(m => ({ m, r: getReport(m.id) })).filter(x => x.r);
+  const missing = members.map(m => ({ m, r: getReport(m.id) })).filter(x => !x.r);
+
+  const pending  = filed.filter(x => (x.r.status || 'pending') === 'pending');
+  const flagged  = filed.filter(x => x.r.status === 'flagged');
+  const approved = filed.filter(x => x.r.status === 'approved');
+
+  const tabItems = tab === 'pending'  ? pending
+                 : tab === 'flagged'  ? flagged
+                 : tab === 'approved' ? approved
+                 : missing;
+
+  async function setStatus(memberId, status) {
+    setActing(memberId);
+    try {
+      await updateReportStatus(memberId, today, status);
+      setReports(prev => prev.map(r =>
+        r.member_id === memberId ? { ...r, status } : r
+      ));
+      const m = members.find(m => m.id === memberId);
+      showToast(`${status === 'approved' ? 'Approved' : 'Flagged'} · ${m?.name || memberId}`);
+    } catch {
+      showToast('Action failed — try again');
+    } finally {
+      setActing(null);
+    }
+  }
+
+  async function approveAll() {
+    const toApprove = pending.map(x => x.m.id);
+    for (const memberId of toApprove) {
+      try {
+        await updateReportStatus(memberId, today, 'approved');
+      } catch { /* continue */ }
+    }
+    setReports(prev => prev.map(r =>
+      toApprove.includes(r.member_id) ? { ...r, status: 'approved' } : r
+    ));
+    showToast(`Approved ${toApprove.length} report${toApprove.length !== 1 ? 's' : ''}`);
+  }
+
+  const sel = selectedId ? { m: members.find(m => m.id === selectedId), r: getReport(selectedId) } : null;
 
   return (
     <div className="page">
       <div className="page-head">
         <div>
           <h1>Review Queue</h1>
-          <div className="sub">Approve, flag, or nudge today's reports. {filed.length} filed · {missing.length} pending.</div>
+          <div className="sub">
+            {loading ? 'Loading…' : `${filed.length} filed · ${missing.length} missing · ${fmtFull(today)}`}
+          </div>
         </div>
         <div className="actions">
-          <button className="btn ghost"><Icon name="bell" size={12} />Nudge all pending</button>
-          <button className="btn primary"><Icon name="check" size={12} />Approve all clean<span className="kbd">⌘ A</span></button>
+          {pending.length > 0 && (
+            <button className="btn primary" onClick={approveAll}>
+              <Icon name="check" size={12} />Approve all pending ({pending.length})
+            </button>
+          )}
         </div>
       </div>
 
       <div className="tabs">
-        <div className={`tab ${tab === 'pending' ? 'active' : ''}`} onClick={() => setTab('pending')}>Pending<span className="count">{filed.filter(x => x.r.status === 'pending').length}</span></div>
-        <div className={`tab ${tab === 'flagged' ? 'active' : ''}`} onClick={() => setTab('flagged')}>Flagged<span className="count">{filed.filter(x => x.r.status === 'flagged').length}</span></div>
-        <div className={`tab ${tab === 'approved' ? 'active' : ''}`} onClick={() => setTab('approved')}>Approved<span className="count">{filed.filter(x => x.r.status === 'approved').length}</span></div>
-        <div className={`tab ${tab === 'missing' ? 'active' : ''}`} onClick={() => setTab('missing')}>Missing<span className="count">{missing.length}</span></div>
+        <div className={`tab ${tab === 'pending' ? 'active' : ''}`} onClick={() => setTab('pending')}>
+          Pending<span className="count">{pending.length}</span>
+        </div>
+        <div className={`tab ${tab === 'approved' ? 'active' : ''}`} onClick={() => setTab('approved')}>
+          Approved<span className="count">{approved.length}</span>
+        </div>
+        <div className={`tab ${tab === 'flagged' ? 'active' : ''}`} onClick={() => setTab('flagged')}>
+          Flagged<span className="count">{flagged.length}</span>
+        </div>
+        <div className={`tab ${tab === 'missing' ? 'active' : ''}`} onClick={() => setTab('missing')}>
+          Missing<span className="count">{missing.length}</span>
+        </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-        <div className="card">
-          <div className="card-head"><h3>{tab === 'missing' ? "Members who haven't filed" : 'Reports for May 26'}</h3></div>
-          <div style={{ padding: '4px 0' }}>
-            {filtered.length === 0 && <div className="empty">Nothing here — good day!</div>}
-            {filtered.map(({ m, r }, i) => (
-              <div key={m.id} style={{ padding: '14px 16px', borderBottom: i < filtered.length - 1 ? '1px solid var(--border)' : 'none', cursor: 'pointer', background: selected === r?.id ? 'var(--surface-2)' : 'transparent' }}
-                   onClick={() => r && setSelected(r.id)}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-                  <div className={`avatar ${m.color}`}>{m.short}</div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 500 }}>{m.name}</div>
-                    <div className="faint mono" style={{ fontSize: 11 }}>{r ? `Submitted ${fmtRel(r.submittedAt)}` : 'No report yet'}</div>
+      {loading ? (
+        <div className="card" style={{ padding: 48, textAlign: 'center' }}>
+          <span className="muted">Loading reports…</span>
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+          {/* Left: list */}
+          <div className="card">
+            <div className="card-head">
+              <h3>{tab === 'missing' ? "Hasn't filed yet" : `${tab.charAt(0).toUpperCase() + tab.slice(1)} reports`}</h3>
+              <span className="faint mono" style={{ fontSize: 11 }}>{fmtFull(today)}</span>
+            </div>
+            <div style={{ padding: '4px 0' }}>
+              {tabItems.length === 0 && (
+                <div className="empty">{tab === 'missing' ? 'Everyone has filed!' : 'Nothing here.'}</div>
+              )}
+              {tabItems.map(({ m, r }, i) => {
+                const isSelected = selectedId === m.id;
+                const status = r?.status || 'pending';
+                const numericTotal = r ? Object.values(r.metrics || {}).filter(v => typeof v === 'number').reduce((s, v) => s + v, 0) : 0;
+                return (
+                  <div key={m.id}
+                       style={{ padding: '14px 16px', borderBottom: i < tabItems.length - 1 ? '1px solid var(--border)' : 'none', cursor: r ? 'pointer' : 'default', background: isSelected ? 'var(--surface-2)' : 'transparent', transition: 'background .1s' }}
+                       onClick={() => r && setSelectedId(m.id)}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: r ? 8 : 0 }}>
+                      <div className={`avatar ${m.color}`}>{m.short}</div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 500 }}>{m.name}</div>
+                        <div className="faint mono" style={{ fontSize: 11 }}>
+                          {r ? `Filed · ${fmtFull(r.date)}` : 'No report yet today'}
+                        </div>
+                      </div>
+                      {r ? (
+                        <span className={`chip ${status === 'approved' ? 'ok' : status === 'flagged' ? 'warn' : 'info'}`}>{status}</span>
+                      ) : (
+                        <span className="chip danger">missing</span>
+                      )}
+                    </div>
+                    {r && (
+                      <div style={{ display: 'flex', gap: 14, fontSize: 11.5, color: 'var(--text-dim)' }}>
+                        <span><span className="mono" style={{ color: 'var(--text)' }}>{numericTotal}</span> total</span>
+                        <span><span className="mono" style={{ color: 'var(--text)' }}>{r.metrics?.email_response || 0}</span> emails</span>
+                        <span><span className="mono" style={{ color: 'var(--text)' }}>{(r.metrics?.web_added || 0) + (r.metrics?.web_audited || 0)}</span> sites</span>
+                        {r.note && <span style={{ color: 'var(--text-faint)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 120 }}>"{r.note}"</span>}
+                      </div>
+                    )}
                   </div>
-                  {r ? (
-                    <span className={`chip ${r.status === 'approved' ? 'ok' : r.status === 'flagged' ? 'warn' : 'info'}`}>{r.status}</span>
-                  ) : <span className="chip danger">missing</span>}
-                </div>
-                {r && (
-                  <div style={{ display: 'flex', gap: 12, fontSize: 11.5, color: 'var(--text-dim)' }}>
-                    <span><span className="mono" style={{ color: 'var(--text)' }}>{Object.values(r.metrics).reduce((s,v)=>s+v,0)}</span> total tasks</span>
-                    <span><span className="mono" style={{ color: 'var(--text)' }}>{r.metrics.email_response || 0}</span> emails</span>
-                    <span><span className="mono" style={{ color: 'var(--text)' }}>{(r.metrics.web_added||0) + (r.metrics.web_audited||0)}</span> sites</span>
-                    {r.note && <span style={{ color: 'var(--text-faint)' }}>"{r.note.slice(0, 24)}..."</span>}
-                  </div>
-                )}
-                {!r && (
-                  <button className="btn" style={{ marginTop: 4 }}><Icon name="bell" size={11} />Nudge {m.name.split(' ')[0]}</button>
-                )}
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Right: detail */}
+          <div className="card" style={{ alignSelf: 'start' }}>
+            {!sel || !sel.r ? (
+              <div className="empty" style={{ padding: 40 }}>
+                {tab === 'missing' ? 'Select a member to see details' : 'Select a report to review'}
               </div>
-            ))}
+            ) : (() => {
+              const { m, r } = sel;
+              const status = r.status || 'pending';
+              const memberMetrics = metricsFor(m.id);
+              return (
+                <>
+                  <div className="card-head">
+                    <div className="row-flex">
+                      <div className={`avatar ${m.color}`}>{m.short}</div>
+                      <div>
+                        <h3 style={{ margin: 0 }}>{m.name}</h3>
+                        <span className="faint mono" style={{ fontSize: 11 }}>{fmtFull(r.date)}</span>
+                      </div>
+                    </div>
+                    <div className="actions">
+                      <button className="btn ghost" disabled={acting === m.id || status === 'flagged'}
+                              onClick={() => setStatus(m.id, 'flagged')}>
+                        <Icon name="flag" size={12} />{status === 'flagged' ? 'Flagged' : 'Flag'}
+                      </button>
+                      <button className="btn primary" disabled={acting === m.id || status === 'approved'}
+                              onClick={() => setStatus(m.id, 'approved')}>
+                        <Icon name="check" size={12} />{acting === m.id ? 'Saving…' : status === 'approved' ? 'Approved' : 'Approve'}
+                      </button>
+                    </div>
+                  </div>
+                  <div style={{ padding: '4px 0' }}>
+                    {memberMetrics.map(mt => {
+                      const v = r.metrics?.[mt.key];
+                      if (v === undefined || v === 'skip') return null;
+                      const isNum = typeof v === 'number';
+                      return (
+                        <div key={mt.key} style={{ padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 10, borderBottom: '1px solid var(--border)' }}>
+                          <Icon name={mt.icon} size={13} />
+                          <span style={{ flex: 1, fontSize: 13 }}>{mt.label}</span>
+                          <span className="mono" style={{ fontSize: 14 }}>
+                            {mt.type === 'checkbox' ? (v ? '✓' : '✗') : v}
+                          </span>
+                          {isNum && mt.target > 0 && (
+                            <span className={`chip ${v >= mt.target ? 'ok' : v >= mt.target * 0.6 ? 'warn' : 'danger'}`} style={{ minWidth: 50, justifyContent: 'center' }}>
+                              {Math.round((v / mt.target) * 100)}%
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
+                    {r.total > 0 && (
+                      <div style={{ padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 10, borderBottom: '1px solid var(--border)', background: 'color-mix(in srgb, var(--accent) 5%, transparent)' }}>
+                        <span style={{ flex: 1, fontSize: 12, fontWeight: 600 }}>Total</span>
+                        <span className="mono" style={{ fontSize: 16, fontWeight: 600, color: 'var(--accent)' }}>{r.total}</span>
+                      </div>
+                    )}
+                    {r.note && (
+                      <div style={{ padding: '14px 16px', background: 'var(--surface-2)', margin: 12, borderRadius: 8 }}>
+                        <div className="faint" style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Note from {m.name.split(' ')[0]}</div>
+                        <div style={{ fontSize: 13, lineHeight: 1.5 }}>{r.note}</div>
+                      </div>
+                    )}
+                  </div>
+                </>
+              );
+            })()}
           </div>
         </div>
-
-        <div className="card" style={{ alignSelf: 'start' }}>
-          {(() => {
-            const sel = filed.find(x => x.r.id === selected);
-            if (!sel) return <div className="empty">Select a report to review</div>;
-            const { m, r } = sel;
-            return (
-              <>
-                <div className="card-head">
-                  <div className="row-flex">
-                    <div className={`avatar ${m.color}`}>{m.short}</div>
-                    <div>
-                      <h3>{m.name}</h3>
-                      <span className="faint mono" style={{ fontSize: 11 }}>{fmtFull(r.date)} · {fmtRel(r.submittedAt)}</span>
-                    </div>
-                  </div>
-                  <div className="actions">
-                    <button className="btn ghost"><Icon name="flag" size={12} />Flag</button>
-                    <button className="btn primary" onClick={() => showToast(`Approved · ${m.name}`)}><Icon name="check" size={12} />Approve</button>
-                  </div>
-                </div>
-                <div style={{ padding: '4px 0' }}>
-                  {Object.entries(r.metrics).map(([k, v]) => {
-                    const mt = METRICS.find(mm => mm.key === k);
-                    if (!mt) return null;
-                    return (
-                      <div key={k} style={{ padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 10, borderBottom: '1px solid var(--border)' }}>
-                        <Icon name={mt.icon} size={13} />
-                        <span style={{ flex: 1, fontSize: 13 }}>{mt.label}</span>
-                        <span className="mono" style={{ fontSize: 14 }}>{v}</span>
-                        {mt.target > 0 && (
-                          <span className={`chip ${v >= mt.target ? 'ok' : v >= mt.target * 0.6 ? 'warn' : 'danger'}`} style={{ minWidth: 50, justifyContent: 'center' }}>
-                            {Math.round((v / mt.target) * 100)}%
-                          </span>
-                        )}
-                      </div>
-                    );
-                  })}
-                  {r.note && (
-                    <div style={{ padding: '14px 16px', background: 'var(--surface-2)', margin: 12, borderRadius: 8 }}>
-                      <div className="faint" style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Note</div>
-                      <div style={{ fontSize: 13 }}>{r.note}</div>
-                    </div>
-                  )}
-                </div>
-              </>
-            );
-          })()}
-        </div>
-      </div>
+      )}
     </div>
   );
 }
