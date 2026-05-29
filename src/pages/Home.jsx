@@ -1,6 +1,8 @@
-import { TEAM, METRICS, NEEL_METRICS, metricsFor, teamMembers as getTeamMembers,
-         Icon, emailsToday, emailsCountByDay, teamEmailsCountByDay,
-         reportsForMember, reportToday, isoNDaysAgo, fmtDateShort, fmtRel, pct, REPORTS } from '../data.jsx'
+import { useState, useEffect } from 'react'
+import { TEAM, metricsFor, teamMembers as getTeamMembers,
+         Icon, isoNDaysAgo, fmtDateShort, fmtRel, pct, todayISO } from '../data.jsx'
+import { loadEmailLogsByDateRange, loadReport, loadReportsHistory,
+         loadAllReportsForDate, loadReportsByDateRange, loadActivityFeed } from '../lib/supabase.js'
 
 // Tiny sparkline
 export function Sparkline({ data, height = 28 }) {
@@ -34,7 +36,6 @@ export function LineChart({ data, height = 200 }) {
   const innerW = W - padL - padR;
   const innerH = H - padT - padB;
   const max = Math.max(...data.map(d => d.count), 1);
-  // Round to nearest 10 so sparse data still fills vertical space
   const yMax = Math.ceil(max / 10) * 10 || 10;
   const ticks = [0, Math.round(yMax / 2), yMax];
 
@@ -72,7 +73,6 @@ export function LineChart({ data, height = 200 }) {
         const isLast  = i === data.length - 1;
         const isMid   = i === Math.floor((data.length - 1) / 2);
         const showLabel = isFirst || isLast || (data.length > 2 && isMid);
-        // anchor labels away from edges so they don't get clipped
         const anchor = isFirst ? 'start' : isLast ? 'end' : 'middle';
         return (
           <g key={i}>
@@ -89,53 +89,147 @@ export function LineChart({ data, height = 200 }) {
   );
 }
 
+function emailCount(logs) {
+  return logs.reduce((s, e) => s + 1 + (e.replies || 0), 0);
+}
+
+function greeting(now) {
+  const h = now.getHours();
+  if (h < 12) return 'morning';
+  if (h < 17) return 'afternoon';
+  return 'evening';
+}
+
+function fmtNow(now) {
+  const day  = now.toLocaleDateString('en-US', { weekday: 'long' });
+  const date = now.toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+  const time = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+  return `${day}, ${date} · ${time}`;
+}
+
 function ActivityFeed() {
-  const items = [
-    { who: 'Neha M',     avatar: 'b', what: 'logged 14 emails',               t: '6m',  chip: { label: 'email log',           tone: 'info' } },
-    { who: 'Arjun M',    avatar: 'e', what: 'submitted daily report',          t: '22m', chip: { label: 'report · 31 emails',  tone: 'accent' } },
-    { who: 'Dev Pandya', avatar: 'a', what: 'approved 4 reports for May 25',   t: '1h',  chip: { label: 'review',              tone: 'ok' } },
-    { who: 'Keyur D',    avatar: 'd', what: 'flagged Acme Imports as duplicate',t: '2h', chip: { label: 'vendor',              tone: 'warn' } },
-    { who: 'Preeti S',   avatar: 'c', what: 'audited 28 websites',             t: '3h',  chip: { label: 'sites',               tone: 'info' } },
-    { who: 'Neel P',     avatar: 'f', what: 'joined the team',                 t: '6d',  chip: { label: 'onboarding',          tone: 'accent' } },
-  ];
+  const [items, setItems] = useState([]);
+
+  useEffect(() => {
+    loadActivityFeed().then(({ reports, emails }) => {
+      const merged = [];
+
+      // Group today's emails by member
+      const emailsByMember = new Map();
+      for (const e of emails) {
+        const entry = emailsByMember.get(e.member_id) || { count: 0, ts: null };
+        entry.count += 1 + (e.replies || 0);
+        if (!entry.ts || e.created_at > entry.ts) entry.ts = e.created_at;
+        emailsByMember.set(e.member_id, entry);
+      }
+      for (const [memberId, { count, ts }] of emailsByMember) {
+        const m = TEAM.find(t => t.id === memberId);
+        if (m && count > 0) merged.push({ type: 'email', m, count, ts });
+      }
+
+      // Recent report submissions
+      for (const r of reports) {
+        const m = TEAM.find(t => t.id === r.member_id);
+        if (m) merged.push({ type: 'report', m, total: r.total || 0, ts: r.created_at });
+      }
+
+      merged.sort((a, b) => (b.ts || '') > (a.ts || '') ? 1 : -1);
+      setItems(merged.slice(0, 8));
+    }).catch(() => {});
+  }, []);
+
+  if (items.length === 0) {
+    return (
+      <div className="feed">
+        <div style={{ padding: '24px 16px', color: 'var(--text-faint)', fontSize: 13, textAlign: 'center' }}>
+          No activity yet today.
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="feed">
-      {items.map((it, i) => (
-        <div className="feed-row" key={i}>
-          <div className={`avatar ${it.avatar}`} style={{ flexShrink: 0 }}>{it.who.split(' ').map(s => s[0]).join('').slice(0,2)}</div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div><span className="who">{it.who}</span> <span className="muted">{it.what}</span></div>
-            <div className="meta"><span className={`chip ${it.chip.tone}`}>{it.chip.label}</span></div>
+      {items.map((it, i) => {
+        const what = it.type === 'email'
+          ? `logged ${it.count} email${it.count !== 1 ? 's' : ''}`
+          : `submitted daily report · ${it.total} total`;
+        const chipLabel = it.type === 'email' ? 'email log' : `report · ${it.total}`;
+        const chipTone  = it.type === 'email' ? 'info' : 'accent';
+        return (
+          <div className="feed-row" key={i}>
+            <div className={`avatar ${it.m.color}`} style={{ flexShrink: 0 }}>{it.m.short}</div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div><span className="who">{it.m.name}</span> <span className="muted">{what}</span></div>
+              <div className="meta"><span className={`chip ${chipTone}`}>{chipLabel}</span></div>
+            </div>
+            <span className="faint mono" style={{ fontSize: 11 }}>{it.ts ? fmtRel(it.ts) : ''}</span>
           </div>
-          <span className="faint mono" style={{ fontSize: 11 }}>{it.t}</span>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
 
 // ──────────────── MEMBER HOME ────────────────
 export function MemberHome({ me, setRoute }) {
-  const todayEmails = emailsToday(me.id);
-  const todayReport = reportToday(me.id);
-  const weekEmails = emailsCountByDay(me.id, 7).reduce((s, d) => s + d.count, 0);
-  const weekTarget = 6 * 30;
-  const spark14 = emailsCountByDay(me.id, 14).map(d => d.count);
-  const myReports = reportsForMember(me.id, 7);
+  const [emailLogs, setEmailLogs]     = useState([]);
+  const [todayReport, setTodayReport] = useState(null);
+  const [allReports, setAllReports]   = useState([]);
+  const [loading, setLoading]         = useState(true);
+  const [now, setNow]                 = useState(new Date());
 
-  const todayMetrics = {};
-  if (todayReport) {
-    for (const [k, v] of Object.entries(todayReport.metrics)) todayMetrics[k] = v;
+  const today = todayISO();
+
+  useEffect(() => {
+    const tick = setInterval(() => setNow(new Date()), 60000);
+    return () => clearInterval(tick);
+  }, []);
+
+  useEffect(() => {
+    setLoading(true);
+    Promise.all([
+      loadEmailLogsByDateRange(isoNDaysAgo(13), null, me.id),
+      loadReport(me.id, today),
+      loadReportsHistory(me.id),
+    ]).then(([logs, report, history]) => {
+      setEmailLogs(logs);
+      setTodayReport(report);
+      setAllReports(history);
+    }).catch(console.error).finally(() => setLoading(false));
+  }, [me.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const cnt = (fn) => emailCount(emailLogs.filter(fn));
+  const todayEmails = cnt(e => e.date === today);
+  const weekEmails  = cnt(e => e.date >= isoNDaysAgo(6));
+  const prevWeek    = cnt(e => e.date >= isoNDaysAgo(13) && e.date < isoNDaysAgo(7));
+  const weekDelta   = prevWeek > 0 ? Math.round(((weekEmails - prevWeek) / prevWeek) * 100) : null;
+  const spark14     = Array.from({ length: 14 }, (_, i) => cnt(e => e.date === isoNDaysAgo(13 - i)));
+  const chart14     = Array.from({ length: 14 }, (_, i) => ({ date: isoNDaysAgo(13 - i), count: cnt(e => e.date === isoNDaysAgo(13 - i)) }));
+
+  // Streak: consecutive working days with filed report, back from today
+  const filedDates = new Set(allReports.map(r => r.date));
+  let streak = 0;
+  let si = filedDates.has(today) ? 0 : 1;
+  while (si < 60) {
+    const date = isoNDaysAgo(si);
+    if (new Date(date + 'T00:00:00').getDay() === 0) { si++; continue; }
+    if (filedDates.has(date)) { streak++; si++; } else break;
   }
-  const myMetrics = metricsFor(me.id);
-  const isNeel = !!TEAM.find(m => m.id === me.id)?.neelOnly;
+
+  const todayMetrics = todayReport?.metrics || {};
+  const myMetrics    = metricsFor(me.id);
+
+  if (loading) {
+    return <div className="page" style={{ display: 'grid', placeItems: 'center', minHeight: 300 }}><div className="faint">Loading…</div></div>;
+  }
 
   return (
     <div className="page">
       <div className="page-head">
         <div>
-          <h1>Good afternoon, {me.name.split(' ')[0]} <span style={{ color: 'var(--accent)' }}>·</span></h1>
-          <div className="sub">Tuesday, May 26 · 19:14 IST</div>
+          <h1>Good {greeting(now)}, {me.name.split(' ')[0]} <span style={{ color: 'var(--accent)' }}>·</span></h1>
+          <div className="sub">{fmtNow(now)}</div>
         </div>
         <div className="actions">
           <button className="btn" onClick={() => setRoute('emails')}><Icon name="plus" size={12} />Log email <span className="kbd">N</span></button>
@@ -152,8 +246,12 @@ export function MemberHome({ me, setRoute }) {
         </div>
         <div className="kpi">
           <div className="kpi-label">Week emails</div>
-          <div className="kpi-value">{weekEmails}<span style={{ color: 'var(--text-faint)', fontSize: 14 }}> / {weekTarget}</span></div>
-          <div className="kpi-delta up"><Icon name="arrowUp" size={10} />+18% vs last week</div>
+          <div className="kpi-value">{weekEmails}<span style={{ color: 'var(--text-faint)', fontSize: 14 }}> / {6 * 30}</span></div>
+          {weekDelta !== null && (
+            <div className={`kpi-delta ${weekDelta >= 0 ? 'up' : 'down'}`}>
+              <Icon name={weekDelta >= 0 ? 'arrowUp' : 'arrowDown'} size={10} />{weekDelta > 0 ? '+' : ''}{weekDelta}% vs last week
+            </div>
+          )}
           <Sparkline data={spark14} />
         </div>
         <div className="kpi">
@@ -163,18 +261,22 @@ export function MemberHome({ me, setRoute }) {
           </div>
           <div className="kpi-target">
             {todayReport
-              ? `Submitted ${fmtRel(todayReport.submittedAt)}`
+              ? `Submitted ${fmtRel(todayReport.created_at)}`
               : 'Takes ~45 seconds in the numpad'}
           </div>
-          {!todayReport && <button className="btn primary" style={{ marginTop: 4, alignSelf: 'flex-start' }} onClick={() => setRoute('report')}>File now <Icon name="arrow" size={11} /></button>}
+          {!todayReport && (
+            <button className="btn primary" style={{ marginTop: 4, alignSelf: 'flex-start' }} onClick={() => setRoute('report')}>
+              File now <Icon name="arrow" size={11} />
+            </button>
+          )}
         </div>
         <div className="kpi">
-          <div className="kpi-label">7-day streak</div>
-          <div className="kpi-value">{Math.min(myReports.length, 6)}<span style={{ color: 'var(--text-faint)', fontSize: 14 }}> days</span></div>
-          <div className="kpi-target">All reports filed on time</div>
+          <div className="kpi-label">Filing streak</div>
+          <div className="kpi-value">{streak}<span style={{ color: 'var(--text-faint)', fontSize: 14 }}> days</span></div>
+          <div className="kpi-target">{streak > 0 ? 'Keep it up!' : 'File today to start'}</div>
           <div style={{ display: 'flex', gap: 3, marginTop: 4 }}>
             {Array.from({ length: 7 }).map((_, i) => (
-              <div key={i} style={{ flex: 1, height: 6, background: i < 6 ? 'var(--accent)' : 'var(--surface-2)', borderRadius: 2 }}></div>
+              <div key={i} style={{ flex: 1, height: 6, background: i < streak ? 'var(--accent)' : 'var(--surface-2)', borderRadius: 2 }}></div>
             ))}
           </div>
         </div>
@@ -182,23 +284,17 @@ export function MemberHome({ me, setRoute }) {
 
       <div className="grid grid-2-3" style={{ marginBottom: 16 }}>
         <div className="card">
-          <div className="card-head">
-            <h3>Your week</h3>
-            <div className="actions">
-              <span className="seg">
-                <button className="on">Emails</button>
-                <button>Sites</button>
-                <button>All</button>
-              </span>
-            </div>
-          </div>
+          <div className="card-head"><h3>Your week</h3></div>
           <div className="chart-wrap">
-            <LineChart data={emailsCountByDay(me.id, 14)} />
+            <LineChart data={chart14} />
           </div>
         </div>
 
         <div className="card">
-          <div className="card-head"><h3>Today, so far</h3><span className="faint mono" style={{ fontSize: 11 }}>{Object.keys(todayMetrics).length} metrics</span></div>
+          <div className="card-head">
+            <h3>Today, so far</h3>
+            <span className="faint mono" style={{ fontSize: 11 }}>{Object.keys(todayMetrics).length} metrics</span>
+          </div>
           <div style={{ padding: '4px 0' }}>
             {myMetrics.slice(0, 8).map(m => {
               const v = todayMetrics[m.key] || 0;
@@ -221,10 +317,7 @@ export function MemberHome({ me, setRoute }) {
       </div>
 
       <div className="card">
-        <div className="card-head">
-          <h3>Team activity</h3>
-          <div className="actions"><button className="btn ghost"><Icon name="filter" size={12} />Filter</button></div>
-        </div>
+        <div className="card-head"><h3>Team activity</h3></div>
         <ActivityFeed />
       </div>
     </div>
@@ -233,25 +326,86 @@ export function MemberHome({ me, setRoute }) {
 
 // ──────────────── LEAD HOME ────────────────
 export function LeadHome({ me, setRoute }) {
-  // Neel is on a separate track — exclude from team analytics/stats
-  const teamMembers = getTeamMembers();
-  const teamEmailsToday = teamMembers.reduce((s, m) => s + emailsToday(m.id), 0);
-  const teamTargetToday = teamMembers.length * 30;
-  const teamWeek = teamEmailsCountByDay(7).reduce((s, d) => s + d.count, 0);
-  const reportsToday = teamMembers.filter(m => reportToday(m.id)).length;
-  const reportsTotal = teamMembers.length;
-  const trend = teamEmailsCountByDay(14);
+  const [emailLogs, setEmailLogs]       = useState([]);
+  const [todayReports, setTodayReports] = useState([]);
+  const [recentReports, setRecentReports] = useState([]);
+  const [loading, setLoading]           = useState(true);
+  const [now, setNow]                   = useState(new Date());
+
+  const teamMembersList = getTeamMembers();
+  const today = todayISO();
+
+  useEffect(() => {
+    const tick = setInterval(() => setNow(new Date()), 60000);
+    return () => clearInterval(tick);
+  }, []);
+
+  useEffect(() => {
+    setLoading(true);
+    Promise.all([
+      loadEmailLogsByDateRange(isoNDaysAgo(29)),
+      loadAllReportsForDate(today),
+      loadReportsByDateRange(isoNDaysAgo(25)),
+    ]).then(([logs, todayRpts, allRpts]) => {
+      setEmailLogs(logs);
+      setTodayReports(todayRpts);
+      setRecentReports(allRpts);
+    }).catch(console.error).finally(() => setLoading(false));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const isTeam = (id) => teamMembersList.some(m => m.id === id);
+  const cnt    = (fn) => emailCount(emailLogs.filter(fn));
+
+  const teamEmailsToday = cnt(e => e.date === today && isTeam(e.member_id));
+  const teamTargetToday = teamMembersList.length * 30;
+  const teamWeek  = cnt(e => e.date >= isoNDaysAgo(6) && isTeam(e.member_id));
+  const prevWeek  = cnt(e => e.date >= isoNDaysAgo(13) && e.date < isoNDaysAgo(7) && isTeam(e.member_id));
+  const weekDelta = prevWeek > 0 ? Math.round(((teamWeek - prevWeek) / prevWeek) * 100) : null;
+
+  const reportsFiledToday  = teamMembersList.filter(m => todayReports.some(r => r.member_id === m.id)).length;
+  const pendingReporters   = teamMembersList.filter(m => !todayReports.some(r => r.member_id === m.id)).map(m => m.name.split(' ')[0]);
+
+  // Per-member today counts for median/stddev
+  const memberCounts  = teamMembersList.map(m => cnt(e => e.date === today && e.member_id === m.id));
+  const sortedCounts  = [...memberCounts].sort((a, b) => a - b);
+  const median        = sortedCounts[Math.floor(sortedCounts.length / 2)] || 0;
+  const meanFloat     = memberCounts.reduce((a, b) => a + b, 0) / Math.max(memberCounts.length, 1);
+  const stddev        = Math.round(Math.sqrt(memberCounts.reduce((a, b) => a + (b - meanFloat) ** 2, 0) / Math.max(memberCounts.length, 1)));
+  const week7Avg      = Math.round(teamWeek / 7);
+
+  const trend14 = Array.from({ length: 14 }, (_, i) => ({
+    date:  isoNDaysAgo(13 - i),
+    count: cnt(e => e.date === isoNDaysAgo(13 - i) && isTeam(e.member_id)),
+  }));
+  const sparkData = trend14.map(d => d.count);
+
+  const reviewQueue = recentReports.filter(r => r.status === 'pending' && isTeam(r.member_id)).length;
+
+  const leaderboard = teamMembersList.map(m => ({
+    m,
+    score: cnt(e => e.date >= isoNDaysAgo(6) && e.member_id === m.id),
+  })).sort((a, b) => b.score - a.score);
+  const maxScore = Math.max(...leaderboard.map(l => l.score), 1);
+
+  if (loading) {
+    return <div className="page" style={{ display: 'grid', placeItems: 'center', minHeight: 300 }}><div className="faint">Loading…</div></div>;
+  }
 
   return (
     <div className="page">
       <div className="page-head">
         <div>
           <h1>Team overview <span style={{ color: 'var(--accent)' }}>·</span></h1>
-          <div className="sub">5 active · Tuesday, May 26 · 19:14 IST</div>
+          <div className="sub">{teamMembersList.length} active · {fmtNow(now)}</div>
         </div>
         <div className="actions">
           <button className="btn"><Icon name="download" size={12} />Export</button>
-          <button className="btn" onClick={() => setRoute('review')}><Icon name="eye" size={12} />Review queue<span className="badge" style={{ background: 'var(--accent)', color: 'var(--accent-ink)', marginLeft: 4, padding: '1px 5px', borderRadius: 4, fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700 }}>3</span></button>
+          <button className="btn" onClick={() => setRoute('review')}>
+            <Icon name="eye" size={12} />Review queue
+            {reviewQueue > 0 && (
+              <span className="badge" style={{ background: 'var(--accent)', color: 'var(--accent-ink)', marginLeft: 4, padding: '1px 5px', borderRadius: 4, fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700 }}>{reviewQueue}</span>
+            )}
+          </button>
           <button className="btn primary" onClick={() => setRoute('analytics')}><Icon name="chart" size={12} />Analytics</button>
         </div>
       </div>
@@ -266,43 +420,44 @@ export function LeadHome({ me, setRoute }) {
         <div className="kpi">
           <div className="kpi-label">Week emails</div>
           <div className="kpi-value">{teamWeek.toLocaleString()}</div>
-          <div className="kpi-delta up"><Icon name="arrowUp" size={10} />+11% week-on-week</div>
-          <Sparkline data={trend.map(d => d.count)} />
+          {weekDelta !== null && (
+            <div className={`kpi-delta ${weekDelta >= 0 ? 'up' : 'down'}`}>
+              <Icon name={weekDelta >= 0 ? 'arrowUp' : 'arrowDown'} size={10} />{weekDelta > 0 ? '+' : ''}{weekDelta}% week-on-week
+            </div>
+          )}
+          <Sparkline data={sparkData} />
         </div>
         <div className="kpi">
           <div className="kpi-label">Reports filed</div>
-          <div className="kpi-value">{reportsToday}<span style={{ color: 'var(--text-faint)', fontSize: 14 }}> / {reportsTotal}</span></div>
-          <div className="bar thin"><div className="bar-fill" style={{ width: pct(reportsToday, reportsTotal) + '%' }}></div></div>
-          <div className="kpi-target">{reportsTotal - reportsToday} pending · Preeti, Neel</div>
+          <div className="kpi-value">{reportsFiledToday}<span style={{ color: 'var(--text-faint)', fontSize: 14 }}> / {teamMembersList.length}</span></div>
+          <div className="bar thin"><div className="bar-fill" style={{ width: pct(reportsFiledToday, teamMembersList.length) + '%' }}></div></div>
+          <div className="kpi-target">
+            {pendingReporters.length > 0
+              ? `${pendingReporters.length} pending · ${pendingReporters.slice(0, 3).join(', ')}`
+              : 'All filed!'}
+          </div>
         </div>
         <div className="kpi">
           <div className="kpi-label">Avg per member</div>
-          <div className="kpi-value">{Math.round(teamEmailsToday / teamMembers.length)}</div>
-          <div className="kpi-target">Median 24 · Std-dev 7.2</div>
-          <div className="kpi-delta"><span className="mono">7-day avg 27.4</span></div>
+          <div className="kpi-value">{Math.round(teamEmailsToday / Math.max(teamMembersList.length, 1))}</div>
+          <div className="kpi-target">Median {median} · Std-dev {stddev}</div>
+          <div className="kpi-delta"><span className="mono">7-day avg {week7Avg}</span></div>
         </div>
       </div>
 
       <div className="grid grid-2-3" style={{ marginBottom: 16 }}>
         <div className="card">
-          <div className="card-head">
-            <h3>Email volume — last 14 days</h3>
-            <span className="seg">
-              <button className="on">14d</button>
-              <button>30d</button>
-              <button>90d</button>
-            </span>
-          </div>
+          <div className="card-head"><h3>Email volume — last 14 days</h3></div>
           <div className="chart-wrap">
-            <LineChart data={trend} />
+            <LineChart data={trend14} />
           </div>
         </div>
         <div className="card">
           <div className="card-head"><h3>Team status</h3><span className="faint" style={{ fontSize: 11 }}>now</span></div>
           <div style={{ padding: '4px 0' }}>
-            {teamMembers.map(m => {
-              const e = emailsToday(m.id);
-              const filed = !!reportToday(m.id);
+            {teamMembersList.map(m => {
+              const e     = cnt(log => log.date === today && log.member_id === m.id);
+              const filed = todayReports.some(r => r.member_id === m.id);
               return (
                 <div key={m.id} style={{ padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 10, borderBottom: '1px solid var(--border)' }}>
                   <div className={`avatar ${m.color}`}>{m.short}</div>
@@ -320,19 +475,23 @@ export function LeadHome({ me, setRoute }) {
 
       <div className="grid grid-2" style={{ marginBottom: 16 }}>
         <div className="card">
-          <div className="card-head"><h3>Reporting pulse · last 26 days</h3><span className="faint mono" style={{ fontSize: 11 }}>{teamMembers.length} × 26 cells</span></div>
+          <div className="card-head">
+            <h3>Reporting pulse · last 26 days</h3>
+            <span className="faint mono" style={{ fontSize: 11 }}>{teamMembersList.length} × 26 cells</span>
+          </div>
           <div style={{ padding: 16 }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              {teamMembers.map(m => (
+              {teamMembersList.map(m => (
                 <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <div style={{ width: 80, fontSize: 11, color: 'var(--text-dim)' }}>{m.name}</div>
                   <div style={{ flex: 1, display: 'grid', gridTemplateColumns: 'repeat(26, 1fr)', gap: 2 }}>
                     {Array.from({ length: 26 }).map((_, i) => {
-                      const date = isoNDaysAgo(25 - i);
-                      const r = REPORTS.find(rr => rr.memberId === m.id && rr.date === date);
-                      const total = r ? Object.values(r.metrics).reduce((a,b) => a+b, 0) : 0;
-                      const lvl = total === 0 ? 0 : total < 30 ? 1 : total < 60 ? 2 : total < 100 ? 3 : 4;
-                      return <div key={i} style={{ aspectRatio: '1 / 1', background: lvl === 0 ? 'var(--surface-2)' : `rgba(210, 254, 92, ${0.15 + lvl * 0.2})`, borderRadius: 2 }} title={`${fmtDateShort(date)}: ${total}`}></div>;
+                      const date  = isoNDaysAgo(25 - i);
+                      const r     = recentReports.find(rr => rr.member_id === m.id && rr.date === date);
+                      const total = r?.total || 0;
+                      const lvl   = total === 0 ? 0 : total < 30 ? 1 : total < 60 ? 2 : total < 100 ? 3 : 4;
+                      const bg    = lvl === 0 ? 'var(--surface-2)' : `color-mix(in srgb, var(--accent) ${15 + lvl * 20}%, transparent)`;
+                      return <div key={i} style={{ aspectRatio: '1 / 1', background: bg, borderRadius: 2 }} title={`${fmtDateShort(date)}: ${total}`}></div>;
                     })}
                   </div>
                 </div>
@@ -340,7 +499,9 @@ export function LeadHome({ me, setRoute }) {
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end', marginTop: 12, fontSize: 10, color: 'var(--text-faint)' }}>
               <span>less</span>
-              {[0,1,2,3,4].map(l => <div key={l} style={{ width: 10, height: 10, background: l === 0 ? 'var(--surface-2)' : `rgba(210, 254, 92, ${0.15 + l * 0.2})`, borderRadius: 2 }}></div>)}
+              {[0, 1, 2, 3, 4].map(l => (
+                <div key={l} style={{ width: 10, height: 10, background: l === 0 ? 'var(--surface-2)' : `color-mix(in srgb, var(--accent) ${15 + l * 20}%, transparent)`, borderRadius: 2 }}></div>
+              ))}
               <span>more</span>
             </div>
           </div>
@@ -357,10 +518,7 @@ export function LeadHome({ me, setRoute }) {
           <button className="btn ghost" onClick={() => setRoute('leaderboard')}>View all <Icon name="arrow" size={11} /></button>
         </div>
         <div style={{ padding: '0 16px' }}>
-          {teamMembers.map(m => ({
-            m,
-            score: emailsCountByDay(m.id, 7).reduce((s, d) => s + d.count, 0)
-          })).sort((a, b) => b.score - a.score).map(({ m, score }, i) => (
+          {leaderboard.map(({ m, score }, i) => (
             <div className="ldr-row" key={m.id}>
               <span className={`rank ${i === 0 ? 'top' : ''}`}>{i + 1}</span>
               <div className="nme">
@@ -368,7 +526,7 @@ export function LeadHome({ me, setRoute }) {
                 <span>{m.name}</span>
               </div>
               <div className="bar thin" style={{ width: 80 }}>
-                <div className="bar-fill" style={{ width: Math.min(100, (score / 220) * 100) + '%' }}></div>
+                <div className="bar-fill" style={{ width: Math.min(100, (score / maxScore) * 100) + '%' }}></div>
               </div>
               <span className="score">{score}</span>
             </div>

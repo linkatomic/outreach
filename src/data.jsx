@@ -303,7 +303,7 @@ export function Icon({ name, size = 16, stroke = 1.5 }) {
 export function pct(part, whole) { return whole === 0 ? 0 : Math.round((part / whole) * 100); }
 export function fmtRel(iso) {
   const d = new Date(iso);
-  const now = new Date('2026-05-26T19:00:00');
+  const now = new Date();
   const diff = (now - d) / 1000;
   if (diff < 60) return 'just now';
   if (diff < 3600) return `${Math.round(diff/60)}m ago`;

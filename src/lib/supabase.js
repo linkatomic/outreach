@@ -340,13 +340,14 @@ export async function updateReportStatus(memberId, date, status) {
   if (error) throw error
 }
 
-export async function loadEmailLogsByDateRange(startDate, endDate = null) {
+export async function loadEmailLogsByDateRange(startDate, endDate = null, memberId = null) {
   let query = supabase
     .from('email_logs')
     .select('member_id, date, replies')
     .gte('date', startDate)
     .order('date', { ascending: true })
   if (endDate) query = query.lte('date', endDate)
+  if (memberId) query = query.eq('member_id', memberId)
   const { data, error } = await query
   if (error) throw error
   return data || []
@@ -362,6 +363,26 @@ export async function loadReportsByDateRange(startDate, endDate = null) {
   const { data, error } = await query
   if (error) throw error
   return data || []
+}
+
+export async function loadActivityFeed() {
+  const today = localDateStr();
+  const yesterday = localDateStr(1);
+  const [reportsResult, emailsResult] = await Promise.all([
+    supabase
+      .from('daily_reports')
+      .select('member_id, date, total, created_at')
+      .gte('date', yesterday)
+      .order('created_at', { ascending: false })
+      .limit(20),
+    supabase
+      .from('email_logs')
+      .select('member_id, replies, created_at')
+      .eq('date', today)
+      .order('created_at', { ascending: false })
+      .limit(100),
+  ]);
+  return { reports: reportsResult.data || [], emails: emailsResult.data || [] };
 }
 
 export async function loadAllReportsForDate(date) {
