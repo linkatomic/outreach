@@ -3,7 +3,7 @@ import { TEAM, Icon, todayISO, fmtDateShort, fmtFull } from '../data.jsx'
 import {
   loadEmailLogs, addEmail, findEmailByLink,
   incrementEmailReplies, decrementEmailReplies, updateEmailLabel, updateEmailBulk, deleteEmail,
-  getEmailCountToday, getTeamEmailCountToday
+  updateEmail, getEmailCountToday, getTeamEmailCountToday
 } from '../lib/supabase.js'
 
 const LABELS = [
@@ -11,6 +11,39 @@ const LABELS = [
   { id: 'good',     label: 'Good',     dot: '🟢' },
   { id: 'easy',     label: 'Easy',     dot: '🔵' },
 ]
+
+// ── Link helpers ─────────────────────────────────────────
+// Extract the conversation UUID from a full Missive URL, e.g.
+// https://mail.missiveapp.com/#sent/.../conversations/{uuid}
+function extractConvId(url) {
+  const m = url.match(/conversations\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i)
+  return m ? m[1] : null
+}
+
+function isConvId(str) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test((str || '').trim())
+}
+
+// Normalize a raw link for storage: if it's a Missive URL with a conversation ID,
+// store only the UUID. Otherwise strip the protocol.
+function normalizeLink(raw) {
+  const trimmed = raw.trim()
+  const convId = extractConvId(trimmed)
+  if (convId) return convId
+  return trimmed.replace(/^https?:\/\//, '')
+}
+
+// Reconstruct a clickable href from whatever is stored in `link`
+function hrefFor(link) {
+  if (isConvId(link)) return `https://mail.missiveapp.com/#conversations/${link}`
+  return link.startsWith('http') ? link : `https://${link}`
+}
+
+// Short display text for the grid
+function displayLink(link) {
+  if (isConvId(link)) return `missive…/${link.slice(0, 8)}`
+  return link
+}
 
 function LabelChip({ label, onClick }) {
   const def = LABELS.find(l => l.id === label)
@@ -26,10 +59,10 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
   const [mode, setMode]               = useState('quick')
   const [vendor, setVendor]           = useState('')
   const [link, setLink]               = useState('')
-  const [bulkEntry, setBulkEntry]     = useState(false)  // bulk? checkbox for quick add
+  const [bulkEntry, setBulkEntry]     = useState(false)
   const [filter, setFilter]           = useState('today')
   const [filterDate, setFilterDate]   = useState(todayISO())
-  const [filterMember, setFilterMember] = useState(me.id) // default to self
+  const [filterMember, setFilterMember] = useState(me.id)
   const [filterLabel, setFilterLabel] = useState(null)
   const [search, setSearch]           = useState('')
   const [bulkText, setBulkText]       = useState('')
@@ -40,12 +73,13 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
   const [teamTodayCount, setTeamTodayCount] = useState(0)
   const [bulkOpen, setBulkOpen]       = useState(false)
   const [selectedRows, setSelectedRows] = useState(new Set())
-  const [confirmDel, setConfirmDel]   = useState(null) // null | { type:'single'|'bulk', id?, ids? }
+  const [confirmDel, setConfirmDel]   = useState(null)
+  const [editingRow, setEditingRow]   = useState(null) // { id, vendor, link } | null
 
   // Fixed-position label menu portal: { row, x, y } or null
   const [labelMenu, setLabelMenu]     = useState(null)
 
-  // Link-status: vendor becomes optional for known same-day threads
+  // Link thread status for the quick-add form
   const [linkStatus, setLinkStatus]   = useState(null) // null | 'checking' | 'new' | 'thread'
   const [linkThread, setLinkThread]   = useState(null)
 
@@ -60,19 +94,20 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return
       if (e.key === 'n' || e.key === 'N') { e.preventDefault(); quickRef.current?.focus() }
       if (e.key === 'b' || e.key === 'B') { e.preventDefault(); setBulkOpen(true) }
-      if (e.key === 'Escape') setLabelMenu(null)
+      if (e.key === 'Escape') { setLabelMenu(null); setEditingRow(null) }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  // ── Debounced link → thread check ───────────────────
+  // ── Debounced link → thread check ───────────────────────
+  // Extracts conversation ID if present, then looks for it in today's entries
   useEffect(() => {
     if (!link.trim()) { setLinkStatus(null); setLinkThread(null); return }
     setLinkStatus('checking')
     const timer = setTimeout(async () => {
       try {
-        const norm = link.trim().replace(/^https?:\/\//, '')
+        const norm = normalizeLink(link)
         const found = await findEmailByLink(me.id, norm, todayISO())
         if (found) { setLinkStatus('thread'); setLinkThread(found) }
         else        { setLinkStatus('new');    setLinkThread(null)  }
@@ -81,10 +116,11 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
     return () => clearTimeout(timer)
   }, [link, me.id])
 
-  // ── Data fetching ────────────────────────────────────
+  // ── Data fetching ─────────────────────────────────────────
   const fetchRows = useCallback(async () => {
     setLoading(true)
-    setSelectedRows(new Set()) // clear selection on data reload
+    setSelectedRows(new Set())
+    setEditingRow(null)
     try {
       const memberId = filterMember === 'all' ? null : filterMember
       const data = await loadEmailLogs({
@@ -119,9 +155,7 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
   }
 
-  function normalizeLink(raw) { return raw.trim().replace(/^https?:\/\//, '') }
-
-  // ── Label menu (fixed portal) ────────────────────────
+  // ── Label menu (fixed portal) ─────────────────────────────
   function openLabelMenu(e, row) {
     e.stopPropagation()
     if (labelMenu?.row?.id === row.id) { setLabelMenu(null); return }
@@ -148,12 +182,12 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
     } catch (err) { showToast('Error: ' + err.message) }
   }
 
-  // ── Submit quick entry ───────────────────────────────
+  // ── Submit quick entry ────────────────────────────────────
   async function submitQuick() {
     const normLink = normalizeLink(link)
     if (!normLink) return
     if (!vendor.trim() && linkStatus !== 'thread') {
-      showToast('Enter a vendor name for new links')
+      showToast('Enter a vendor name for new entries')
       quickRef.current?.focus()
       return
     }
@@ -216,22 +250,42 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
     } catch (err) { showToast('Error: ' + err.message) }
   }
 
-  // Parse a single paste line: handles Google Sheets tab-separated and plain Missive links
+  // ── Inline edit (today's own entries only) ────────────────
+  async function saveEdit() {
+    if (!editingRow) return
+    const normLink = normalizeLink(editingRow.link)
+    const normVendor = editingRow.vendor.trim() || normLink
+    try {
+      await updateEmail(editingRow.id, { vendor: normVendor, link: normLink })
+      setRows(prev => prev.map(r => r.id === editingRow.id ? { ...r, vendor: normVendor, link: normLink } : r))
+      setEditingRow(null)
+      showToast('Entry updated')
+    } catch (err) {
+      showToast('Update failed: ' + err.message)
+    }
+  }
+
+  // ── Bulk paste ────────────────────────────────────────────
+  // Handles: full Missive URLs (extracts conversation UUID), short missive.app/ID, tab-separated sheets paste
   function parseBulkLine(line) {
-    // Google Sheets paste: tab-separated columns
     if (line.includes('\t')) {
       const parts = line.split('\t').map(p => p.trim()).filter(Boolean)
-      const linkPart   = parts.find(p => /missive\.app\//i.test(p) || /^https?:\/\//i.test(p))
+      const linkPart   = parts.find(p => /missiveapp\.com\//i.test(p) || /missive\.app\//i.test(p) || /^https?:\/\//i.test(p))
       const vendorPart = parts.find(p => p !== linkPart && p.length > 0) || ''
       if (linkPart) return { link: normalizeLink(linkPart), vendor: vendorPart || 'Untagged' }
     }
-    // Missive link pattern anywhere in line
+    // Full Missive URL with conversation UUID
+    const convId = extractConvId(line)
+    if (convId) {
+      const vendor = line.replace(/https?:\/\/[^\s]+/g, '').replace(/[—\-|·,\t]/g, '').trim() || 'Untagged'
+      return { link: convId, vendor }
+    }
+    // Short missive.app/ID link
     const m = line.match(/(missive\.app\/[\w\d]+)/i)
     if (m) {
       const vendor = line.replace(m[0], '').replace(/[—\-|·,\t]/g, '').trim() || 'Untagged'
       return { link: m[1], vendor }
     }
-    // Plain URL
     return { link: normalizeLink(line), vendor: 'Untagged' }
   }
 
@@ -293,28 +347,26 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
 
   function toggleAll(editableIds) {
     if (editableIds.every(id => selectedRows.has(id))) {
-      setSelectedRows(new Set()) // all already selected → deselect all
+      setSelectedRows(new Set())
     } else {
-      setSelectedRows(new Set(editableIds)) // select all editable
+      setSelectedRows(new Set(editableIds))
     }
   }
 
   const myTarget = 40
-  // Count derived from the current filtered rows — respects member + date filter
   const shownEmailCount = rows.reduce((sum, r) => sum + 1 + (r.replies || 0), 0)
-  // Neel is on a separate track — exclude from email log member filter
   const members  = TEAM.filter(m => m.role === 'member' && !m.neelOnly)
-  // Time column only visible to lead/HR/super
   const showTime = ['lead', 'hr', 'super'].includes(me.role)
+  // Last col is 52px to fit both edit + delete icon buttons
   const colTemplate = showTime
-    ? '28px 40px 80px 54px 0.85fr 1fr 100px 44px 96px 78px 28px'
-    : '28px 40px 80px 0.85fr 1fr 100px 44px 96px 78px 28px'
+    ? '28px 40px 80px 54px 0.85fr 1fr 100px 44px 96px 78px 52px'
+    : '28px 40px 80px 0.85fr 1fr 100px 44px 96px 78px 52px'
 
   const linkHint = linkStatus === 'thread'
-    ? `↩ Known thread · "${linkThread?.vendor}" · Log Entry will add a reply (vendor optional)`
+    ? `↩ Same conversation found today · "${linkThread?.vendor}" · Adding will increment replies`
     : linkStatus === 'new'
-    ? '✦ New link — vendor name required'
-    : 'Tab between fields · same link logged today → auto-increments replies instead of new row'
+    ? '✦ New conversation — vendor name required'
+    : 'Paste any Missive URL · conversation ID extracted automatically · same conversation today → adds reply'
 
   return (
     <div className="page">
@@ -378,7 +430,7 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
                    onChange={e => setVendor(e.target.value)}
                    onKeyDown={e => { if (e.key === 'Enter') linkRef.current?.focus() }} />
             <input ref={linkRef} className="input"
-                   placeholder="Missive link or URL…"
+                   placeholder="Paste Missive URL or link…"
                    style={{
                      flex: 1,
                      fontFamily: 'var(--font-mono)',
@@ -387,7 +439,6 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
                    value={link}
                    onChange={e => setLink(e.target.value)}
                    onKeyDown={e => { if (e.key === 'Enter') submitQuick() }} />
-            {/* Bulk checkbox */}
             <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: bulkEntry ? 'var(--text)' : 'var(--text-faint)', cursor: 'pointer', flexShrink: 0, userSelect: 'none' }}>
               <input type="checkbox" checked={bulkEntry} onChange={e => setBulkEntry(e.target.checked)}
                      style={{ accentColor: 'var(--accent)', width: 13, height: 13 }} />
@@ -414,7 +465,6 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
 
       {/* ── Filters ── */}
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-        {/* Date range */}
         <span className="seg">
           <button className={filter === 'today' ? 'on' : ''} onClick={() => setFilter('today')}>Today</button>
           <button className={filter === 'week'  ? 'on' : ''} onClick={() => setFilter('week')}>Week</button>
@@ -439,7 +489,6 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
           </div>
         )}
 
-        {/* Label filter */}
         <span className="seg">
           <button className={!filterLabel ? 'on' : ''} onClick={() => setFilterLabel(null)}>All labels</button>
           {LABELS.map(l => (
@@ -450,7 +499,6 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
           ))}
         </span>
 
-        {/* Member filter — names only, no duplicate "Just me" */}
         <span className="seg">
           <button className={filterMember === 'all' ? 'on' : ''} onClick={() => setFilterMember('all')}>Everyone</button>
           {members.map(m => (
@@ -460,7 +508,6 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
           ))}
         </span>
 
-        {/* Search */}
         <div style={{ position: 'relative', marginLeft: 'auto' }}>
           <input className="input" placeholder="Search vendor or link…" style={{ width: 240, paddingLeft: 28 }}
                  value={search} onChange={e => setSearch(e.target.value)} />
@@ -497,7 +544,7 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
           const editableIds = rows
             .filter(r => r.member_id === me.id || ['lead','hr','super'].includes(me.role))
             .map(r => r.id)
-          const allSelected = editableIds.length > 0 && editableIds.every(id => selectedRows.has(id))
+          const allSelected  = editableIds.length > 0 && editableIds.every(id => selectedRows.has(id))
           const someSelected = editableIds.some(id => selectedRows.has(id))
           return (
             <div className="eg-head">
@@ -531,7 +578,7 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
             <div className="muted mono">{fmtDateShort(todayISO())}</div>
             {showTime && <div className="mono muted">now</div>}
             <div><input className="input-bare" placeholder="Vendor…" autoComplete="off" value={vendor} onChange={e => setVendor(e.target.value)} /></div>
-            <div><input className="input-bare mono" placeholder="missive.app/…" value={link} onChange={e => setLink(e.target.value)} onKeyDown={e => e.key === 'Enter' && submitQuick()} /></div>
+            <div><input className="input-bare mono" placeholder="Paste Missive URL…" value={link} onChange={e => setLink(e.target.value)} onKeyDown={e => e.key === 'Enter' && submitQuick()} /></div>
             <div>—</div>
             <div style={{ textAlign: 'center' }}>—</div>
             <div>—</div>
@@ -543,10 +590,58 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
         {loading && <div className="empty">Loading…</div>}
 
         {!loading && rows.map((r, idx) => {
-          const member  = TEAM.find(m => m.id === r.member_id)
-          const canEdit = r.member_id === me.id || ['lead','hr','super'].includes(me.role)
-          const href    = r.link.startsWith('http') ? r.link : `https://${r.link}`
-          const isSelected = selectedRows.has(r.id)
+          const member        = TEAM.find(m => m.id === r.member_id)
+          const canEdit       = r.member_id === me.id || ['lead','hr','super'].includes(me.role)
+          const canEditToday  = canEdit && r.date === todayISO()
+          const isEditing     = editingRow?.id === r.id
+          const isSelected    = selectedRows.has(r.id)
+
+          // ── Edit mode row ──────────────────────────────────
+          if (isEditing) {
+            return (
+              <div key={r.id} className="eg-row" style={{
+                background: 'color-mix(in srgb, var(--accent) 6%, transparent)',
+                outline: '1px solid color-mix(in srgb, var(--accent) 40%, transparent)',
+              }}>
+                <div></div>
+                <div className="num" style={{ color: 'var(--text-faint)', fontSize: 11 }}>{idx + 1}</div>
+                <div className="muted mono">{fmtDateShort(r.date)}</div>
+                {showTime && <div className="mono muted">{r.time}</div>}
+                <div>
+                  <input className="input-bare" value={editingRow.vendor}
+                         onChange={e => setEditingRow(ev => ({ ...ev, vendor: e.target.value }))}
+                         placeholder="Vendor name…"
+                         onKeyDown={e => { if (e.key === 'Enter') saveEdit(); if (e.key === 'Escape') setEditingRow(null) }}
+                         autoFocus />
+                </div>
+                <div>
+                  <input className="input-bare mono" value={editingRow.link}
+                         onChange={e => setEditingRow(ev => ({ ...ev, link: e.target.value }))}
+                         placeholder="Paste Missive URL or link…"
+                         onKeyDown={e => { if (e.key === 'Enter') saveEdit(); if (e.key === 'Escape') setEditingRow(null) }} />
+                </div>
+                <div className="label-cell">
+                  {r.label ? <LabelChip label={r.label} /> : <span className="muted" style={{ fontSize: 11 }}>—</span>}
+                </div>
+                <div style={{ textAlign: 'center' }}>
+                  {r.bulk ? <span style={{ fontSize: 11 }}>✓</span> : null}
+                </div>
+                <div className="replies-cell">
+                  {r.replies > 0 && <span className="reply-count">↩ {r.replies}</span>}
+                </div>
+                <div className="row-flex">
+                  <div className={`avatar sm ${member?.color}`}>{member?.short}</div>
+                  <span className="muted" style={{ fontSize: 12 }}>{member?.name.split(' ')[0]}</span>
+                </div>
+                <div style={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+                  <button className="btn primary" style={{ height: 22, padding: '0 8px', fontSize: 11 }} onClick={saveEdit} title="Save (Enter)">Save</button>
+                  <button className="btn ghost" style={{ width: 22, height: 22, padding: 0 }} onClick={() => setEditingRow(null)} title="Cancel (Esc)"><Icon name="x" size={11} /></button>
+                </div>
+              </div>
+            )
+          }
+
+          // ── Normal row ─────────────────────────────────────
           return (
             <div key={r.id} className="eg-row" style={isSelected ? { background: 'rgba(210,254,92,0.06)' } : {}}>
               <div style={{ textAlign: 'center', padding: '8px 6px' }}>
@@ -561,10 +656,10 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
               {showTime && <div className="mono muted">{r.time}</div>}
               <div className="vendor">{r.vendor || <span className="muted">—</span>}</div>
               <div className="link">
-                <a href={href} target="_blank" rel="noreferrer"
+                <a href={hrefFor(r.link)} target="_blank" rel="noreferrer"
                    onClick={e => e.stopPropagation()}
                    style={{ color: 'inherit', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <Icon name="link" size={10} />{r.link}
+                  <Icon name="link" size={10} />{displayLink(r.link)}
                 </a>
               </div>
 
@@ -578,7 +673,7 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
                 }
               </div>
 
-              {/* Bulk? checkbox */}
+              {/* Bulk? */}
               <div style={{ textAlign: 'center' }}>
                 {canEdit
                   ? <input type="checkbox" checked={!!r.bulk} onChange={e => toggleBulk(r, e)}
@@ -588,7 +683,7 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
                 }
               </div>
 
-              {/* Replies cell */}
+              {/* Replies */}
               <div className="replies-cell">
                 {canEdit && r.replies > 0 && (
                   <button className="reply-add-btn" onClick={e => handleRemoveReply(r, e)} title="Remove reply" style={{ color: 'var(--text-faint)' }}>−</button>
@@ -605,8 +700,15 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
                 <span className="muted" style={{ fontSize: 12 }}>{member?.name.split(' ')[0]}</span>
               </div>
 
-              {/* Delete */}
-              <div>
+              {/* Edit + Delete */}
+              <div style={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+                {canEditToday && (
+                  <button className="btn ghost" style={{ width: 22, height: 22, padding: 0 }}
+                          onClick={e => { e.stopPropagation(); setEditingRow({ id: r.id, vendor: r.vendor || '', link: r.link }) }}
+                          title="Edit entry">
+                    <Icon name="edit" size={11} />
+                  </button>
+                )}
                 {canEdit
                   ? <button className="btn ghost" style={{ width: 22, height: 22, padding: 0 }}
                       onClick={e => delRow(r.id, e)} title="Delete">
@@ -637,7 +739,7 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
         </div>
       </div>
 
-      {/* ── Label menu portal (fixed, outside overflow:hidden grid) ── */}
+      {/* ── Label menu portal ── */}
       {labelMenu && (
         <>
           <div style={{ position: 'fixed', inset: 0, zIndex: 99 }} onClick={() => setLabelMenu(null)} />
@@ -693,17 +795,19 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
               <div className="label">Paste lines · one per email</div>
               <textarea className="input"
                         style={{ width: '100%', height: 220, padding: 12, fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: 1.6 }}
-                        placeholder={"Acme Imports — missive.app/8472634\nGlobex Wholesale | missive.app/8472711\nmissive.app/8472899 Northwind Apparel"}
+                        placeholder={"Acme Imports — missive.app/8472634\nhttps://mail.missiveapp.com/#sent/.../conversations/c85dfc4a-7d82-4644-bd47-63b5b85f362d\nGlobex Wholesale | missive.app/8472711"}
                         value={bulkText} onChange={e => setBulkText(e.target.value)} />
               <div className="hint-line" style={{ marginTop: 10 }}>
                 <Icon name="zap" size={11} />
-                <span>Same link already logged today → increments replies, not a new row.</span>
+                <span>Full Missive URLs supported · conversation ID extracted automatically · same conversation today → increments replies.</span>
               </div>
               <div style={{ marginTop: 12, padding: 12, background: 'var(--surface-2)', borderRadius: 8, fontSize: 12 }}>
                 <span className="muted">Preview · </span>
                 <span className="mono">{bulkText.split('\n').filter(l => l.trim()).length} lines</span>
                 <span className="muted"> · </span>
-                <span className="mono">{bulkText.match(/missive\.app\/\d+/gi)?.length || 0} links detected</span>
+                <span className="mono">
+                  {bulkText.split('\n').filter(l => extractConvId(l) || /missive\.app\/[\w\d]+/i.test(l)).length} missive links detected
+                </span>
               </div>
             </div>
             <div className="modal-foot">

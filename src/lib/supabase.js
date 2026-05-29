@@ -179,6 +179,14 @@ export async function updateEmailLabel(id, label) {
   if (error) throw error;
 }
 
+export async function updateEmail(id, { vendor, link }) {
+  const { error } = await supabase
+    .from('email_logs')
+    .update({ vendor, link })
+    .eq('id', id)
+  if (error) throw error
+}
+
 export async function deleteEmail(id) {
   const { error } = await supabase.from('email_logs').delete().eq('id', id);
   if (error) throw error;
