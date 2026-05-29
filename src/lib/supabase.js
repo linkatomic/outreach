@@ -314,6 +314,18 @@ export async function deleteTask(id) {
   if (error) throw error
 }
 
+export async function loadPriceTable() {
+  const { data, error } = await supabase
+    .from('price_table')
+    .select('*')
+  if (error) throw error
+  return (data || []).map(r => ({
+    admin: r.Admin ?? r.admin,
+    buyer: r.Buyer ?? r.buyer,
+    reseller: r.Reseller ?? r.reseller,
+  }))
+}
+
 export async function updateReportStatus(memberId, date, status) {
   const { error } = await supabase
     .from('daily_reports')
