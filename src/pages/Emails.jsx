@@ -130,7 +130,22 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
         label: filterLabel,
         date: filter === 'date' ? filterDate : null,
       })
-      setRows(data)
+
+      // Normalize any full Missive URLs → conversation UUID.
+      // Update local state immediately (no flash), persist to DB in background.
+      const toUpdate = []
+      const normalized = data.map(r => {
+        if (isConvId(r.link)) return r            // already normalized
+        const convId = extractConvId(r.link)
+        if (!convId) return r                      // not a Missive conversation URL
+        toUpdate.push({ id: r.id, vendor: r.vendor, link: convId })
+        return { ...r, link: convId }
+      })
+      setRows(normalized)
+      // Fire-and-forget: safe to retry on next load if any fail
+      toUpdate.forEach(({ id, vendor, link }) => {
+        updateEmail(id, { vendor, link }).catch(() => {})
+      })
     } catch (err) {
       showToast('Failed to load: ' + err.message)
     } finally {
