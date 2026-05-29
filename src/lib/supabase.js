@@ -314,41 +314,6 @@ export async function deleteTask(id) {
   if (error) throw error
 }
 
-// ── Notes ─────────────────────────────────────────────
-
-export async function loadNotes(memberId) {
-  const { data, error } = await supabase
-    .from('notes')
-    .select('id, title, content, updated_at, created_at')
-    .eq('member_id', memberId)
-    .order('updated_at', { ascending: false })
-  if (error) throw error
-  return data || []
-}
-
-export async function createNote({ memberId, title = 'Untitled', content = '' }) {
-  const { data, error } = await supabase
-    .from('notes')
-    .insert({ member_id: memberId, title, content })
-    .select('id, title, content, updated_at, created_at')
-    .single()
-  if (error) throw error
-  return data
-}
-
-export async function updateNote(id, { title, content }) {
-  const { error } = await supabase
-    .from('notes')
-    .update({ title, content, updated_at: new Date().toISOString() })
-    .eq('id', id)
-  if (error) throw error
-}
-
-export async function deleteNote(id) {
-  const { error } = await supabase.from('notes').delete().eq('id', id)
-  if (error) throw error
-}
-
 export async function updateReportStatus(memberId, date, status) {
   const { error } = await supabase
     .from('daily_reports')

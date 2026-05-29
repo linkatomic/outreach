@@ -11,7 +11,6 @@ export function Sidebar({ route, setRoute, role, me, impersonatedId, openCmdK, t
     { id: 'team',      label: 'Team',         icon: 'users',  kbd: 'G T' },
     { id: 'ideas',     label: 'Ideas Board',  icon: 'flash',  kbd: 'G I' },
     { id: 'tasks',     label: 'Tasks',        icon: 'check',  kbd: 'G K' },
-    { id: 'notes',     label: 'My Notes',     icon: 'edit',   kbd: 'G N' },
   ];
   const leadItems = [
     { id: 'review',      label: 'Review Queue', icon: 'eye',    badge: 3 },
@@ -223,7 +222,6 @@ export function CommandPalette({ open, onClose, setRoute, openModal, role }) {
         { id: 'go-team',      label: 'Go to Team',        icon: 'users',  kbd: ['G','T'], do: () => setRoute('team') },
         { id: 'go-ideas',     label: 'Go to Ideas Board', icon: 'flash',  kbd: ['G','I'], do: () => setRoute('ideas') },
         { id: 'go-tasks',     label: 'Go to Tasks',       icon: 'check',  kbd: ['G','K'], do: () => setRoute('tasks') },
-        { id: 'go-notes',     label: 'Go to My Notes',    icon: 'edit',   kbd: ['G','N'], do: () => setRoute('notes') },
       ]},
       { group: 'Actions', cmds: [
         { id: 'new-email',  label: 'Log new email',           desc: 'Add a Missive entry',      icon: 'plus',   kbd: ['N'], do: () => { setRoute('emails'); setTimeout(() => openModal('focusEmail'), 50); } },
