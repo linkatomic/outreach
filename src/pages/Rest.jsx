@@ -7,60 +7,70 @@ import { Sparkline, LineChart } from './Home.jsx'
 
 // ──────────────── ANALYTICS ────────────────
 export function AnalyticsPage({ setRoute }) {
-  const [range, setRange] = useState('14d');
+  const [range, setRange]         = useState('14d');
+  const [customDate, setCustomDate] = useState(todayISO());
+  const [compMetric, setCompMetric] = useState('emails');
   const [emailLogs, setEmailLogs] = useState([]);
   const [reports, setReports]     = useState([]);
   const [loading, setLoading]     = useState(true);
 
-  const days = range === '1d' ? 1 : range === '7d' ? 7 : range === '14d' ? 14 : range === '30d' ? 30 : 90;
   const members = TEAM.filter(m => m.role === 'member' && !m.neelOnly);
+  const isSingleDay  = range === 'today' || range === 'date';
+  const rangeStart   = range === 'today' ? todayISO() : range === 'date' ? customDate : isoNDaysAgo(range === '7d' ? 7 : range === '14d' ? 14 : range === '30d' ? 30 : 90);
+  const rangeEnd     = isSingleDay ? rangeStart : null;
+  const days         = isSingleDay ? 1 : range === '7d' ? 7 : range === '14d' ? 14 : range === '30d' ? 30 : 90;
+  const rangeLabel   = range === 'today' ? 'Today' : range === 'date' ? fmtDateShort(customDate) : range;
 
   useEffect(() => {
     setLoading(true);
-    const start = isoNDaysAgo(days);
-    Promise.all([loadEmailLogsByDateRange(start), loadReportsByDateRange(start)])
+    Promise.all([loadEmailLogsByDateRange(rangeStart, rangeEnd), loadReportsByDateRange(rangeStart, rangeEnd)])
       .then(([logs, rpts]) => { setEmailLogs(logs); setReports(rpts); })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [days]);
+  }, [rangeStart, rangeEnd]);
 
   const trend = useMemo(() => {
     const byDate = {};
     emailLogs.forEach(e => { byDate[e.date] = (byDate[e.date] || 0) + 1 + (e.replies || 0); });
+    if (isSingleDay) return [{ date: rangeStart, count: byDate[rangeStart] || 0 }];
     return Array.from({ length: days }, (_, i) => {
       const d = isoNDaysAgo(days - 1 - i);
       return { date: d, count: byDate[d] || 0 };
     });
-  }, [emailLogs, days]);
+  }, [emailLogs, range, customDate]);
 
   const totalEmails = trend.reduce((s, d) => s + d.count, 0);
 
   const memberStats = useMemo(() => {
-    const weekStart    = isoNDaysAgo(7);
-    const prevStart    = isoNDaysAgo(14);
+    const cmpStart  = isSingleDay ? rangeStart : isoNDaysAgo(7);
+    const prevStart = isoNDaysAgo(14);
     return members.map(m => {
       const my = emailLogs.filter(e => e.member_id === m.id);
-      const week     = my.filter(e => e.date >= weekStart).reduce((s, e) => s + 1 + (e.replies || 0), 0);
-      const prevWeek = my.filter(e => e.date >= prevStart && e.date < weekStart).reduce((s, e) => s + 1 + (e.replies || 0), 0);
-      const delta    = prevWeek === 0 ? null : Math.round(((week - prevWeek) / prevWeek) * 100);
-      const myRpts   = reports.filter(r => r.member_id === m.id && r.date >= weekStart).length;
-      return { m, week, prevWeek, delta, reports: myRpts };
+      const week     = my.filter(e => isSingleDay ? e.date === rangeStart : e.date >= cmpStart).reduce((s, e) => s + 1 + (e.replies || 0), 0);
+      const prevWeek = isSingleDay ? 0 : my.filter(e => e.date >= prevStart && e.date < cmpStart).reduce((s, e) => s + 1 + (e.replies || 0), 0);
+      const delta    = (isSingleDay || prevWeek === 0) ? null : Math.round(((week - prevWeek) / prevWeek) * 100);
+      const myRpts   = reports.filter(r => r.member_id === m.id && (isSingleDay ? r.date === rangeStart : r.date >= cmpStart));
+      const sitesWeek = myRpts.reduce((s, r) => s + (typeof r.metrics?.web_added === 'number' ? r.metrics.web_added : 0) + (typeof r.metrics?.web_audited === 'number' ? r.metrics.web_audited : 0), 0);
+      const prevRpts  = isSingleDay ? [] : reports.filter(r => r.member_id === m.id && r.date >= prevStart && r.date < cmpStart);
+      const sitesPrev = prevRpts.reduce((s, r) => s + (typeof r.metrics?.web_added === 'number' ? r.metrics.web_added : 0) + (typeof r.metrics?.web_audited === 'number' ? r.metrics.web_audited : 0), 0);
+      const sitesDelta = (isSingleDay || sitesPrev === 0) ? null : Math.round(((sitesWeek - sitesPrev) / sitesPrev) * 100);
+      return { m, week, delta, sitesWeek, sitesDelta, reports: myRpts.length };
     });
-  }, [emailLogs, reports, members]);
+  }, [emailLogs, reports, range, customDate]);
 
   const metricBreakdown = useMemo(() => {
-    const weekStart  = isoNDaysAgo(7);
-    const weekRpts   = reports.filter(r => r.date >= weekStart && members.some(m => m.id === r.member_id));
+    const cmpStart = isSingleDay ? rangeStart : isoNDaysAgo(7);
+    const weekRpts = reports.filter(r => (isSingleDay ? r.date === rangeStart : r.date >= cmpStart) && members.some(m => m.id === r.member_id));
     return METRICS.slice(0, 8).map(mt => ({
       mt,
       total: weekRpts.reduce((s, r) => s + (typeof r.metrics?.[mt.key] === 'number' ? r.metrics[mt.key] : 0), 0),
     })).sort((a, b) => b.total - a.total);
-  }, [reports, members]);
+  }, [reports, range, customDate]);
 
-  const metricMax   = Math.max(...metricBreakdown.map(b => b.total), 1);
-  const maxWeek     = Math.max(...memberStats.map(x => x.week), 1);
-  const totalRpts   = reports.filter(r => members.some(m => m.id === r.member_id)).length;
-  const compliance  = totalRpts === 0 ? 0 : Math.min(100, Math.round((totalRpts / (days * members.length)) * 100));
+  const metricMax  = Math.max(...metricBreakdown.map(b => b.total), 1);
+  const compMax    = Math.max(...memberStats.map(x => compMetric === 'emails' ? x.week : x.sitesWeek), 1);
+  const totalRpts  = reports.filter(r => members.some(m => m.id === r.member_id)).length;
+  const compliance = totalRpts === 0 ? 0 : Math.min(100, Math.round((totalRpts / (days * members.length)) * 100));
 
   return (
     <div className="page">
@@ -71,10 +81,19 @@ export function AnalyticsPage({ setRoute }) {
         </div>
         <div className="actions">
           <span className="seg">
-            {['1d', '7d', '14d', '30d', '90d'].map(r => (
+            <button className={range === 'today' ? 'on' : ''} onClick={() => setRange('today')}>Today</button>
+            {['7d', '14d', '30d', '90d'].map(r => (
               <button key={r} className={range === r ? 'on' : ''} onClick={() => setRange(r)}>{r}</button>
             ))}
+            <button className={range === 'date' ? 'on' : ''} onClick={() => setRange('date')} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <Icon name="calendar" size={11} />{range === 'date' ? fmtDateShort(customDate) : 'Date'}
+            </button>
           </span>
+          {range === 'date' && (
+            <input type="date" className="input" value={customDate} max={todayISO()}
+              onChange={e => e.target.value && setCustomDate(e.target.value)}
+              style={{ width: 148, fontFamily: 'var(--font-mono)', fontSize: 13, cursor: 'pointer' }} />
+          )}
         </div>
       </div>
 
@@ -84,30 +103,30 @@ export function AnalyticsPage({ setRoute }) {
         <>
           <div className="grid grid-4" style={{ marginBottom: 16 }}>
             <div className="kpi">
-              <div className="kpi-label">Total emails · {range}</div>
+              <div className="kpi-label">Total emails · {rangeLabel}</div>
               <div className="kpi-value">{totalEmails.toLocaleString()}</div>
               <Sparkline data={trend.map(d => d.count)} />
             </div>
             <div className="kpi">
-              <div className="kpi-label">Reports filed · {range}</div>
+              <div className="kpi-label">Reports filed · {rangeLabel}</div>
               <div className="kpi-value">{totalRpts}<span style={{ color: 'var(--text-faint)', fontSize: 14 }}> / {days * members.length}</span></div>
               <div className="kpi-target">{days}d × {members.length} members</div>
             </div>
             <div className="kpi">
               <div className="kpi-label">Avg emails / member / day</div>
               <div className="kpi-value">{members.length > 0 && days > 0 ? Math.round(totalEmails / members.length / days) : 0}</div>
-              <div className="kpi-target">based on {range}</div>
+              <div className="kpi-target">based on {rangeLabel}</div>
             </div>
             <div className="kpi">
               <div className="kpi-label">Report compliance</div>
               <div className="kpi-value">{compliance}<span style={{ color: 'var(--text-faint)', fontSize: 14 }}>%</span></div>
-              <div className="kpi-target">reports on time, last {days}d</div>
+              <div className="kpi-target">reports on time, {rangeLabel}</div>
             </div>
           </div>
 
           <div className="card" style={{ marginBottom: 16 }}>
             <div className="card-head">
-              <h3>Email volume — {range}</h3>
+              <h3>Email volume — {rangeLabel}</h3>
               <span className="chip"><span className="dot-status accent"></span>Team total</span>
             </div>
             <div className="chart-wrap"><LineChart data={trend} height={220} /></div>
@@ -115,31 +134,41 @@ export function AnalyticsPage({ setRoute }) {
 
           <div className="grid grid-2" style={{ marginBottom: 16 }}>
             <div className="card">
-              <div className="card-head"><h3>Member comparison · 7-day</h3><span className="faint mono" style={{ fontSize: 11 }}>vs prior week</span></div>
+              <div className="card-head">
+                <h3>Member comparison · {isSingleDay ? rangeLabel : '7-day'}</h3>
+                <span className="seg" style={{ fontSize: 11 }}>
+                  <button className={compMetric === 'emails' ? 'on' : ''} onClick={() => setCompMetric('emails')}>Emails</button>
+                  <button className={compMetric === 'sites' ? 'on' : ''} onClick={() => setCompMetric('sites')}>Sites</button>
+                </span>
+              </div>
               <div style={{ padding: '0 16px 16px' }}>
-                {[...memberStats].sort((a, b) => b.week - a.week).map(({ m, week, delta }) => (
-                  <div key={m.id} style={{ padding: '12px 0', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <div className={`avatar ${m.color}`}>{m.short}</div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 500 }}>{m.name}</div>
-                      <div className="bar thin" style={{ marginTop: 6, width: '100%' }}>
-                        <div className="bar-fill" style={{ width: Math.min(100, (week / maxWeek) * 100) + '%' }}></div>
+                {[...memberStats].sort((a, b) => (compMetric === 'emails' ? b.week - a.week : b.sitesWeek - a.sitesWeek)).map(({ m, week, delta, sitesWeek, sitesDelta }) => {
+                  const val = compMetric === 'emails' ? week : sitesWeek;
+                  const dlt = compMetric === 'emails' ? delta : sitesDelta;
+                  return (
+                    <div key={m.id} style={{ padding: '12px 0', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <div className={`avatar ${m.color}`}>{m.short}</div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 500 }}>{m.name}</div>
+                        <div className="bar thin" style={{ marginTop: 6, width: '100%' }}>
+                          <div className="bar-fill" style={{ width: Math.min(100, (val / compMax) * 100) + '%' }}></div>
+                        </div>
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <div className="mono" style={{ fontSize: 15, letterSpacing: '-0.02em' }}>{val}</div>
+                        {dlt !== null && (
+                          <div className={`kpi-delta ${dlt >= 0 ? 'up' : 'down'}`} style={{ fontSize: 10, justifyContent: 'flex-end' }}>
+                            <Icon name={dlt >= 0 ? 'arrowUp' : 'arrowDown'} size={9} />{Math.abs(dlt)}%
+                          </div>
+                        )}
                       </div>
                     </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <div className="mono" style={{ fontSize: 15, letterSpacing: '-0.02em' }}>{week}</div>
-                      {delta !== null && (
-                        <div className={`kpi-delta ${delta >= 0 ? 'up' : 'down'}`} style={{ fontSize: 10, justifyContent: 'flex-end' }}>
-                          <Icon name={delta >= 0 ? 'arrowUp' : 'arrowDown'} size={9} />{Math.abs(delta)}%
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
             <div className="card">
-              <div className="card-head"><h3>Metric mix · last 7 days</h3><span className="faint" style={{ fontSize: 11 }}>by category</span></div>
+              <div className="card-head"><h3>Metric mix · {isSingleDay ? rangeLabel : 'last 7 days'}</h3><span className="faint" style={{ fontSize: 11 }}>by category</span></div>
               <div style={{ padding: '0 16px 16px' }}>
                 {metricBreakdown.filter(b => b.total > 0).map(({ mt, total }) => (
                   <div key={mt.key} style={{ padding: '8px 0', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -151,7 +180,7 @@ export function AnalyticsPage({ setRoute }) {
                     <span className="mono tnum" style={{ fontSize: 13, minWidth: 50, textAlign: 'right' }}>{total}</span>
                   </div>
                 ))}
-                {metricBreakdown.every(b => b.total === 0) && <div className="empty">No report data yet for last 7 days</div>}
+                {metricBreakdown.every(b => b.total === 0) && <div className="empty">No report data for {rangeLabel}</div>}
               </div>
             </div>
           </div>
@@ -462,7 +491,7 @@ export function ReviewPage({ setRoute, showToast }) {
           <div className="card">
             <div className="card-head">
               <h3>{tab === 'missing' ? "Hasn't filed yet" : `${tab.charAt(0).toUpperCase() + tab.slice(1)} reports`}</h3>
-              <span className="faint mono" style={{ fontSize: 11 }}>{fmtFull(today)}</span>
+              <span className="faint mono" style={{ fontSize: 11 }}>{fmtFull(reviewDate)}</span>
             </div>
             <div style={{ padding: '4px 0' }}>
               {tabItems.length === 0 && (

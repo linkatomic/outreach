@@ -104,7 +104,7 @@ export default function App() {
     });
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session) loadProfile(session.user.id);
-      else { setMe(null); setImpersonatedIdRaw(null); sessionStorage.removeItem('relay_impersonated'); setAuthLoading(false); setAccentRaw('lime'); applyAccentCssVars('lime'); superAccentRef.current = 'lime'; }
+      else { setMe(null); setImpersonatedIdRaw(null); setAuthLoading(false); setAccentRaw('lime'); applyAccentCssVars('lime'); superAccentRef.current = 'lime'; }
     });
     return () => subscription.unsubscribe();
   }, []);
