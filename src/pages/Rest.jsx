@@ -1,29 +1,66 @@
-import { useState, useEffect } from 'react'
-import { TEAM, METRICS, REPORTS, ACCENT_PRESETS, Icon, rnd, todayISO, isoNDaysAgo, fmtDateShort, fmtFull, fmtRel,
-         emailsToday, emailsCountByDay, teamEmailsCountByDay, reportsForMember, reportToday, metricsFor, pct } from '../data.jsx'
-import { supabase, loadAllReportsForDate, updateReportStatus } from '../lib/supabase.js'
+import { useState, useEffect, useMemo } from 'react'
+import { TEAM, METRICS, ACCENT_PRESETS, Icon, todayISO, isoNDaysAgo, fmtDateShort, fmtFull,
+         metricsFor, pct } from '../data.jsx'
+import { supabase, loadAllReportsForDate, updateReportStatus,
+         loadEmailLogsByDateRange, loadReportsByDateRange } from '../lib/supabase.js'
 import { Sparkline, LineChart } from './Home.jsx'
 
 // ──────────────── ANALYTICS ────────────────
 export function AnalyticsPage({ setRoute }) {
   const [range, setRange] = useState('14d');
+  const [emailLogs, setEmailLogs] = useState([]);
+  const [reports, setReports]     = useState([]);
+  const [loading, setLoading]     = useState(true);
+
   const days = range === '7d' ? 7 : range === '14d' ? 14 : range === '30d' ? 30 : 90;
-  const trend = teamEmailsCountByDay(days);
+  const members = TEAM.filter(m => m.role === 'member' && !m.neelOnly);
 
-  const memberStats = TEAM.filter(m => m.role === 'member').map(m => {
-    const week = emailsCountByDay(m.id, 7).reduce((s, d) => s + d.count, 0);
-    const prevWeek = emailsCountByDay(m.id, 14).slice(0, 7).reduce((s, d) => s + d.count, 0);
-    const delta = prevWeek === 0 ? 0 : Math.round(((week - prevWeek) / prevWeek) * 100);
-    const reports = reportsForMember(m.id, 7).length;
-    return { m, week, prevWeek, delta, reports };
-  });
+  useEffect(() => {
+    setLoading(true);
+    const start = isoNDaysAgo(days);
+    Promise.all([loadEmailLogsByDateRange(start), loadReportsByDateRange(start)])
+      .then(([logs, rpts]) => { setEmailLogs(logs); setReports(rpts); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [days]);
 
-  const metricBreakdown = METRICS.slice(0, 8).map(mt => {
-    const total = TEAM.filter(m => m.role === 'member').reduce((s, m) =>
-      s + reportsForMember(m.id, 7).reduce((ss, r) => ss + (r.metrics[mt.key] || 0), 0), 0);
-    return { mt, total };
-  }).sort((a, b) => b.total - a.total);
-  const metricMax = Math.max(...metricBreakdown.map(b => b.total), 1);
+  const trend = useMemo(() => {
+    const byDate = {};
+    emailLogs.forEach(e => { byDate[e.date] = (byDate[e.date] || 0) + 1 + (e.replies || 0); });
+    return Array.from({ length: days }, (_, i) => {
+      const d = isoNDaysAgo(days - 1 - i);
+      return { date: d, count: byDate[d] || 0 };
+    });
+  }, [emailLogs, days]);
+
+  const totalEmails = trend.reduce((s, d) => s + d.count, 0);
+
+  const memberStats = useMemo(() => {
+    const weekStart    = isoNDaysAgo(7);
+    const prevStart    = isoNDaysAgo(14);
+    return members.map(m => {
+      const my = emailLogs.filter(e => e.member_id === m.id);
+      const week     = my.filter(e => e.date >= weekStart).reduce((s, e) => s + 1 + (e.replies || 0), 0);
+      const prevWeek = my.filter(e => e.date >= prevStart && e.date < weekStart).reduce((s, e) => s + 1 + (e.replies || 0), 0);
+      const delta    = prevWeek === 0 ? null : Math.round(((week - prevWeek) / prevWeek) * 100);
+      const myRpts   = reports.filter(r => r.member_id === m.id && r.date >= weekStart).length;
+      return { m, week, prevWeek, delta, reports: myRpts };
+    });
+  }, [emailLogs, reports, members]);
+
+  const metricBreakdown = useMemo(() => {
+    const weekStart  = isoNDaysAgo(7);
+    const weekRpts   = reports.filter(r => r.date >= weekStart && members.some(m => m.id === r.member_id));
+    return METRICS.slice(0, 8).map(mt => ({
+      mt,
+      total: weekRpts.reduce((s, r) => s + (typeof r.metrics?.[mt.key] === 'number' ? r.metrics[mt.key] : 0), 0),
+    })).sort((a, b) => b.total - a.total);
+  }, [reports, members]);
+
+  const metricMax   = Math.max(...metricBreakdown.map(b => b.total), 1);
+  const maxWeek     = Math.max(...memberStats.map(x => x.week), 1);
+  const totalRpts   = reports.filter(r => members.some(m => m.id === r.member_id)).length;
+  const compliance  = totalRpts === 0 ? 0 : Math.min(100, Math.round((totalRpts / (days * members.length)) * 100));
 
   return (
     <div className="page">
@@ -38,181 +75,208 @@ export function AnalyticsPage({ setRoute }) {
               <button key={r} className={range === r ? 'on' : ''} onClick={() => setRange(r)}>{r}</button>
             ))}
           </span>
-          <button className="btn"><Icon name="download" size={12} />Export CSV</button>
-          <button className="btn ghost"><Icon name="copy" size={12} />Copy link</button>
         </div>
       </div>
 
-      <div className="grid grid-4" style={{ marginBottom: 16 }}>
-        <div className="kpi">
-          <div className="kpi-label">Total emails · {range}</div>
-          <div className="kpi-value">{trend.reduce((s, d) => s + d.count, 0).toLocaleString()}</div>
-          <div className="kpi-delta up"><Icon name="arrowUp" size={10} />+12% prior period</div>
-          <Sparkline data={trend.map(d => d.count)} />
-        </div>
-        <div className="kpi">
-          <div className="kpi-label">Reports filed</div>
-          <div className="kpi-value">{memberStats.reduce((s, x) => s + x.reports, 0)}<span style={{ color: 'var(--text-faint)', fontSize: 14 }}> / 35</span></div>
-          <div className="kpi-target">5 days × 5 members · 1 missing</div>
-        </div>
-        <div className="kpi">
-          <div className="kpi-label">Median emails / member / day</div>
-          <div className="kpi-value">27</div>
-          <div className="kpi-delta up"><Icon name="arrowUp" size={10} />+2 vs prior</div>
-        </div>
-        <div className="kpi">
-          <div className="kpi-label">Compliance</div>
-          <div className="kpi-value">92<span style={{ color: 'var(--text-faint)', fontSize: 14 }}>%</span></div>
-          <div className="kpi-target">Reports on time, last {days}d</div>
-        </div>
-      </div>
-
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div className="card-head">
-          <h3>Email volume — {range}</h3>
-          <div className="actions">
-            <span className="chip"><span className="dot-status accent"></span>Team total</span>
+      {loading ? (
+        <div className="card" style={{ padding: 48, textAlign: 'center' }}><span className="muted">Loading…</span></div>
+      ) : (
+        <>
+          <div className="grid grid-4" style={{ marginBottom: 16 }}>
+            <div className="kpi">
+              <div className="kpi-label">Total emails · {range}</div>
+              <div className="kpi-value">{totalEmails.toLocaleString()}</div>
+              <Sparkline data={trend.map(d => d.count)} />
+            </div>
+            <div className="kpi">
+              <div className="kpi-label">Reports filed · {range}</div>
+              <div className="kpi-value">{totalRpts}<span style={{ color: 'var(--text-faint)', fontSize: 14 }}> / {days * members.length}</span></div>
+              <div className="kpi-target">{days}d × {members.length} members</div>
+            </div>
+            <div className="kpi">
+              <div className="kpi-label">Avg emails / member / day</div>
+              <div className="kpi-value">{members.length > 0 && days > 0 ? Math.round(totalEmails / members.length / days) : 0}</div>
+              <div className="kpi-target">based on {range}</div>
+            </div>
+            <div className="kpi">
+              <div className="kpi-label">Report compliance</div>
+              <div className="kpi-value">{compliance}<span style={{ color: 'var(--text-faint)', fontSize: 14 }}>%</span></div>
+              <div className="kpi-target">reports on time, last {days}d</div>
+            </div>
           </div>
-        </div>
-        <div className="chart-wrap"><LineChart data={trend} height={220} /></div>
-      </div>
 
-      <div className="grid grid-2" style={{ marginBottom: 16 }}>
-        <div className="card">
-          <div className="card-head"><h3>Member comparison · 7-day</h3><span className="faint mono" style={{ fontSize: 11 }}>vs last week</span></div>
-          <div style={{ padding: '0 16px 16px' }}>
-            {memberStats.sort((a, b) => b.week - a.week).map(({ m, week, delta }) => (
-              <div key={m.id} style={{ padding: '12px 0', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 12 }}>
-                <div className={`avatar ${m.color}`}>{m.short}</div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 500 }}>{m.name}</div>
-                  <div className="bar thin" style={{ marginTop: 6, width: '100%' }}>
-                    <div className="bar-fill" style={{ width: Math.min(100, (week / 220) * 100) + '%' }}></div>
+          <div className="card" style={{ marginBottom: 16 }}>
+            <div className="card-head">
+              <h3>Email volume — {range}</h3>
+              <span className="chip"><span className="dot-status accent"></span>Team total</span>
+            </div>
+            <div className="chart-wrap"><LineChart data={trend} height={220} /></div>
+          </div>
+
+          <div className="grid grid-2" style={{ marginBottom: 16 }}>
+            <div className="card">
+              <div className="card-head"><h3>Member comparison · 7-day</h3><span className="faint mono" style={{ fontSize: 11 }}>vs prior week</span></div>
+              <div style={{ padding: '0 16px 16px' }}>
+                {[...memberStats].sort((a, b) => b.week - a.week).map(({ m, week, delta }) => (
+                  <div key={m.id} style={{ padding: '12px 0', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <div className={`avatar ${m.color}`}>{m.short}</div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 500 }}>{m.name}</div>
+                      <div className="bar thin" style={{ marginTop: 6, width: '100%' }}>
+                        <div className="bar-fill" style={{ width: Math.min(100, (week / maxWeek) * 100) + '%' }}></div>
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div className="mono" style={{ fontSize: 15, letterSpacing: '-0.02em' }}>{week}</div>
+                      {delta !== null && (
+                        <div className={`kpi-delta ${delta >= 0 ? 'up' : 'down'}`} style={{ fontSize: 10, justifyContent: 'flex-end' }}>
+                          <Icon name={delta >= 0 ? 'arrowUp' : 'arrowDown'} size={9} />{Math.abs(delta)}%
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-                <div style={{ textAlign: 'right' }}>
-                  <div className="mono" style={{ fontSize: 15, letterSpacing: '-0.02em' }}>{week}</div>
-                  <div className={`kpi-delta ${delta >= 0 ? 'up' : 'down'}`} style={{ fontSize: 10, justifyContent: 'flex-end' }}>
-                    <Icon name={delta >= 0 ? 'arrowUp' : 'arrowDown'} size={9} />{Math.abs(delta)}%
+                ))}
+              </div>
+            </div>
+            <div className="card">
+              <div className="card-head"><h3>Metric mix · last 7 days</h3><span className="faint" style={{ fontSize: 11 }}>by category</span></div>
+              <div style={{ padding: '0 16px 16px' }}>
+                {metricBreakdown.filter(b => b.total > 0).map(({ mt, total }) => (
+                  <div key={mt.key} style={{ padding: '8px 0', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <Icon name={mt.icon} size={13} />
+                    <span style={{ flex: 1, fontSize: 12.5 }}>{mt.label}</span>
+                    <div className="bar thin" style={{ width: 100 }}>
+                      <div className="bar-fill" style={{ width: Math.min(100, (total / metricMax) * 100) + '%' }}></div>
+                    </div>
+                    <span className="mono tnum" style={{ fontSize: 13, minWidth: 50, textAlign: 'right' }}>{total}</span>
                   </div>
-                </div>
+                ))}
+                {metricBreakdown.every(b => b.total === 0) && <div className="empty">No report data yet for last 7 days</div>}
               </div>
-            ))}
+            </div>
           </div>
-        </div>
-        <div className="card">
-          <div className="card-head"><h3>Metric mix · last 7 days</h3><span className="faint" style={{ fontSize: 11 }}>by category</span></div>
-          <div style={{ padding: '0 16px 16px' }}>
-            {metricBreakdown.map(({ mt, total }) => (
-              <div key={mt.key} style={{ padding: '8px 0', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 10 }}>
-                <Icon name={mt.icon} size={13} />
-                <span style={{ flex: 1, fontSize: 12.5 }}>{mt.label}</span>
-                <div className="bar thin" style={{ width: 100 }}>
-                  <div className="bar-fill" style={{ width: Math.min(100, (total / metricMax) * 100) + '%' }}></div>
-                </div>
-                <span className="mono tnum" style={{ fontSize: 13, minWidth: 50, textAlign: 'right' }}>{total}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      <div className="card">
-        <div className="card-head"><h3>When the team works · hour-of-day</h3><span className="faint" style={{ fontSize: 11 }}>past 30 days</span></div>
-        <div style={{ padding: 16 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '60px repeat(12, 1fr)', gap: 3, alignItems: 'center' }}>
-            <div></div>
-            {Array.from({ length: 12 }).map((_, i) => (
-              <div key={i} style={{ fontSize: 10, color: 'var(--text-faint)', textAlign: 'center', fontFamily: 'var(--font-mono)' }}>{9 + i}:00</div>
-            ))}
-            {TEAM.filter(m => m.role === 'member').map(m => (
-              <span key={m.id} style={{ display: 'contents' }}>
-                <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>{m.name.split(' ')[0]}</div>
-                {Array.from({ length: 12 }).map((_, i) => {
-                  const intensity = rnd(m.id + 'h' + i);
-                  const lvl = intensity < 0.2 ? 0 : intensity < 0.4 ? 1 : intensity < 0.65 ? 2 : intensity < 0.85 ? 3 : 4;
-                  return <div key={i} style={{ height: 20, background: lvl === 0 ? 'var(--surface-2)' : `rgba(210, 254, 92, ${0.15 + lvl * 0.2})`, borderRadius: 3 }}></div>;
-                })}
-              </span>
-            ))}
-          </div>
-        </div>
-      </div>
+        </>
+      )}
     </div>
   );
 }
 
 // ──────────────── TEAM PAGE ────────────────
 export function TeamPage({ role, me, setRoute, openDetailFor }) {
+  const [emailLogs, setEmailLogs]   = useState([]);
+  const [todayRpts, setTodayRpts]   = useState([]);
+  const [loading, setLoading]       = useState(true);
+  const today = todayISO();
+
+  useEffect(() => {
+    Promise.all([loadEmailLogsByDateRange(isoNDaysAgo(14)), loadAllReportsForDate(today)])
+      .then(([logs, rpts]) => { setEmailLogs(logs); setTodayRpts(rpts); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [today]);
+
+  function getMemberStats(memberId) {
+    const my = emailLogs.filter(e => e.member_id === memberId);
+    const todayCount = my.filter(e => e.date === today).reduce((s, e) => s + 1 + (e.replies || 0), 0);
+    const weekCount  = my.filter(e => e.date >= isoNDaysAgo(7)).reduce((s, e) => s + 1 + (e.replies || 0), 0);
+    const spark = Array.from({ length: 14 }, (_, i) => {
+      const d = isoNDaysAgo(13 - i);
+      return my.filter(e => e.date === d).reduce((s, e) => s + 1 + (e.replies || 0), 0);
+    });
+    const filed = todayRpts.some(r => r.member_id === memberId);
+    return { todayCount, weekCount, spark, filed };
+  }
+
   const members = TEAM;
+
   return (
     <div className="page">
       <div className="page-head">
         <div>
           <h1>Team</h1>
-          <div className="sub">6 members · 1 team lead · time zone IST</div>
+          <div className="sub">{members.length} members · time zone IST</div>
         </div>
         <div className="actions">
-          {role === 'lead' && <button className="btn"><Icon name="plus" size={12} />Invite</button>}
           <button className="btn ghost" onClick={() => setRoute('leaderboard')}><Icon name="trophy" size={12} />Leaderboard</button>
         </div>
       </div>
 
-      <div className="grid grid-3">
-        {members.map(m => {
-          const isMe = m.id === me.id;
-          const weekEmails = emailsCountByDay(m.id, 7).reduce((s, d) => s + d.count, 0);
-          const todayE = emailsToday(m.id);
-          const filed = !!reportToday(m.id);
-          const spark = emailsCountByDay(m.id, 14).map(d => d.count);
-          return (
-            <div key={m.id} className="card" style={{ padding: 16, cursor: 'pointer' }} onClick={() => openDetailFor(m.id)}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-                <div className={`avatar lg ${m.color}`}>{m.short}</div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 14, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 6 }}>
-                    {m.name}
-                    {isMe && <span className="chip">you</span>}
-                    {m.role === 'lead' && <span className="chip accent">lead</span>}
+      {loading ? (
+        <div className="card" style={{ padding: 48, textAlign: 'center' }}><span className="muted">Loading…</span></div>
+      ) : (
+        <div className="grid grid-3">
+          {members.map(m => {
+            const isMe = m.id === me.id;
+            const { todayCount, weekCount, spark, filed } = getMemberStats(m.id);
+            return (
+              <div key={m.id} className="card" style={{ padding: 16, cursor: 'pointer' }} onClick={() => openDetailFor(m.id)}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+                  <div className={`avatar lg ${m.color}`}>{m.short}</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 14, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 6 }}>
+                      {m.name}
+                      {isMe && <span className="chip">you</span>}
+                      {m.role === 'lead' && <span className="chip accent">lead</span>}
+                    </div>
+                    <div className="faint" style={{ fontSize: 11 }}>{m.email}</div>
                   </div>
-                  <div className="faint" style={{ fontSize: 11 }}>{m.email}</div>
                 </div>
+                <div style={{ display: 'flex', gap: 16, marginBottom: 12 }}>
+                  <div>
+                    <div className="faint" style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Today</div>
+                    <div className="mono" style={{ fontSize: 16, fontWeight: 500 }}>{todayCount}<span className="faint" style={{ fontSize: 11 }}>/40</span></div>
+                  </div>
+                  <div>
+                    <div className="faint" style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.06em' }}>7 days</div>
+                    <div className="mono" style={{ fontSize: 16, fontWeight: 500 }}>{weekCount}</div>
+                  </div>
+                  {m.role === 'member' && (
+                    <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <span className={`dot-status ${filed ? 'ok' : 'warn'}`}></span>
+                      <span className="faint" style={{ fontSize: 11 }}>{filed ? 'filed' : 'pending'}</span>
+                    </div>
+                  )}
+                </div>
+                <Sparkline data={spark} height={32} />
               </div>
-              <div style={{ display: 'flex', gap: 16, marginBottom: 12 }}>
-                <div>
-                  <div className="faint" style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Today</div>
-                  <div className="mono" style={{ fontSize: 16, fontWeight: 500 }}>{todayE}<span className="faint" style={{ fontSize: 11 }}>/30</span></div>
-                </div>
-                <div>
-                  <div className="faint" style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.06em' }}>7 days</div>
-                  <div className="mono" style={{ fontSize: 16, fontWeight: 500 }}>{weekEmails}</div>
-                </div>
-                <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <span className={`dot-status ${filed ? 'ok' : 'warn'}`}></span>
-                  <span className="faint" style={{ fontSize: 11 }}>{filed ? 'filed' : 'pending'}</span>
-                </div>
-              </div>
-              <Sparkline data={spark} height={32} />
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
 
 // ──────────────── LEADERBOARD ────────────────
 export function LeaderboardPage({ setRoute, openDetailFor }) {
-  const [scope, setScope] = useState('week');
+  const [scope, setScope]   = useState('week');
   const [metric, setMetric] = useState('emails');
+  const [emailLogs, setEmailLogs] = useState([]);
+  const [reports, setReports]     = useState([]);
+  const [loading, setLoading]     = useState(true);
+
   const days = scope === 'today' ? 1 : scope === 'week' ? 7 : 30;
-  const members = TEAM.filter(m => m.role === 'member');
-  const scored = members.map(m => {
-    const emails = emailsCountByDay(m.id, days).reduce((s, d) => s + d.count, 0);
-    const sites = reportsForMember(m.id, days).reduce((s, r) => s + (r.metrics.web_added || 0) + (r.metrics.web_audited || 0), 0);
-    const score = metric === 'emails' ? emails : sites;
-    return { m, score, emails, sites };
-  }).sort((a, b) => b.score - a.score);
+  const members = TEAM.filter(m => m.role === 'member' && !m.neelOnly);
+
+  useEffect(() => {
+    setLoading(true);
+    Promise.all([loadEmailLogsByDateRange(isoNDaysAgo(30)), loadReportsByDateRange(isoNDaysAgo(30))])
+      .then(([logs, rpts]) => { setEmailLogs(logs); setReports(rpts); })
+      .catch(() => {}).finally(() => setLoading(false));
+  }, []);
+
+  const scored = useMemo(() => {
+    const start = isoNDaysAgo(days);
+    return members.map(m => {
+      const emails = emailLogs.filter(e => e.member_id === m.id && e.date >= start)
+        .reduce((s, e) => s + 1 + (e.replies || 0), 0);
+      const sites = reports.filter(r => r.member_id === m.id && r.date >= start)
+        .reduce((s, r) => s + (r.metrics?.web_added || 0) + (r.metrics?.web_audited || 0), 0);
+      const score = metric === 'emails' ? emails : sites;
+      return { m, score, emails, sites };
+    }).sort((a, b) => b.score - a.score);
+  }, [emailLogs, reports, days, metric, members]);
+
   const max = scored[0]?.score || 1;
 
   return (
@@ -236,25 +300,29 @@ export function LeaderboardPage({ setRoute, openDetailFor }) {
       </div>
 
       <div className="card">
-        <div className="card-pad">
-          {scored.map(({ m, score, emails, sites }, i) => (
-            <div key={m.id} style={{ display: 'grid', gridTemplateColumns: '40px 1fr 1fr 90px', gap: 16, padding: '14px 4px', borderBottom: i < scored.length - 1 ? '1px solid var(--border)' : 'none', alignItems: 'center', cursor: 'pointer' }}
-                 onClick={() => openDetailFor(m.id)}>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 14, width: 28, height: 28, display: 'grid', placeItems: 'center', borderRadius: 6, background: i === 0 ? 'var(--accent)' : 'var(--surface-2)', color: i === 0 ? 'var(--accent-ink)' : 'var(--text-dim)', fontWeight: 600 }}>{i + 1}</div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <div className={`avatar lg ${m.color}`}>{m.short}</div>
-                <div>
-                  <div style={{ fontSize: 14, fontWeight: 500 }}>{m.name}</div>
-                  <div className="faint mono" style={{ fontSize: 11 }}>{emails} emails · {sites} sites</div>
+        {loading ? (
+          <div style={{ padding: 48, textAlign: 'center' }}><span className="muted">Loading…</span></div>
+        ) : (
+          <div className="card-pad">
+            {scored.map(({ m, score, emails, sites }, i) => (
+              <div key={m.id} style={{ display: 'grid', gridTemplateColumns: '40px 1fr 1fr 90px', gap: 16, padding: '14px 4px', borderBottom: i < scored.length - 1 ? '1px solid var(--border)' : 'none', alignItems: 'center', cursor: 'pointer' }}
+                   onClick={() => openDetailFor(m.id)}>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 14, width: 28, height: 28, display: 'grid', placeItems: 'center', borderRadius: 6, background: i === 0 ? 'var(--accent)' : 'var(--surface-2)', color: i === 0 ? 'var(--accent-ink)' : 'var(--text-dim)', fontWeight: 600 }}>{i + 1}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div className={`avatar lg ${m.color}`}>{m.short}</div>
+                  <div>
+                    <div style={{ fontSize: 14, fontWeight: 500 }}>{m.name}</div>
+                    <div className="faint mono" style={{ fontSize: 11 }}>{emails} emails · {sites} sites</div>
+                  </div>
                 </div>
+                <div className="bar thick">
+                  <div className="bar-fill" style={{ width: ((score / max) * 100) + '%' }}></div>
+                </div>
+                <div className="mono" style={{ fontSize: 22, fontWeight: 500, letterSpacing: '-0.03em', textAlign: 'right' }}>{score}</div>
               </div>
-              <div className="bar thick">
-                <div className="bar-fill" style={{ width: ((score / max) * 100) + '%' }}></div>
-              </div>
-              <div className="mono" style={{ fontSize: 22, fontWeight: 500, letterSpacing: '-0.03em', textAlign: 'right' }}>{score}</div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -266,23 +334,30 @@ export function ReviewPage({ setRoute, showToast }) {
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState('pending');
   const [selectedId, setSelectedId] = useState(null);
-  const [acting, setActing] = useState(null); // memberId being actioned
+  const [acting, setActing] = useState(null);
+  const [reviewDate, setReviewDate] = useState(todayISO());
 
   const members = TEAM.filter(m => m.role === 'member');
-  const today = todayISO();
+  const isToday = reviewDate === todayISO();
+
+  function shiftDate(iso, n) {
+    const [y, m, d] = iso.split('-').map(Number);
+    const date = new Date(y, m - 1, d + n);
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  }
 
   useEffect(() => {
     setLoading(true);
-    loadAllReportsForDate(today)
+    setSelectedId(null);
+    loadAllReportsForDate(reviewDate)
       .then(data => {
         setReports(data);
-        // Auto-select first pending
         const firstPending = data.find(r => (r.status || 'pending') === 'pending');
         if (firstPending) setSelectedId(firstPending.member_id);
       })
       .catch(() => showToast('Failed to load reports'))
       .finally(() => setLoading(false));
-  }, [today]);
+  }, [reviewDate]);
 
   function getReport(memberId) {
     return reports.find(r => r.member_id === memberId) || null;
@@ -303,7 +378,7 @@ export function ReviewPage({ setRoute, showToast }) {
   async function setStatus(memberId, status) {
     setActing(memberId);
     try {
-      await updateReportStatus(memberId, today, status);
+      await updateReportStatus(memberId, reviewDate, status);
       setReports(prev => prev.map(r =>
         r.member_id === memberId ? { ...r, status } : r
       ));
@@ -320,7 +395,7 @@ export function ReviewPage({ setRoute, showToast }) {
     const toApprove = pending.map(x => x.m.id);
     for (const memberId of toApprove) {
       try {
-        await updateReportStatus(memberId, today, 'approved');
+        await updateReportStatus(memberId, reviewDate, 'approved');
       } catch { /* continue */ }
     }
     setReports(prev => prev.map(r =>
@@ -337,10 +412,22 @@ export function ReviewPage({ setRoute, showToast }) {
         <div>
           <h1>Review Queue</h1>
           <div className="sub">
-            {loading ? 'Loading…' : `${filed.length} filed · ${missing.length} missing · ${fmtFull(today)}`}
+            {loading ? 'Loading…' : `${filed.length} filed · ${missing.length} missing · ${fmtFull(reviewDate)}`}
           </div>
         </div>
         <div className="actions">
+          {/* Date picker */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <button className="btn ghost" style={{ width: 28, height: 28, padding: 0 }}
+                    onClick={() => setReviewDate(shiftDate(reviewDate, -1))}>‹</button>
+            <input type="date" className="input" value={reviewDate} max={todayISO()}
+                   onChange={e => e.target.value && setReviewDate(e.target.value)}
+                   style={{ width: 148, fontFamily: 'var(--font-mono)', fontSize: 13, cursor: 'pointer' }} />
+            <button className="btn ghost" style={{ width: 28, height: 28, padding: 0 }}
+                    disabled={isToday}
+                    onClick={() => { const n = shiftDate(reviewDate, 1); if (n <= todayISO()) setReviewDate(n); }}>›</button>
+            {!isToday && <button className="btn" onClick={() => setReviewDate(todayISO())}>Today</button>}
+          </div>
           {pending.length > 0 && (
             <button className="btn primary" onClick={approveAll}>
               <Icon name="check" size={12} />Approve all pending ({pending.length})
@@ -493,53 +580,84 @@ export function ReviewPage({ setRoute, showToast }) {
 // ──────────────── MEMBER DETAIL PANEL ────────────────
 export function MemberDetailPanel({ memberId, onClose, setRoute }) {
   const m = TEAM.find(mm => mm.id === memberId);
+  const [emailLogs, setEmailLogs] = useState([]);
+  const [reports, setReports]     = useState([]);
+  const [loading, setLoading]     = useState(true);
+  const today = todayISO();
+
+  useEffect(() => {
+    if (!m) return;
+    Promise.all([
+      loadEmailLogsByDateRange(isoNDaysAgo(30)),
+      loadReportsByDateRange(isoNDaysAgo(30)),
+    ]).then(([logs, rpts]) => {
+      setEmailLogs(logs.filter(e => e.member_id === memberId));
+      setReports(rpts.filter(r => r.member_id === memberId));
+    }).catch(() => {}).finally(() => setLoading(false));
+  }, [memberId]);
+
+  const todayCount = emailLogs.filter(e => e.date === today).reduce((s, e) => s + 1 + (e.replies || 0), 0);
+  const weekCount  = emailLogs.filter(e => e.date >= isoNDaysAgo(7)).reduce((s, e) => s + 1 + (e.replies || 0), 0);
+  const monthCount = emailLogs.reduce((s, e) => s + 1 + (e.replies || 0), 0);
+
+  const spark = Array.from({ length: 30 }, (_, i) => {
+    const d = isoNDaysAgo(29 - i);
+    return { date: d, count: emailLogs.filter(e => e.date === d).reduce((s, e) => s + 1 + (e.replies || 0), 0) };
+  });
+
   if (!m) return null;
-  const todayE = emailsToday(m.id);
-  const weekEmails = emailsCountByDay(m.id, 7).reduce((s, d) => s + d.count, 0);
-  const monthEmails = emailsCountByDay(m.id, 30).reduce((s, d) => s + d.count, 0);
-  const reports = reportsForMember(m.id, 30);
-  const spark = emailsCountByDay(m.id, 30);
   return (
     <div className="detail-panel" onClick={(e) => e.stopPropagation()}>
       <div className="dp-head">
         <div className={`avatar lg ${m.color}`}>{m.short}</div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <h3 style={{ margin: 0, fontSize: 14, fontWeight: 500 }}>{m.name}</h3>
-          <div className="faint" style={{ fontSize: 11 }}>{m.email} · joined {fmtDateShort(m.joined)}</div>
+          <div className="faint" style={{ fontSize: 11 }}>{m.email}</div>
         </div>
         <button className="btn ghost" onClick={onClose}><Icon name="x" size={13} /></button>
       </div>
       <div className="dp-body">
-        <div className="grid grid-3" style={{ marginBottom: 16 }}>
-          <div className="kpi" style={{ padding: 12 }}>
-            <div className="kpi-label">Today</div>
-            <div className="kpi-value" style={{ fontSize: 22 }}>{todayE}</div>
-          </div>
-          <div className="kpi" style={{ padding: 12 }}>
-            <div className="kpi-label">7d</div>
-            <div className="kpi-value" style={{ fontSize: 22 }}>{weekEmails}</div>
-          </div>
-          <div className="kpi" style={{ padding: 12 }}>
-            <div className="kpi-label">30d</div>
-            <div className="kpi-value" style={{ fontSize: 22 }}>{monthEmails}</div>
-          </div>
-        </div>
-        <div className="card" style={{ marginBottom: 16 }}>
-          <div className="card-head"><h3>Activity · 30 days</h3></div>
-          <div className="chart-wrap"><LineChart data={spark} /></div>
-        </div>
-        <div className="card">
-          <div className="card-head"><h3>Recent reports</h3></div>
-          <div style={{ padding: '4px 0' }}>
-            {reports.slice(0, 6).map(r => (
-              <div key={r.id} style={{ padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 10, borderBottom: '1px solid var(--border)' }}>
-                <div className="mono faint" style={{ fontSize: 11, minWidth: 50 }}>{fmtDateShort(r.date)}</div>
-                <div style={{ flex: 1, fontSize: 12 }}>{Object.keys(r.metrics).length} metrics · {Object.values(r.metrics).reduce((s,v) => s+v, 0)} total</div>
-                <span className={`chip ${r.status === 'approved' ? 'ok' : r.status === 'flagged' ? 'warn' : 'info'}`}>{r.status}</span>
+        {loading ? (
+          <div style={{ padding: 32, textAlign: 'center' }}><span className="muted">Loading…</span></div>
+        ) : (
+          <>
+            <div className="grid grid-3" style={{ marginBottom: 16 }}>
+              <div className="kpi" style={{ padding: 12 }}>
+                <div className="kpi-label">Today</div>
+                <div className="kpi-value" style={{ fontSize: 22 }}>{todayCount}</div>
               </div>
-            ))}
-          </div>
-        </div>
+              <div className="kpi" style={{ padding: 12 }}>
+                <div className="kpi-label">7d</div>
+                <div className="kpi-value" style={{ fontSize: 22 }}>{weekCount}</div>
+              </div>
+              <div className="kpi" style={{ padding: 12 }}>
+                <div className="kpi-label">30d</div>
+                <div className="kpi-value" style={{ fontSize: 22 }}>{monthCount}</div>
+              </div>
+            </div>
+            <div className="card" style={{ marginBottom: 16 }}>
+              <div className="card-head"><h3>Activity · 30 days</h3></div>
+              <div className="chart-wrap"><LineChart data={spark} /></div>
+            </div>
+            <div className="card">
+              <div className="card-head"><h3>Recent reports</h3></div>
+              <div style={{ padding: '4px 0' }}>
+                {reports.length === 0 && <div className="empty">No reports yet</div>}
+                {reports.slice(0, 6).map(r => (
+                  <div key={r.date} style={{ padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 10, borderBottom: '1px solid var(--border)' }}>
+                    <div className="mono faint" style={{ fontSize: 11, minWidth: 50 }}>{fmtDateShort(r.date)}</div>
+                    <div style={{ flex: 1, fontSize: 12 }}>
+                      {Object.keys(r.metrics || {}).length} metrics · {r.total || 0} total
+                    </div>
+                    <span className={`chip ${r.status === 'approved' ? 'ok' : r.status === 'flagged' ? 'warn' : 'info'}`}>
+                      {r.status || 'pending'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

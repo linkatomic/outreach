@@ -300,6 +300,8 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
   }
 
   const myTarget = 40
+  // Count derived from the current filtered rows — respects member + date filter
+  const shownEmailCount = rows.reduce((sum, r) => sum + 1 + (r.replies || 0), 0)
   // Neel is on a separate track — exclude from email log member filter
   const members  = TEAM.filter(m => m.role === 'member' && !m.neelOnly)
   // Time column only visible to lead/HR/super
@@ -333,12 +335,17 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
       {/* ── KPIs ── */}
       <div className="grid grid-4" style={{ marginBottom: 16 }}>
         <div className="kpi">
-          <div className="kpi-label">Email responses</div>
+          <div className="kpi-label">
+            {filterMember !== 'all'
+              ? `${TEAM.find(m => m.id === filterMember)?.name.split(' ')[0] || 'Member'} · ${filter === 'date' ? fmtDateShort(filterDate) : filter}`
+              : `My today`}
+          </div>
           <div className="kpi-value">
-            {myTodayCount}<span style={{ color: 'var(--text-faint)', fontSize: 14 }}> / {myTarget}</span>
+            {filterMember !== 'all' ? shownEmailCount : myTodayCount}
+            <span style={{ color: 'var(--text-faint)', fontSize: 14 }}> / {myTarget}</span>
           </div>
           <div className="bar thin">
-            <div className="bar-fill" style={{ width: Math.min(100, Math.round(myTodayCount / myTarget * 100)) + '%' }} />
+            <div className="bar-fill" style={{ width: Math.min(100, Math.round((filterMember !== 'all' ? shownEmailCount : myTodayCount) / myTarget * 100)) + '%' }} />
           </div>
         </div>
         <div className="kpi">
@@ -347,9 +354,9 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
           <div className="kpi-target">{members.length} members</div>
         </div>
         <div className="kpi">
-          <div className="kpi-label">Showing</div>
-          <div className="kpi-value">{rows.length}</div>
-          <div className="kpi-target">entries in view</div>
+          <div className="kpi-label">Shown total</div>
+          <div className="kpi-value">{shownEmailCount}</div>
+          <div className="kpi-target">{rows.length} entr{rows.length === 1 ? 'y' : 'ies'}</div>
         </div>
         <div className="kpi">
           <div className="kpi-label">Avg per member</div>

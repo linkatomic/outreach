@@ -586,6 +586,7 @@ hr { border: 0; border-top: 1px solid var(--border); margin: 0; }
 }
 .input:focus { border-color: var(--text-dim); background: var(--bg); }
 .input.lg { height: 36px; font-size: 14px; }
+input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.6); cursor: pointer; opacity: 1; }
 
 .label {
   font-size: 11px;

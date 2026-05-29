@@ -340,6 +340,26 @@ export async function updateReportStatus(memberId, date, status) {
   if (error) throw error
 }
 
+export async function loadEmailLogsByDateRange(startDate) {
+  const { data, error } = await supabase
+    .from('email_logs')
+    .select('member_id, date, replies')
+    .gte('date', startDate)
+    .order('date', { ascending: true })
+  if (error) throw error
+  return data || []
+}
+
+export async function loadReportsByDateRange(startDate) {
+  const { data, error } = await supabase
+    .from('daily_reports')
+    .select('member_id, date, metrics, total, status')
+    .gte('date', startDate)
+    .order('date', { ascending: false })
+  if (error) throw error
+  return data || []
+}
+
 export async function loadAllReportsForDate(date) {
   const { data, error } = await supabase
     .from('daily_reports')
