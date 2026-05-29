@@ -89,7 +89,7 @@ function localDateStr(daysAgo = 0) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
 
-export async function loadEmailLogs({ filter = 'today', memberId = null, search = '', label = null } = {}) {
+export async function loadEmailLogs({ filter = 'today', memberId = null, search = '', label = null, date = null } = {}) {
   let query = supabase
     .from('email_logs')
     .select('*')
@@ -97,7 +97,8 @@ export async function loadEmailLogs({ filter = 'today', memberId = null, search 
     .order('created_at', { ascending: false })
     .limit(500);
 
-  if (filter === 'today') query = query.eq('date', localDateStr());
+  if (date) query = query.eq('date', date);
+  else if (filter === 'today') query = query.eq('date', localDateStr());
   else if (filter === 'week') query = query.gte('date', localDateStr(7));
 
   if (memberId) query = query.eq('member_id', memberId);

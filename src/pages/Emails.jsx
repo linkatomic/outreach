@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { TEAM, Icon, todayISO, fmtDateShort } from '../data.jsx'
+import { TEAM, Icon, todayISO, fmtDateShort, fmtFull } from '../data.jsx'
 import {
   loadEmailLogs, addEmail, findEmailByLink,
   incrementEmailReplies, decrementEmailReplies, updateEmailLabel, updateEmailBulk, deleteEmail,
@@ -28,6 +28,7 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
   const [link, setLink]               = useState('')
   const [bulkEntry, setBulkEntry]     = useState(false)  // bulk? checkbox for quick add
   const [filter, setFilter]           = useState('today')
+  const [filterDate, setFilterDate]   = useState(todayISO())
   const [filterMember, setFilterMember] = useState(me.id) // default to self
   const [filterLabel, setFilterLabel] = useState(null)
   const [search, setSearch]           = useState('')
@@ -86,14 +87,20 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
     setSelectedRows(new Set()) // clear selection on data reload
     try {
       const memberId = filterMember === 'all' ? null : filterMember
-      const data = await loadEmailLogs({ filter, memberId, search, label: filterLabel })
+      const data = await loadEmailLogs({
+        filter,
+        memberId,
+        search,
+        label: filterLabel,
+        date: filter === 'date' ? filterDate : null,
+      })
       setRows(data)
     } catch (err) {
       showToast('Failed to load: ' + err.message)
     } finally {
       setLoading(false)
     }
-  }, [filter, filterMember, me.id, search, filterLabel])
+  }, [filter, filterDate, filterMember, search, filterLabel])
 
   useEffect(() => { fetchRows() }, [fetchRows])
 
@@ -105,6 +112,12 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
   }, [me.id])
 
   useEffect(() => { fetchKpis() }, [fetchKpis])
+
+  function shiftDate(iso, n) {
+    const [y, m, d] = iso.split('-').map(Number)
+    const date = new Date(y, m - 1, d + n)
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+  }
 
   function normalizeLink(raw) { return raw.trim().replace(/^https?:\/\//, '') }
 
@@ -399,7 +412,25 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
           <button className={filter === 'today' ? 'on' : ''} onClick={() => setFilter('today')}>Today</button>
           <button className={filter === 'week'  ? 'on' : ''} onClick={() => setFilter('week')}>Week</button>
           <button className={filter === 'all'   ? 'on' : ''} onClick={() => setFilter('all')}>All time</button>
+          <button className={filter === 'date'  ? 'on' : ''} onClick={() => setFilter('date')}><Icon name="calendar" size={12} /> Date</button>
         </span>
+        {filter === 'date' && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <button className="btn ghost" style={{ width: 28, height: 28, padding: 0 }}
+                    onClick={() => setFilterDate(shiftDate(filterDate, -1))}
+                    title="Previous day">‹</button>
+            <input type="date" className="input" value={filterDate} max={todayISO()}
+                   onChange={e => e.target.value && setFilterDate(e.target.value)}
+                   style={{ width: 148, fontFamily: 'var(--font-mono)', fontSize: 13, cursor: 'pointer' }} />
+            <button className="btn ghost" style={{ width: 28, height: 28, padding: 0 }}
+                    disabled={filterDate >= todayISO()}
+                    onClick={() => { const n = shiftDate(filterDate, 1); if (n <= todayISO()) setFilterDate(n) }}
+                    title="Next day">›</button>
+            {filterDate !== todayISO() && (
+              <button className="btn" onClick={() => setFilterDate(todayISO())}>Today</button>
+            )}
+          </div>
+        )}
 
         {/* Label filter */}
         <span className="seg">
