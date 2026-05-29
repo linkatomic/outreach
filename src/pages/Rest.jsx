@@ -7,32 +7,36 @@ import { Sparkline, LineChart } from './Home.jsx'
 
 // ──────────────── ANALYTICS ────────────────
 export function AnalyticsPage({ setRoute }) {
-  const [range, setRange]         = useState('14d');
+  const [range, setRange]           = useState('14d');
   const [customDate, setCustomDate] = useState(todayISO());
   const [compMetric, setCompMetric] = useState('emails');
-  const [emailLogs, setEmailLogs] = useState([]);
-  const [reports, setReports]     = useState([]);
-  const [loading, setLoading]     = useState(true);
+  const [emailLogs, setEmailLogs]   = useState([]);
+  const [reports, setReports]       = useState([]);
+  const [loading, setLoading]       = useState(true);
 
-  const members = TEAM.filter(m => m.role === 'member' && !m.neelOnly);
-  const isSingleDay  = range === 'today' || range === 'date';
-  const rangeStart   = range === 'today' ? todayISO() : range === 'date' ? customDate : isoNDaysAgo(range === '7d' ? 7 : range === '14d' ? 14 : range === '30d' ? 30 : 90);
-  const rangeEnd     = isSingleDay ? rangeStart : null;
-  const days         = isSingleDay ? 1 : range === '7d' ? 7 : range === '14d' ? 14 : range === '30d' ? 30 : 90;
-  const rangeLabel   = range === 'today' ? 'Today' : range === 'date' ? fmtDateShort(customDate) : range;
+  const members     = TEAM.filter(m => m.role === 'member' && !m.neelOnly);
+  const isSingleDay = range === 'today' || range === 'date';
+  const days        = isSingleDay ? 1 : range === '7d' ? 7 : range === '14d' ? 14 : range === '30d' ? 30 : 90;
+  // chartStart: first day shown in chart (days-1 ago → days points ending today)
+  const chartStart  = range === 'today' ? todayISO() : range === 'date' ? customDate : isoNDaysAgo(days - 1);
+  const rangeEnd    = isSingleDay ? chartStart : null;
+  // fetchStart: always fetch ≥14 days back so comparison arrows have prior-period data
+  const fetchStart  = isSingleDay ? chartStart : isoNDaysAgo(Math.max(days, 14));
+  const rangeLabel  = range === 'today' ? 'Today' : range === 'date' ? fmtDateShort(customDate) : range;
 
   useEffect(() => {
     setLoading(true);
-    Promise.all([loadEmailLogsByDateRange(rangeStart, rangeEnd), loadReportsByDateRange(rangeStart, rangeEnd)])
+    Promise.all([loadEmailLogsByDateRange(fetchStart, rangeEnd), loadReportsByDateRange(fetchStart, rangeEnd)])
       .then(([logs, rpts]) => { setEmailLogs(logs); setReports(rpts); })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [rangeStart, rangeEnd]);
+  }, [fetchStart, rangeEnd]);
 
   const trend = useMemo(() => {
     const byDate = {};
     emailLogs.forEach(e => { byDate[e.date] = (byDate[e.date] || 0) + 1 + (e.replies || 0); });
-    if (isSingleDay) return [{ date: rangeStart, count: byDate[rangeStart] || 0 }];
+    if (isSingleDay) return [{ date: chartStart, count: byDate[chartStart] || 0 }];
+    // days points: from chartStart (days-1 ago) through today
     return Array.from({ length: days }, (_, i) => {
       const d = isoNDaysAgo(days - 1 - i);
       return { date: d, count: byDate[d] || 0 };
@@ -42,14 +46,14 @@ export function AnalyticsPage({ setRoute }) {
   const totalEmails = trend.reduce((s, d) => s + d.count, 0);
 
   const memberStats = useMemo(() => {
-    const cmpStart  = isSingleDay ? rangeStart : isoNDaysAgo(7);
+    const cmpStart  = isSingleDay ? chartStart : isoNDaysAgo(7);
     const prevStart = isoNDaysAgo(14);
     return members.map(m => {
       const my = emailLogs.filter(e => e.member_id === m.id);
-      const week     = my.filter(e => isSingleDay ? e.date === rangeStart : e.date >= cmpStart).reduce((s, e) => s + 1 + (e.replies || 0), 0);
+      const week     = my.filter(e => isSingleDay ? e.date === chartStart : e.date >= cmpStart).reduce((s, e) => s + 1 + (e.replies || 0), 0);
       const prevWeek = isSingleDay ? 0 : my.filter(e => e.date >= prevStart && e.date < cmpStart).reduce((s, e) => s + 1 + (e.replies || 0), 0);
       const delta    = (isSingleDay || prevWeek === 0) ? null : Math.round(((week - prevWeek) / prevWeek) * 100);
-      const myRpts   = reports.filter(r => r.member_id === m.id && (isSingleDay ? r.date === rangeStart : r.date >= cmpStart));
+      const myRpts   = reports.filter(r => r.member_id === m.id && (isSingleDay ? r.date === chartStart : r.date >= cmpStart));
       const sitesWeek = myRpts.reduce((s, r) => s + (typeof r.metrics?.web_added === 'number' ? r.metrics.web_added : 0) + (typeof r.metrics?.web_audited === 'number' ? r.metrics.web_audited : 0), 0);
       const prevRpts  = isSingleDay ? [] : reports.filter(r => r.member_id === m.id && r.date >= prevStart && r.date < cmpStart);
       const sitesPrev = prevRpts.reduce((s, r) => s + (typeof r.metrics?.web_added === 'number' ? r.metrics.web_added : 0) + (typeof r.metrics?.web_audited === 'number' ? r.metrics.web_audited : 0), 0);
@@ -59,8 +63,8 @@ export function AnalyticsPage({ setRoute }) {
   }, [emailLogs, reports, range, customDate]);
 
   const metricBreakdown = useMemo(() => {
-    const cmpStart = isSingleDay ? rangeStart : isoNDaysAgo(7);
-    const weekRpts = reports.filter(r => (isSingleDay ? r.date === rangeStart : r.date >= cmpStart) && members.some(m => m.id === r.member_id));
+    const cmpStart = isSingleDay ? chartStart : isoNDaysAgo(7);
+    const weekRpts = reports.filter(r => (isSingleDay ? r.date === chartStart : r.date >= cmpStart) && members.some(m => m.id === r.member_id));
     return METRICS.slice(0, 8).map(mt => ({
       mt,
       total: weekRpts.reduce((s, r) => s + (typeof r.metrics?.[mt.key] === 'number' ? r.metrics[mt.key] : 0), 0),
@@ -69,7 +73,8 @@ export function AnalyticsPage({ setRoute }) {
 
   const metricMax  = Math.max(...metricBreakdown.map(b => b.total), 1);
   const compMax    = Math.max(...memberStats.map(x => compMetric === 'emails' ? x.week : x.sitesWeek), 1);
-  const totalRpts  = reports.filter(r => members.some(m => m.id === r.member_id)).length;
+  // totalRpts scoped to the displayed chart window (not the extra-fetched comparison data)
+  const totalRpts  = reports.filter(r => members.some(m => m.id === r.member_id) && r.date >= chartStart).length;
   const compliance = totalRpts === 0 ? 0 : Math.min(100, Math.round((totalRpts / (days * members.length)) * 100));
 
   return (
@@ -190,15 +195,30 @@ export function AnalyticsPage({ setRoute }) {
   );
 }
 
+// ──────────────── TREND BADGE ────────────────
+function TrendBadge({ label, delta }) {
+  if (delta === null) {
+    return <span className="chip" style={{ fontSize: 10, padding: '2px 7px' }}>{label} —</span>;
+  }
+  const good = delta > 10, bad = delta < -10;
+  const sign = delta > 0 ? '+' : '';
+  return (
+    <span className={`chip ${good ? 'ok' : bad ? 'danger' : ''}`} style={{ fontSize: 10, padding: '2px 7px' }}>
+      {label} {good ? '↑' : bad ? '↓' : '≈'} {sign}{delta}%
+    </span>
+  );
+}
+
 // ──────────────── TEAM PAGE ────────────────
 export function TeamPage({ role, me, setRoute, openDetailFor }) {
-  const [emailLogs, setEmailLogs]   = useState([]);
-  const [todayRpts, setTodayRpts]   = useState([]);
-  const [loading, setLoading]       = useState(true);
+  const [emailLogs, setEmailLogs] = useState([]);
+  const [todayRpts, setTodayRpts] = useState([]);
+  const [loading, setLoading]     = useState(true);
   const today = todayISO();
 
   useEffect(() => {
-    Promise.all([loadEmailLogsByDateRange(isoNDaysAgo(14)), loadAllReportsForDate(today)])
+    // 60 days: today + 29 days current month + 30 days prior month for monthly delta
+    Promise.all([loadEmailLogsByDateRange(isoNDaysAgo(60)), loadAllReportsForDate(today)])
       .then(([logs, rpts]) => { setEmailLogs(logs); setTodayRpts(rpts); })
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -206,14 +226,25 @@ export function TeamPage({ role, me, setRoute, openDetailFor }) {
 
   function getMemberStats(memberId) {
     const my = emailLogs.filter(e => e.member_id === memberId);
-    const todayCount = my.filter(e => e.date === today).reduce((s, e) => s + 1 + (e.replies || 0), 0);
-    const weekCount  = my.filter(e => e.date >= isoNDaysAgo(7)).reduce((s, e) => s + 1 + (e.replies || 0), 0);
-    const spark = Array.from({ length: 14 }, (_, i) => {
-      const d = isoNDaysAgo(13 - i);
-      return my.filter(e => e.date === d).reduce((s, e) => s + 1 + (e.replies || 0), 0);
-    });
+    const cnt = (fn) => my.filter(fn).reduce((s, e) => s + 1 + (e.replies || 0), 0);
+    const diff = (curr, prev) => prev === 0 ? null : Math.round(((curr - prev) / prev) * 100);
+
+    const todayCount  = cnt(e => e.date === today);
+    const yestCount   = cnt(e => e.date === isoNDaysAgo(1));
+    const weekCount   = cnt(e => e.date >= isoNDaysAgo(6));   // 7 days incl. today
+    const prevWk      = cnt(e => e.date >= isoNDaysAgo(13) && e.date < isoNDaysAgo(6));
+    const monthCount  = cnt(e => e.date >= isoNDaysAgo(29));  // 30 days incl. today
+    const prevMo      = cnt(e => e.date >= isoNDaysAgo(59) && e.date < isoNDaysAgo(29));
+
+    const dayDelta   = diff(todayCount,  yestCount);
+    const weekDelta  = diff(weekCount,   prevWk);
+    const monthDelta = diff(monthCount,  prevMo);
+
+    const spark = Array.from({ length: 14 }, (_, i) =>
+      cnt(e => e.date === isoNDaysAgo(13 - i))
+    );
     const filed = todayRpts.some(r => r.member_id === memberId);
-    return { todayCount, weekCount, spark, filed };
+    return { todayCount, weekCount, monthCount, dayDelta, weekDelta, monthDelta, spark, filed };
   }
 
   const members = TEAM;
@@ -236,37 +267,48 @@ export function TeamPage({ role, me, setRoute, openDetailFor }) {
         <div className="grid grid-3">
           {members.map(m => {
             const isMe = m.id === me.id;
-            const { todayCount, weekCount, spark, filed } = getMemberStats(m.id);
+            const { todayCount, weekCount, monthCount, dayDelta, weekDelta, monthDelta, spark, filed } = getMemberStats(m.id);
             return (
               <div key={m.id} className="card" style={{ padding: 16, cursor: 'pointer' }} onClick={() => openDetailFor(m.id)}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
                   <div className={`avatar lg ${m.color}`}>{m.short}</div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 14, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <div style={{ fontSize: 14, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                       {m.name}
                       {isMe && <span className="chip">you</span>}
                       {m.role === 'lead' && <span className="chip accent">lead</span>}
+                      {m.role === 'member' && (
+                        <span className={`chip ${filed ? 'ok' : 'warn'}`} style={{ marginLeft: 'auto' }}>
+                          {filed ? 'filed' : 'pending'}
+                        </span>
+                      )}
                     </div>
                     <div className="faint" style={{ fontSize: 11 }}>{m.email}</div>
                   </div>
                 </div>
-                <div style={{ display: 'flex', gap: 16, marginBottom: 12 }}>
+
+                <div style={{ display: 'flex', gap: 14, marginBottom: 10 }}>
                   <div>
                     <div className="faint" style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Today</div>
                     <div className="mono" style={{ fontSize: 16, fontWeight: 500 }}>{todayCount}<span className="faint" style={{ fontSize: 11 }}>/40</span></div>
                   </div>
                   <div>
-                    <div className="faint" style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.06em' }}>7 days</div>
+                    <div className="faint" style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.06em' }}>7d</div>
                     <div className="mono" style={{ fontSize: 16, fontWeight: 500 }}>{weekCount}</div>
                   </div>
-                  {m.role === 'member' && (
-                    <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 4 }}>
-                      <span className={`dot-status ${filed ? 'ok' : 'warn'}`}></span>
-                      <span className="faint" style={{ fontSize: 11 }}>{filed ? 'filed' : 'pending'}</span>
-                    </div>
-                  )}
+                  <div>
+                    <div className="faint" style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.06em' }}>30d</div>
+                    <div className="mono" style={{ fontSize: 16, fontWeight: 500 }}>{monthCount}</div>
+                  </div>
                 </div>
-                <Sparkline data={spark} height={32} />
+
+                <div style={{ display: 'flex', gap: 5, marginBottom: 10, flexWrap: 'wrap' }}>
+                  <TrendBadge label="Day"   delta={dayDelta} />
+                  <TrendBadge label="Week"  delta={weekDelta} />
+                  <TrendBadge label="Month" delta={monthDelta} />
+                </div>
+
+                <Sparkline data={spark} height={28} />
               </div>
             );
           })}
@@ -295,7 +337,8 @@ export function LeaderboardPage({ setRoute, openDetailFor }) {
   }, []);
 
   const scored = useMemo(() => {
-    const start = isoNDaysAgo(days);
+    // days=1 → today only; days=7 → last 7 days including today (isoNDaysAgo(6))
+    const start = days === 1 ? todayISO() : isoNDaysAgo(days - 1);
     return members.map(m => {
       const emails = emailLogs.filter(e => e.member_id === m.id && e.date >= start)
         .reduce((s, e) => s + 1 + (e.replies || 0), 0);
