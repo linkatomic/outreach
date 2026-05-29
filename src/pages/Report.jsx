@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
 import { METRICS, METRIC_GROUPS, NEEL_METRICS, NEEL_METRIC_GROUPS, metricsFor, metricGroupsFor,
          TEAM, Icon, todayISO, fmtFull, fmtDateShort } from '../data.jsx'
-import { saveReport, loadReport, loadMostRecentReport, getEmailCountToday } from '../lib/supabase.js'
+import { saveReport, loadReport, loadMostRecentReport, getEmailCountToday, getEmailCountForDate } from '../lib/supabase.js'
 
-function ReadOnlyView({ record, date, memberName, metricsDef = METRICS }) {
+function ReadOnlyView({ record, date, memberName, metricsDef = METRICS, canEdit = false }) {
   if (!record) {
     return (
       <div className="card" style={{ padding: 48, textAlign: 'center' }}>
@@ -25,7 +25,7 @@ function ReadOnlyView({ record, date, memberName, metricsDef = METRICS }) {
         <span style={{ fontSize: 13 }}>Report filed for {fmtFull(date)}</span>
         <div className="spacer" />
         <span className="chip accent">Total: {record.total}</span>
-        <span className="chip warn">Read only</span>
+        {!canEdit && <span className="chip warn">Read only</span>}
       </div>
       <div className="card">
         <div className="card-pad">
@@ -66,6 +66,118 @@ function ReadOnlyView({ record, date, memberName, metricsDef = METRICS }) {
   );
 }
 
+// ── Lead edit form ─────────────────────────────────────────────
+// Grid-style editable form for team leads to create/edit any member's report.
+// email_response is always locked to the value from email_logs (same as member view).
+function LeadEditForm({ member, date, record, emailCount, onSave, onCancel, showToast }) {
+  const metricsDef = metricsFor(member.id);
+  const memberIsNeel = !!member.neelOnly;
+  const [vals, setVals]   = useState(() => record?.metrics || {});
+  const [note, setNote]   = useState(record?.note || '');
+  const [saving, setSaving] = useState(false);
+
+  // Keep email_response locked to email log count
+  useEffect(() => {
+    if (!memberIsNeel && emailCount != null) {
+      setVals(prev => ({ ...prev, email_response: emailCount }));
+    }
+  }, [emailCount, memberIsNeel]);
+
+  const total = Object.values(vals).filter(v => typeof v === 'number').reduce((s, v) => s + v, 0);
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      await saveReport({ memberId: member.id, date, metrics: vals, note, total });
+      onSave({ ...record, metrics: vals, note, total });
+    } catch (err) {
+      showToast('Save failed: ' + (err?.message || 'unknown error'));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div>
+      <div className="card" style={{ marginBottom: 16, padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
+        <Icon name="edit" size={13} />
+        <span style={{ fontSize: 13 }}>Editing <b>{member.name}</b>'s report · {fmtFull(date)}</span>
+        <div className="spacer" />
+        <span className="chip accent">Total: {total}</span>
+      </div>
+
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card-pad">
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
+            {metricsDef.map(m => {
+              const isAutoFilled = !memberIsNeel && m.key === 'email_response';
+              return (
+                <div key={m.key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: 'var(--surface-2)', borderRadius: 8 }}>
+                  <Icon name={m.icon} size={14} />
+                  <span style={{ flex: 1, fontSize: 13 }}>{m.label}</span>
+                  {isAutoFilled ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span className="chip" style={{ fontSize: 10, opacity: 0.8 }}>auto</span>
+                      <span className="mono" style={{ fontSize: 14, fontWeight: 600, color: 'var(--accent)', minWidth: 32, textAlign: 'right' }}>
+                        {emailCount ?? vals[m.key] ?? 0}
+                      </span>
+                    </div>
+                  ) : m.type === 'checkbox' ? (
+                    <button
+                      onClick={() => setVals(p => ({ ...p, [m.key]: !p[m.key] }))}
+                      style={{
+                        height: 30, padding: '0 14px', borderRadius: 6, cursor: 'pointer', fontWeight: 600,
+                        fontSize: 13, border: '1.5px solid ' + (vals[m.key] ? 'var(--accent)' : 'var(--border)'),
+                        background: vals[m.key] ? 'var(--accent)' : 'transparent',
+                        color: vals[m.key] ? 'var(--accent-ink)' : 'var(--text-faint)',
+                        transition: 'all 0.15s',
+                      }}>
+                      {vals[m.key] ? '✓ Done' : 'Not done'}
+                    </button>
+                  ) : (
+                    <>
+                      <button className="btn ghost" style={{ width: 24, height: 24, padding: 0 }}
+                              onClick={() => setVals(p => ({ ...p, [m.key]: Math.max(0, (p[m.key] || 0) - 1) }))}>−</button>
+                      <input className="input" style={{ width: 60, textAlign: 'center', fontFamily: 'var(--font-mono)' }}
+                             value={typeof vals[m.key] === 'number' ? vals[m.key] : ''}
+                             placeholder="0"
+                             onChange={e => setVals(p => ({ ...p, [m.key]: parseInt(e.target.value || '0', 10) || 0 }))} />
+                      <button className="btn ghost" style={{ width: 24, height: 24, padding: 0 }}
+                              onClick={() => setVals(p => ({ ...p, [m.key]: (typeof p[m.key] === 'number' ? p[m.key] : 0) + 1 }))}>+</button>
+                    </>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 240px', gap: 16 }}>
+        <div className="card">
+          <div className="card-head"><h3>Notes</h3><span className="faint" style={{ fontSize: 11 }}>{note.length}/280</span></div>
+          <div className="card-pad">
+            <textarea className="input" style={{ height: 80, padding: 10, resize: 'none', width: '100%' }}
+                      placeholder="Notes for this report…" maxLength={280}
+                      value={note} onChange={e => setNote(e.target.value)} />
+          </div>
+        </div>
+        <div className="card" style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div>
+            <div className="faint" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Total</div>
+            <div style={{ fontSize: 26, fontFamily: 'var(--font-mono)', fontWeight: 500, marginTop: 2 }}>{total}</div>
+          </div>
+          <div style={{ flex: 1 }} />
+          <button className="btn primary" onClick={handleSave} disabled={saving}>
+            {saving ? 'Saving…' : record ? 'Update report' : 'Create report'}
+          </button>
+          <button className="btn ghost" onClick={onCancel}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function DailyReportPage({ me, setRoute, showToast }) {
   const [stepIdx, setStepIdx] = useState(0);
   const [values, setValues] = useState({});
@@ -83,7 +195,7 @@ export function DailyReportPage({ me, setRoute, showToast }) {
   const [liveEmailCount, setLiveEmailCount] = useState(null);
   const [autoSaveStatus, setAutoSaveStatus] = useState(''); // '' | 'saving' | 'saved'
   const inputRef = useRef(null);
-  const userEditedRef = useRef(false); // set true only on explicit user edits, not initial load
+  const userEditedRef = useRef(false);
   const valuesRef = useRef({});
   const noteRef = useRef('');
 
@@ -91,24 +203,24 @@ export function DailyReportPage({ me, setRoute, showToast }) {
   useEffect(() => { valuesRef.current = values; }, [values]);
   useEffect(() => { noteRef.current = note; }, [note]);
 
-  // lead, HR, and super (when not impersonating) all see the member-picker read-only view
   const isLead = ['lead', 'hr', 'super'].includes(me.role);
-  // All members including Neel (lead can view his separate report)
   const allMembers = TEAM.filter(m => m.role === 'member');
   const [selectedMemberId, setSelectedMemberId] = useState(allMembers[0]?.id || '');
   const [leadRecord, setLeadRecord] = useState(null);
   const [loadingLeadRecord, setLoadingLeadRecord] = useState(false);
+  const [leadEditing, setLeadEditing] = useState(false);
+  const [leadEmailCount, setLeadEmailCount] = useState(null);
 
-  // Neel has separate metrics
   const myMetrics = metricsFor(me.id);
   const myGroups  = metricGroupsFor(me.id);
   const isNeel    = !!TEAM.find(m => m.id === me.id)?.neelOnly;
 
-  const queue = myMetrics;
+  // email_response is auto-filled from email log — excluded from the manual step queue
+  const queue   = myMetrics.filter(m => isNeel || m.key !== 'email_response');
   const current = queue[stepIdx];
   const completed = Object.keys(values).filter(k => values[k] !== 'skip' && values[k] !== undefined).length;
-  const skipped = Object.keys(values).filter(k => values[k] === 'skip').length;
-  const total = Object.values(values).filter(v => typeof v === 'number').reduce((s, v) => s + v, 0);
+  const skipped   = Object.keys(values).filter(k => values[k] === 'skip').length;
+  const total     = Object.values(values).filter(v => typeof v === 'number').reduce((s, v) => s + v, 0);
 
   // Pre-fill today's form (auto-populate email_response from live email log for non-Neel)
   useEffect(() => {
@@ -119,20 +231,23 @@ export function DailyReportPage({ me, setRoute, showToast }) {
           setNote(existing.note || '');
           setAlreadySaved(true);
         }
-        // Only fetch live email count for standard members (Neel uses different metrics)
         if (!isNeel) {
           try {
             const count = await getEmailCountToday(me.id);
             setLiveEmailCount(count);
-            if (!existing && count > 0) {
-              setValues(prev => ({ ...prev, email_response: count }));
-            }
           } catch { /* silent */ }
         }
       })
       .catch(() => {})
       .finally(() => setLoadingToday(false));
   }, [me.id, isNeel]);
+
+  // Always keep email_response locked to liveEmailCount for non-Neel members
+  useEffect(() => {
+    if (!isNeel && liveEmailCount != null) {
+      setValues(prev => ({ ...prev, email_response: liveEmailCount }));
+    }
+  }, [liveEmailCount, isNeel]);
 
   // Refresh live email count every 30s (standard members only)
   useEffect(() => {
@@ -146,7 +261,7 @@ export function DailyReportPage({ me, setRoute, showToast }) {
     return () => clearInterval(interval);
   }, [me.id, isLead, isNeel]);
 
-  // ── Auto-save: fires 1s after any user-initiated edit ────────────────
+  // ── Auto-save: fires 1s after any user-initiated edit ─────────
   const isToday = selectedDate === todayISO();
   useEffect(() => {
     if (!isToday || isLead || !userEditedRef.current || loadingToday) return;
@@ -164,7 +279,7 @@ export function DailyReportPage({ me, setRoute, showToast }) {
     return () => clearTimeout(timer);
   }, [values, note]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Flush save immediately on unmount (handles navigate-away mid-edit)
+  // Flush save on unmount
   useEffect(() => {
     return () => {
       if (!userEditedRef.current) return;
@@ -180,7 +295,9 @@ export function DailyReportPage({ me, setRoute, showToast }) {
     try {
       const report = await loadMostRecentReport(me.id);
       if (!report) { showToast('No previous report found'); return; }
-      setValues(report.metrics || {});
+      // Keep email_response locked — don't copy it from previous report
+      const { email_response: _, ...otherMetrics } = report.metrics || {};
+      setValues(prev => ({ ...prev, ...otherMetrics }));
       setNote(report.note || '');
       setStepIdx(0);
       showToast(`Copied from ${fmtDateShort(report.date)} — adjust values then submit`);
@@ -205,6 +322,8 @@ export function DailyReportPage({ me, setRoute, showToast }) {
   // Load record for lead view whenever member or date changes
   useEffect(() => {
     if (!isLead) return;
+    setLeadEditing(false);
+    setLeadEmailCount(null);
     setLoadingLeadRecord(true);
     setLeadRecord(null);
     loadReport(selectedMemberId, selectedDate)
@@ -213,7 +332,17 @@ export function DailyReportPage({ me, setRoute, showToast }) {
       .finally(() => setLoadingLeadRecord(false));
   }, [isLead, selectedMemberId, selectedDate]);
 
-  // Keyboard shortcuts (today only)
+  async function startLeadEdit() {
+    setLeadEditing(true);
+    try {
+      const count = await getEmailCountForDate(selectedMemberId, selectedDate);
+      setLeadEmailCount(count);
+    } catch {
+      setLeadEmailCount(null);
+    }
+  }
+
+  // Keyboard shortcuts (today only, member only)
   useEffect(() => {
     if (mode !== 'numpad' || !isToday || done) return;
     const onKey = (e) => {
@@ -302,10 +431,9 @@ export function DailyReportPage({ me, setRoute, showToast }) {
     </div>
   );
 
-  // Lead view — browse any member's report, read-only
+  // ── Lead view ────────────────────────────────────────────────
   if (isLead) {
     const selectedMember = allMembers.find(m => m.id === selectedMemberId);
-    // Use the right metrics for whichever member the lead is viewing
     const viewMetrics = metricsFor(selectedMemberId);
     return (
       <div className="page" style={{ maxWidth: 1080 }}>
@@ -326,22 +454,54 @@ export function DailyReportPage({ me, setRoute, showToast }) {
               ))}
             </select>
             {datePicker}
+            {!leadEditing && !loadingLeadRecord && (
+              <button className="btn" onClick={startLeadEdit}>
+                <Icon name="edit" size={12} />{leadRecord ? 'Edit' : 'Create'}
+              </button>
+            )}
           </div>
         </div>
-        {selectedMember?.neelOnly && (
+
+        {selectedMember?.neelOnly && !leadEditing && (
           <div style={{ marginBottom: 12, padding: '8px 14px', background: 'rgba(168,139,250,0.08)', border: '1px solid rgba(168,139,250,0.2)', borderRadius: 8, fontSize: 12, color: 'var(--text-faint)' }}>
             ★ Neel uses a separate task track — scraping & indexing metrics, not included in team analytics
           </div>
         )}
-        {loadingLeadRecord
-          ? <div className="card" style={{ padding: 48, textAlign: 'center' }}><span className="muted">Loading…</span></div>
-          : <ReadOnlyView date={selectedDate} record={leadRecord} memberName={selectedMember?.name} metricsDef={viewMetrics} />
-        }
+
+        {loadingLeadRecord && (
+          <div className="card" style={{ padding: 48, textAlign: 'center' }}><span className="muted">Loading…</span></div>
+        )}
+
+        {!loadingLeadRecord && (
+          leadEditing ? (
+            <LeadEditForm
+              member={selectedMember}
+              date={selectedDate}
+              record={leadRecord}
+              emailCount={leadEmailCount}
+              onSave={(updated) => {
+                setLeadRecord(updated);
+                setLeadEditing(false);
+                showToast('Report saved');
+              }}
+              onCancel={() => setLeadEditing(false)}
+              showToast={showToast}
+            />
+          ) : (
+            <ReadOnlyView
+              date={selectedDate}
+              record={leadRecord}
+              memberName={selectedMember?.name}
+              metricsDef={viewMetrics}
+              canEdit={true}
+            />
+          )
+        )}
       </div>
     );
   }
 
-  // Post-submit confirmation
+  // ── Post-submit confirmation ──────────────────────────────────
   if (done) {
     return (
       <div className="page" style={{ maxWidth: 720 }}>
@@ -377,6 +537,7 @@ export function DailyReportPage({ me, setRoute, showToast }) {
     );
   }
 
+  // ── Member form ───────────────────────────────────────────────
   return (
     <div className="page" style={{ maxWidth: 1080 }}>
       <div className="page-head">
@@ -433,13 +594,7 @@ export function DailyReportPage({ me, setRoute, showToast }) {
                       <Icon name={current.icon} size={20} />
                       <span style={{ marginLeft: 8 }}>{current.label}</span>
                     </div>
-                    {/* Live email count hint (standard members only) */}
-                    {!isNeel && current.key === 'email_response' && liveEmailCount != null && (
-                      <div className="hint-line" style={{ marginBottom: 10, padding: '6px 10px', background: 'color-mix(in srgb, var(--accent) 8%, transparent)', borderRadius: 6, border: '1px solid color-mix(in srgb, var(--accent) 16%, transparent)' }}>
-                        <Icon name="mail" size={11} />
-                        <span>Email log today: <b style={{ color: 'var(--accent)', fontFamily: 'var(--font-mono)' }}>{liveEmailCount}</b> (auto-filled · updates live)</span>
-                      </div>
-                    )}
+
                     {current.type === 'checkbox' ? (
                       <>
                         <div style={{ margin: '20px 0' }}>
@@ -505,26 +660,36 @@ export function DailyReportPage({ me, setRoute, showToast }) {
                       <span className="mono faint" style={{ fontSize: 11 }}>{completed} logged</span>
                     </div>
                     <div className="numpad-queue-list">
-                      {queue.map((m, i) => {
+                      {myMetrics.map((m) => {
+                        const isAutoFilled = !isNeel && m.key === 'email_response';
                         const v = values[m.key];
-                        const isCurrent = i === stepIdx;
+                        const queueIdx = queue.findIndex(q => q.key === m.key);
+                        const isCurrent = !isAutoFilled && queue[stepIdx]?.key === m.key;
                         const isDone = typeof v === 'number' || typeof v === 'boolean';
                         const isSkip = v === 'skip';
                         const displayVal = typeof v === 'boolean' ? (v ? '✓' : '✗') : v;
                         return (
                           <div key={m.key}
-                               className={`numpad-queue-row ${isCurrent ? 'active' : ''} ${isDone ? 'done' : ''} ${isSkip ? 'skip' : ''}`}
-                               onClick={() => { setStepIdx(i); setDraft(typeof v === 'number' ? String(v) : ''); }}>
+                               className={`numpad-queue-row ${isCurrent ? 'active' : ''} ${(isDone || isAutoFilled) ? 'done' : ''} ${isSkip ? 'skip' : ''}`}
+                               style={isAutoFilled ? { cursor: 'default', opacity: 0.85 } : {}}
+                               onClick={() => {
+                                 if (isAutoFilled || queueIdx === -1) return;
+                                 setStepIdx(queueIdx);
+                                 setDraft(typeof v === 'number' ? String(v) : '');
+                               }}>
                             <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                               <Icon name={m.icon} size={12} />
                               {m.label}
                             </span>
                             <span className="val">
-                              {isDone ? displayVal
-                               : isSkip ? '—'
-                               : (!isNeel && m.key === 'email_response' && liveEmailCount != null)
-                                 ? <span style={{ color: 'var(--accent)', opacity: 0.7 }}>{liveEmailCount}</span>
-                                 : isCurrent ? '…' : '·'}
+                              {isAutoFilled ? (
+                                <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                  <span style={{ fontSize: 9, opacity: 0.55, textTransform: 'uppercase', letterSpacing: '0.05em' }}>auto</span>
+                                  <span style={{ color: 'var(--accent)' }}>{liveEmailCount ?? (typeof v === 'number' ? v : '—')}</span>
+                                </span>
+                              ) : isDone ? displayVal
+                                : isSkip ? '—'
+                                : isCurrent ? '…' : '·'}
                             </span>
                           </div>
                         );
@@ -537,40 +702,52 @@ export function DailyReportPage({ me, setRoute, showToast }) {
                   </div>
                 </div>
               ) : (
+                // ── Grid mode ──────────────────────────────────
                 <div className="card">
                   <div className="card-pad">
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
-                      {myMetrics.map(m => (
-                        <div key={m.key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: 'var(--surface-2)', borderRadius: 8 }}>
-                          <Icon name={m.icon} size={14} />
-                          <span style={{ flex: 1, fontSize: 13 }}>{m.label}</span>
-                          {m.type === 'checkbox' ? (
-                            <button
-                              onClick={() => { userEditedRef.current = true; setValues(p => ({...p, [m.key]: !p[m.key]})); }}
-                              style={{
-                                height: 30, padding: '0 14px', borderRadius: 6, cursor: 'pointer', fontWeight: 600,
-                                fontSize: 13, border: '1.5px solid ' + (values[m.key] ? 'var(--accent)' : 'var(--border)'),
-                                background: values[m.key] ? 'var(--accent)' : 'transparent',
-                                color: values[m.key] ? 'var(--accent-ink)' : 'var(--text-faint)',
-                                transition: 'all 0.15s',
-                              }}
-                            >
-                              {values[m.key] ? '✓ Done' : 'Not done'}
-                            </button>
-                          ) : (
-                            <>
-                              <button className="btn ghost" style={{ width: 24, height: 24, padding: 0 }}
-                                      onClick={() => { userEditedRef.current = true; setValues(p => ({...p, [m.key]: Math.max(0, (p[m.key] || 0) - 1)})); }}>−</button>
-                              <input className="input" style={{ width: 60, textAlign: 'center', fontFamily: 'var(--font-mono)' }}
-                                     value={typeof values[m.key] === 'number' ? values[m.key] : ''}
-                                     placeholder="0"
-                                     onChange={(e) => { userEditedRef.current = true; setValues(p => ({...p, [m.key]: parseInt(e.target.value || '0', 10) || 0})); }} />
-                              <button className="btn ghost" style={{ width: 24, height: 24, padding: 0 }}
-                                      onClick={() => { userEditedRef.current = true; setValues(p => ({...p, [m.key]: (typeof p[m.key] === 'number' ? p[m.key] : 0) + 1})); }}>+</button>
-                            </>
-                          )}
-                        </div>
-                      ))}
+                      {myMetrics.map(m => {
+                        const isAutoFilled = !isNeel && m.key === 'email_response';
+                        return (
+                          <div key={m.key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: 'var(--surface-2)', borderRadius: 8 }}>
+                            <Icon name={m.icon} size={14} />
+                            <span style={{ flex: 1, fontSize: 13 }}>{m.label}</span>
+                            {isAutoFilled ? (
+                              // Locked — auto-filled from email log
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <span className="chip" style={{ fontSize: 10, opacity: 0.8 }}>auto</span>
+                                <span className="mono" style={{ fontSize: 14, fontWeight: 600, color: 'var(--accent)', minWidth: 32, textAlign: 'right' }}>
+                                  {liveEmailCount ?? values[m.key] ?? 0}
+                                </span>
+                              </div>
+                            ) : m.type === 'checkbox' ? (
+                              <button
+                                onClick={() => { userEditedRef.current = true; setValues(p => ({...p, [m.key]: !p[m.key]})); }}
+                                style={{
+                                  height: 30, padding: '0 14px', borderRadius: 6, cursor: 'pointer', fontWeight: 600,
+                                  fontSize: 13, border: '1.5px solid ' + (values[m.key] ? 'var(--accent)' : 'var(--border)'),
+                                  background: values[m.key] ? 'var(--accent)' : 'transparent',
+                                  color: values[m.key] ? 'var(--accent-ink)' : 'var(--text-faint)',
+                                  transition: 'all 0.15s',
+                                }}
+                              >
+                                {values[m.key] ? '✓ Done' : 'Not done'}
+                              </button>
+                            ) : (
+                              <>
+                                <button className="btn ghost" style={{ width: 24, height: 24, padding: 0 }}
+                                        onClick={() => { userEditedRef.current = true; setValues(p => ({...p, [m.key]: Math.max(0, (p[m.key] || 0) - 1)})); }}>−</button>
+                                <input className="input" style={{ width: 60, textAlign: 'center', fontFamily: 'var(--font-mono)' }}
+                                       value={typeof values[m.key] === 'number' ? values[m.key] : ''}
+                                       placeholder="0"
+                                       onChange={(e) => { userEditedRef.current = true; setValues(p => ({...p, [m.key]: parseInt(e.target.value || '0', 10) || 0})); }} />
+                                <button className="btn ghost" style={{ width: 24, height: 24, padding: 0 }}
+                                        onClick={() => { userEditedRef.current = true; setValues(p => ({...p, [m.key]: (typeof p[m.key] === 'number' ? p[m.key] : 0) + 1})); }}>+</button>
+                              </>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 </div>

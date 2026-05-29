@@ -192,6 +192,16 @@ export async function deleteEmail(id) {
   if (error) throw error;
 }
 
+export async function getEmailCountForDate(memberId, date) {
+  const { data } = await supabase
+    .from('email_logs')
+    .select('replies')
+    .eq('member_id', memberId)
+    .eq('date', date)
+  if (!data) return 0
+  return data.reduce((sum, row) => sum + 1 + (row.replies || 0), 0)
+}
+
 export async function getEmailCountToday(memberId) {
   const { data } = await supabase
     .from('email_logs')
