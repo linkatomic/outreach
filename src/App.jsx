@@ -144,6 +144,23 @@ export default function App() {
       localStorage.setItem(`relay_accent_${profile.member_id}`, savedAccent);
       // If localStorage had it but DB didn't, write it back to DB
       if (!dbAccent && localAccent && uid) saveUserAccent(uid, localAccent).catch(() => {});
+
+      // On token refresh, loadProfile re-runs and overwrites the impersonated accent.
+      // Re-apply the impersonated user's accent if a session is still active.
+      const activeImpersonation = meObj.role === 'super'
+        ? sessionStorage.getItem('relay_impersonated')
+        : null;
+      if (activeImpersonation) {
+        getProfileByMemberId(activeImpersonation).then(p => {
+          const col = p?.accent || localStorage.getItem(`relay_accent_${activeImpersonation}`) || 'lime';
+          setAccentRaw(col);
+          applyAccentCssVars(col);
+        }).catch(() => {
+          const col = localStorage.getItem(`relay_accent_${activeImpersonation}`) || 'lime';
+          setAccentRaw(col);
+          applyAccentCssVars(col);
+        });
+      }
     } catch (err) {
       setMe(null);
       setLoginError(err?.message || 'Failed to load profile. Contact your admin.');
