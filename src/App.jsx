@@ -31,8 +31,15 @@ export default function App() {
   const userIdRef         = useRef(null);      // Supabase auth UUID for DB writes
   const [accent, setAccentRaw] = useState('lime');
 
-  // Super-user impersonation
-  const [impersonatedId, setImpersonatedId] = useState(null);
+  // Super-user impersonation — persisted in sessionStorage so token-refresh / page reload doesn't drop it
+  const [impersonatedId, setImpersonatedIdRaw] = useState(
+    () => sessionStorage.getItem('relay_impersonated') || null
+  );
+  function setImpersonatedId(id) {
+    setImpersonatedIdRaw(id);
+    if (id) sessionStorage.setItem('relay_impersonated', id);
+    else sessionStorage.removeItem('relay_impersonated');
+  }
   const superAccentRef = useRef('lime'); // remembers super's own accent for restoration
 
   // App state
@@ -97,7 +104,7 @@ export default function App() {
     });
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session) loadProfile(session.user.id);
-      else { setMe(null); setImpersonatedId(null); setAuthLoading(false); setAccentRaw('lime'); applyAccentCssVars('lime'); superAccentRef.current = 'lime'; }
+      else { setMe(null); setImpersonatedIdRaw(null); sessionStorage.removeItem('relay_impersonated'); setAuthLoading(false); setAccentRaw('lime'); applyAccentCssVars('lime'); superAccentRef.current = 'lime'; }
     });
     return () => subscription.unsubscribe();
   }, []);
@@ -120,6 +127,11 @@ export default function App() {
       const meObj = { ...base, role: profile.role || base.role || 'member' };
       setMe(meObj);
       userIdRef.current = uid;
+      // Restore impersonation after token refresh (sessionStorage survives SIGNED_OUT→SIGNED_IN)
+      if (meObj.role === 'super') {
+        const saved = sessionStorage.getItem('relay_impersonated');
+        if (saved) setImpersonatedIdRaw(saved);
+      }
 
       // Load accent: localStorage is instant, DB is authoritative for cross-device
       // DB wins when present; localStorage is the reliable local fallback

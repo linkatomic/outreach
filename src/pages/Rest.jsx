@@ -12,7 +12,7 @@ export function AnalyticsPage({ setRoute }) {
   const [reports, setReports]     = useState([]);
   const [loading, setLoading]     = useState(true);
 
-  const days = range === '7d' ? 7 : range === '14d' ? 14 : range === '30d' ? 30 : 90;
+  const days = range === '1d' ? 1 : range === '7d' ? 7 : range === '14d' ? 14 : range === '30d' ? 30 : 90;
   const members = TEAM.filter(m => m.role === 'member' && !m.neelOnly);
 
   useEffect(() => {
@@ -71,7 +71,7 @@ export function AnalyticsPage({ setRoute }) {
         </div>
         <div className="actions">
           <span className="seg">
-            {['7d', '14d', '30d', '90d'].map(r => (
+            {['1d', '7d', '14d', '30d', '90d'].map(r => (
               <button key={r} className={range === r ? 'on' : ''} onClick={() => setRange(r)}>{r}</button>
             ))}
           </span>
@@ -271,7 +271,8 @@ export function LeaderboardPage({ setRoute, openDetailFor }) {
       const emails = emailLogs.filter(e => e.member_id === m.id && e.date >= start)
         .reduce((s, e) => s + 1 + (e.replies || 0), 0);
       const sites = reports.filter(r => r.member_id === m.id && r.date >= start)
-        .reduce((s, r) => s + (r.metrics?.web_added || 0) + (r.metrics?.web_audited || 0), 0);
+        .reduce((s, r) => s + (typeof r.metrics?.web_added === 'number' ? r.metrics.web_added : 0)
+                              + (typeof r.metrics?.web_audited === 'number' ? r.metrics.web_audited : 0), 0);
       const score = metric === 'emails' ? emails : sites;
       return { m, score, emails, sites };
     }).sort((a, b) => b.score - a.score);

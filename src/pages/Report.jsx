@@ -81,7 +81,15 @@ export function DailyReportPage({ me, setRoute, showToast }) {
   const [selectedRecord, setSelectedRecord] = useState(null);
   const [loadingRecord, setLoadingRecord] = useState(false);
   const [liveEmailCount, setLiveEmailCount] = useState(null);
+  const [autoSaveStatus, setAutoSaveStatus] = useState(''); // '' | 'saving' | 'saved'
   const inputRef = useRef(null);
+  const userEditedRef = useRef(false); // set true only on explicit user edits, not initial load
+  const valuesRef = useRef({});
+  const noteRef = useRef('');
+
+  // Keep refs in sync for unmount-flush
+  useEffect(() => { valuesRef.current = values; }, [values]);
+  useEffect(() => { noteRef.current = note; }, [note]);
 
   // lead, HR, and super (when not impersonating) all see the member-picker read-only view
   const isLead = ['lead', 'hr', 'super'].includes(me.role);
@@ -101,7 +109,6 @@ export function DailyReportPage({ me, setRoute, showToast }) {
   const completed = Object.keys(values).filter(k => values[k] !== 'skip' && values[k] !== undefined).length;
   const skipped = Object.keys(values).filter(k => values[k] === 'skip').length;
   const total = Object.values(values).filter(v => typeof v === 'number').reduce((s, v) => s + v, 0);
-  const isToday = selectedDate === todayISO();
 
   // Pre-fill today's form (auto-populate email_response from live email log for non-Neel)
   useEffect(() => {
@@ -138,6 +145,35 @@ export function DailyReportPage({ me, setRoute, showToast }) {
     }, 30000);
     return () => clearInterval(interval);
   }, [me.id, isLead, isNeel]);
+
+  // ── Auto-save: fires 1s after any user-initiated edit ────────────────
+  const isToday = selectedDate === todayISO();
+  useEffect(() => {
+    if (!isToday || isLead || !userEditedRef.current || loadingToday) return;
+    setAutoSaveStatus('saving');
+    const v = values; const n = note;
+    const numericTotal = Object.values(v).filter(x => typeof x === 'number').reduce((s, x) => s + x, 0);
+    const timer = setTimeout(async () => {
+      try {
+        await saveReport({ memberId: me.id, date: todayISO(), metrics: v, note: n, total: numericTotal });
+        setAlreadySaved(true);
+        setAutoSaveStatus('saved');
+        setTimeout(() => setAutoSaveStatus(''), 1800);
+      } catch { setAutoSaveStatus(''); }
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [values, note]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Flush save immediately on unmount (handles navigate-away mid-edit)
+  useEffect(() => {
+    return () => {
+      if (!userEditedRef.current) return;
+      const v = valuesRef.current; const n = noteRef.current;
+      if (Object.keys(v).length === 0) return;
+      const numericTotal = Object.values(v).filter(x => typeof x === 'number').reduce((s, x) => s + x, 0);
+      saveReport({ memberId: me.id, date: todayISO(), metrics: v, note: n, total: numericTotal }).catch(() => {});
+    };
+  }, [me.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function copyLast() {
     setCopyingLast(true);
@@ -183,7 +219,7 @@ export function DailyReportPage({ me, setRoute, showToast }) {
     const onKey = (e) => {
       if ((e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') && e.target !== inputRef.current) return;
       if (current?.type === 'checkbox') {
-        if (e.key === ' ') { e.preventDefault(); setValues(p => ({...p, [current.key]: !p[current.key]})); }
+        if (e.key === ' ') { e.preventDefault(); userEditedRef.current = true; setValues(p => ({...p, [current.key]: !p[current.key]})); }
         else if (e.key === 'Enter') { e.preventDefault(); commit(); }
         else if (e.key === 'Tab') { e.preventDefault(); skip(); }
       } else {
@@ -201,6 +237,7 @@ export function DailyReportPage({ me, setRoute, showToast }) {
 
   function commit() {
     if (!current) return;
+    userEditedRef.current = true;
     const v = current.type === 'checkbox'
       ? (values[current.key] === true ? true : false)
       : (draft === '' ? 0 : parseInt(draft, 10));
@@ -211,6 +248,7 @@ export function DailyReportPage({ me, setRoute, showToast }) {
   }
   function skip() {
     if (!current) return;
+    userEditedRef.current = true;
     setValues(prev => ({ ...prev, [current.key]: 'skip' }));
     setDraft('');
     if (stepIdx < queue.length - 1) setStepIdx(stepIdx + 1);
@@ -406,7 +444,7 @@ export function DailyReportPage({ me, setRoute, showToast }) {
                       <>
                         <div style={{ margin: '20px 0' }}>
                           <button
-                            onClick={() => setValues(p => ({...p, [current.key]: !p[current.key]}))}
+                            onClick={() => { userEditedRef.current = true; setValues(p => ({...p, [current.key]: !p[current.key]})); }}
                             style={{
                               width: '100%', height: 80, borderRadius: 12, cursor: 'pointer',
                               background: values[current.key] ? 'var(--accent)' : 'var(--surface-2)',
@@ -508,7 +546,7 @@ export function DailyReportPage({ me, setRoute, showToast }) {
                           <span style={{ flex: 1, fontSize: 13 }}>{m.label}</span>
                           {m.type === 'checkbox' ? (
                             <button
-                              onClick={() => setValues(p => ({...p, [m.key]: !p[m.key]}))}
+                              onClick={() => { userEditedRef.current = true; setValues(p => ({...p, [m.key]: !p[m.key]})); }}
                               style={{
                                 height: 30, padding: '0 14px', borderRadius: 6, cursor: 'pointer', fontWeight: 600,
                                 fontSize: 13, border: '1.5px solid ' + (values[m.key] ? 'var(--accent)' : 'var(--border)'),
@@ -522,13 +560,13 @@ export function DailyReportPage({ me, setRoute, showToast }) {
                           ) : (
                             <>
                               <button className="btn ghost" style={{ width: 24, height: 24, padding: 0 }}
-                                      onClick={() => setValues(p => ({...p, [m.key]: Math.max(0, (p[m.key] || 0) - 1)}))}>−</button>
+                                      onClick={() => { userEditedRef.current = true; setValues(p => ({...p, [m.key]: Math.max(0, (p[m.key] || 0) - 1)})); }}>−</button>
                               <input className="input" style={{ width: 60, textAlign: 'center', fontFamily: 'var(--font-mono)' }}
                                      value={typeof values[m.key] === 'number' ? values[m.key] : ''}
                                      placeholder="0"
-                                     onChange={(e) => setValues(p => ({...p, [m.key]: parseInt(e.target.value || '0', 10) || 0}))} />
+                                     onChange={(e) => { userEditedRef.current = true; setValues(p => ({...p, [m.key]: parseInt(e.target.value || '0', 10) || 0})); }} />
                               <button className="btn ghost" style={{ width: 24, height: 24, padding: 0 }}
-                                      onClick={() => setValues(p => ({...p, [m.key]: (typeof p[m.key] === 'number' ? p[m.key] : 0) + 1}))}>+</button>
+                                      onClick={() => { userEditedRef.current = true; setValues(p => ({...p, [m.key]: (typeof p[m.key] === 'number' ? p[m.key] : 0) + 1})); }}>+</button>
                             </>
                           )}
                         </div>
@@ -544,12 +582,19 @@ export function DailyReportPage({ me, setRoute, showToast }) {
                   <div className="card-pad">
                     <textarea className="input" style={{ height: 80, padding: 10, resize: 'none', width: '100%' }}
                               placeholder="Anything worth flagging — blockers, outliers, context for today's numbers…"
-                              maxLength={280} value={note} onChange={(e) => setNote(e.target.value)} />
+                              maxLength={280} value={note} onChange={(e) => { userEditedRef.current = true; setNote(e.target.value); }} />
                   </div>
                 </div>
                 <div className="card" style={{ padding: 14, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                   <div>
-                    <div className="faint" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Submission</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <div className="faint" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Submission</div>
+                      {autoSaveStatus && (
+                        <span style={{ fontSize: 10, color: autoSaveStatus === 'saved' ? 'var(--ok)' : 'var(--text-faint)', marginLeft: 'auto' }}>
+                          {autoSaveStatus === 'saving' ? '↻ saving…' : '✓ saved'}
+                        </span>
+                      )}
+                    </div>
                     <div style={{ fontSize: 22, fontFamily: 'var(--font-mono)', fontWeight: 500, marginTop: 4 }}>{total}</div>
                     <div className="muted" style={{ fontSize: 11 }}>tasks recorded</div>
                   </div>
