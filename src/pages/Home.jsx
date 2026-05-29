@@ -5,8 +5,16 @@ import { TEAM, METRICS, NEEL_METRICS, metricsFor, teamMembers as getTeamMembers,
 // Tiny sparkline
 export function Sparkline({ data, height = 28 }) {
   const w = 100, h = height;
-  if (!data.length) return null;
+  if (!data || !data.length) return null;
   const max = Math.max(...data, 1);
+  if (data.length === 1) {
+    const y = (h - (data[0] / max) * (h - 4) - 2).toFixed(1);
+    return (
+      <svg className="spark" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
+        <polyline className="ln" points={`0,${y} ${w},${y}`} />
+      </svg>
+    );
+  }
   const points = data.map((v, i) => {
     const x = (i / (data.length - 1)) * w;
     const y = h - (v / max) * (h - 4) - 2;
@@ -22,22 +30,29 @@ export function Sparkline({ data, height = 28 }) {
 // Larger line chart with axis
 export function LineChart({ data, height = 200 }) {
   const W = 580, H = height;
-  const padL = 28, padR = 12, padT = 14, padB = 26;
+  const padL = 36, padR = 16, padT = 14, padB = 26;
   const innerW = W - padL - padR;
   const innerH = H - padT - padB;
   const max = Math.max(...data.map(d => d.count), 1);
-  const yMax = Math.ceil(max / 50) * 50 || 50;
+  // Round to nearest 10 so sparse data still fills vertical space
+  const yMax = Math.ceil(max / 10) * 10 || 10;
+  const ticks = [0, Math.round(yMax / 2), yMax];
+
   const pt = (d, i) => {
-    const x = padL + (i / (data.length - 1)) * innerW;
+    const x = data.length === 1
+      ? padL + innerW / 2
+      : padL + (i / (data.length - 1)) * innerW;
     const y = padT + innerH - (d.count / yMax) * innerH;
     return [x, y];
   };
+
   const path = data.map((d, i) => {
     const [x, y] = pt(d, i);
     return `${i === 0 ? 'M' : 'L'} ${x.toFixed(1)} ${y.toFixed(1)}`;
   }).join(' ');
-  const area = path + ` L ${padL + innerW} ${padT + innerH} L ${padL} ${padT + innerH} Z`;
-  const ticks = [0, yMax / 2, yMax];
+  const [lastX] = pt(data[data.length - 1], data.length - 1);
+  const area = path + ` L ${lastX.toFixed(1)} ${padT + innerH} L ${padL} ${padT + innerH} Z`;
+
   return (
     <svg className="line-chart" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ width: '100%', height }}>
       {ticks.map((t, i) => {
@@ -53,11 +68,20 @@ export function LineChart({ data, height = 200 }) {
       <path className="ln" d={path} />
       {data.map((d, i) => {
         const [x, y] = pt(d, i);
-        const showLabel = i === 0 || i === data.length - 1 || i === Math.floor(data.length / 2);
+        const isFirst = i === 0;
+        const isLast  = i === data.length - 1;
+        const isMid   = i === Math.floor((data.length - 1) / 2);
+        const showLabel = isFirst || isLast || (data.length > 2 && isMid);
+        // anchor labels away from edges so they don't get clipped
+        const anchor = isFirst ? 'start' : isLast ? 'end' : 'middle';
         return (
           <g key={i}>
-            {i === data.length - 1 && <circle className="dot" cx={x} cy={y} r="3" />}
-            {showLabel && <text className="axis-text" x={x} y={H - 8} textAnchor="middle">{fmtDateShort(d.date)}</text>}
+            {isLast && <circle className="dot" cx={x} cy={y} r="3" />}
+            {showLabel && (
+              <text className="axis-text" x={x} y={H - 8} textAnchor={anchor}>
+                {fmtDateShort(d.date)}
+              </text>
+            )}
           </g>
         );
       })}

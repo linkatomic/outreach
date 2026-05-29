@@ -134,7 +134,7 @@ export function AnalyticsPage({ setRoute }) {
               <h3>Email volume — {rangeLabel}</h3>
               <span className="chip"><span className="dot-status accent"></span>Team total</span>
             </div>
-            <div className="chart-wrap"><LineChart data={trend} height={220} /></div>
+            <div className="chart-wrap"><LineChart data={trend} height={260} /></div>
           </div>
 
           <div className="grid grid-2" style={{ marginBottom: 16 }}>
