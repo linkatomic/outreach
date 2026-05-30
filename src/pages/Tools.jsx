@@ -74,7 +74,8 @@ function useGridSelection(rows, getCellText) {
   }, [])
 
   // Move cursor; returns new {r,c} or null if key is not a navigation key
-  function navigate(fromR, fromC, key, shiftKey, ctrlKey, numCols, numRows) {
+  // ctrlDownTarget: override for Ctrl+Down destination (smart "last data row" behaviour)
+  function navigate(fromR, fromC, key, shiftKey, ctrlKey, numCols, numRows, ctrlDownTarget) {
     const isEnterOrTab = key === 'Enter' || key === 'Tab'
     const dr = (key === 'ArrowDown' || isEnterOrTab) ? 1 : key === 'ArrowUp' ? -1 : 0
     const dc = key === 'ArrowRight' ? 1 : key === 'ArrowLeft' ? -1 : 0
@@ -82,7 +83,8 @@ function useGridSelection(rows, getCellText) {
 
     let newR = fromR, newC = fromC
     if (ctrlKey) {
-      if (dr !== 0) newR = dr > 0 ? numRows - 1 : 0
+      if (dr > 0) newR = ctrlDownTarget ?? numRows - 1
+      else if (dr < 0) newR = 0
       if (dc !== 0) newC = dc > 0 ? numCols - 1 : 0
     } else {
       newR = Math.max(0, Math.min(numRows - 1, fromR + dr))
@@ -167,22 +169,37 @@ function ForwardGrid({ priceMap }) {
       return
     }
 
+    // Delete/Backspace: clear selected rows (skip when an input is focused)
+    if ((e.key === 'Delete' || e.key === 'Backspace') && sel && e.target.tagName !== 'INPUT') {
+      e.preventDefault()
+      const n = normSel(sel)
+      setRows(prev => prev.map((row, idx) =>
+        idx >= n.r1 && idx <= n.r2 ? { ...row, admin: '', buyer: null, reseller: null, notFound: false } : row
+      ))
+      return
+    }
+
     const ARROWS = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']
     if (!ARROWS.includes(e.key) || !sel) return
     e.preventDefault()
 
     const { cr, cc } = sel
     const ctrl = e.ctrlKey || e.metaKey
-    // Add row when arrowing down past the last row (non-shift only)
-    const goingDown = e.key === 'ArrowDown' && cr === rows.length - 1 && !e.shiftKey && !ctrl
-    if (goingDown) setRows(prev => [...prev, mkFwdRow()])
-    const effectiveRows = goingDown ? rows.length + 1 : rows.length
 
-    const newPos = navigate(cr, cc, e.key, e.shiftKey, ctrl, FWD_COLS, effectiveRows)
+    // Smart Ctrl+Down: go to last data row; if already there, go to absolute end
+    const lastFilledRow = rows.reduce((last, row, i) => row.admin.trim() ? i : last, -1)
+    const ctrlDownTarget = lastFilledRow < 0 || cr >= lastFilledRow ? rows.length - 1 : lastFilledRow
+
+    // Add row when arrowing down past the last row (non-shift, non-ctrl only)
+    const addingRow = e.key === 'ArrowDown' && cr === rows.length - 1 && !e.shiftKey && !ctrl
+    if (addingRow) setRows(prev => [...prev, mkFwdRow()])
+    const effectiveRows = addingRow ? rows.length + 1 : rows.length
+
+    const newPos = navigate(cr, cc, e.key, e.shiftKey, ctrl, FWD_COLS, effectiveRows, ctrlDownTarget)
     if (!newPos) return
 
     if (newPos.c === 0 && !e.shiftKey) {
-      focusInput(newPos.r, goingDown ? 40 : 10)
+      focusInput(newPos.r, addingRow ? 40 : 10)
     } else {
       scrollRowIntoView(gridRef, newPos.r)
     }
@@ -379,21 +396,36 @@ function ReverseGrid({ reverseMap, inputLabel }) {
       return
     }
 
+    // Delete/Backspace: clear selected rows (skip when an input is focused)
+    if ((e.key === 'Delete' || e.key === 'Backspace') && sel && e.target.tagName !== 'INPUT') {
+      e.preventDefault()
+      const n = normSel(sel)
+      setRows(prev => prev.map((row, idx) =>
+        idx >= n.r1 && idx <= n.r2 ? { ...row, input: '', admins: null, notFound: false } : row
+      ))
+      return
+    }
+
     const ARROWS = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']
     if (!ARROWS.includes(e.key) || !sel) return
     e.preventDefault()
 
     const { cr, cc } = sel
     const ctrl = e.ctrlKey || e.metaKey
-    const goingDown = e.key === 'ArrowDown' && cr === rows.length - 1 && !e.shiftKey && !ctrl
-    if (goingDown) setRows(prev => [...prev, mkRevRow()])
-    const effectiveRows = goingDown ? rows.length + 1 : rows.length
 
-    const newPos = navigate(cr, cc, e.key, e.shiftKey, ctrl, REV_COLS, effectiveRows)
+    // Smart Ctrl+Down: go to last data row; if already there, go to absolute end
+    const lastFilledRow = rows.reduce((last, row, i) => row.input.trim() ? i : last, -1)
+    const ctrlDownTarget = lastFilledRow < 0 || cr >= lastFilledRow ? rows.length - 1 : lastFilledRow
+
+    const addingRow = e.key === 'ArrowDown' && cr === rows.length - 1 && !e.shiftKey && !ctrl
+    if (addingRow) setRows(prev => [...prev, mkRevRow()])
+    const effectiveRows = addingRow ? rows.length + 1 : rows.length
+
+    const newPos = navigate(cr, cc, e.key, e.shiftKey, ctrl, REV_COLS, effectiveRows, ctrlDownTarget)
     if (!newPos) return
 
     if (newPos.c === 0 && !e.shiftKey) {
-      focusInput(newPos.r, goingDown ? 40 : 10)
+      focusInput(newPos.r, addingRow ? 40 : 10)
     } else {
       scrollRowIntoView(gridRef, newPos.r)
     }
