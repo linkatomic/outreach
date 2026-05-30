@@ -128,6 +128,33 @@ function scrollRowIntoView(gridRef, rowIdx) {
 
 const FWD_COLS = 3
 
+// ─── Currency Converter ────────────────────────────────────────────────────────
+
+const CURRENCIES = ['AFN','ALL','DZD','AOA','ARS','AMD','AWG','AUD','AZN','BSD','BHD','BDT','BBD','BYR','BZD','BMD','BTN','BOB','BAM','BWP','BRL','GBP','BND','BGN','BIF','KHR','CAD','CVE','KYD','GQE','XAF','XPF','CLP','CNY','COP','KMF','CDF','CRC','HRK','CUC','CZK','DKK','DJF','DOP','XCD','EGP','ERN','EEK','ETB','EUR','FKP','FJD','GMD','GEL','GHS','GIP','GTQ','GNF','GYD','HTG','HNL','HKD','HUF','ISK','INR','IDR','IRR','IQD','ILS','JMD','JPY','JOD','KZT','KES','KWD','KGS','LAK','LVL','LBP','LSL','LRD','LYD','LTL','MOP','MKD','MGA','MWK','MYR','MVR','MRO','MUR','MXN','MDL','MNT','MAD','MZM','MMK','NAD','NPR','ANG','TWD','NZD','NIO','NGN','KPW','NOK','OMR','PKR','PAB','PGK','PYG','PEN','PHP','PLN','QAR','RON','RUB','SHP','WST','SAR','RSD','SCR','SLL','SGD','SBD','SOS','ZAR','KRW','XDR','LKR','SDG','SRD','SZL','SEK','CHF','SYP','TJS','TZS','THB','TTD','TND','TRY','TMT','AED','UGX','UAH','USD','UYU','UZS','VUV','VEB','VND','XOF','YER','ZMK','ZWR','USDT']
+const CURR_COLS = 5
+
+function mkCurrRow() { return { id: uid(), currency: 'USD', rate: '' } }
+
+function computeCurrRow(row, fxRates, priceMap) {
+  const r = parseFloat(row.rate)
+  if (!row.rate.trim() || isNaN(r) || r === 0) return { postPrice: null, buyer: null, reseller: null, notFound: false }
+
+  let postPrice
+  if (row.currency === 'USD') {
+    postPrice = Math.ceil(r)
+  } else {
+    const fxRate = fxRates?.[row.currency] // units of this currency per 1 USD
+    if (!fxRate) return { postPrice: null, buyer: null, reseller: null, notFound: !!fxRates }
+    const usdValue = r / fxRate
+    const markup = row.currency === 'EUR' ? 1.05 : row.currency === 'INR' ? 1.0 : 1.15
+    postPrice = Math.ceil(usdValue * markup)
+  }
+
+  const entry = priceMap.get(postPrice)
+  if (!entry) return { postPrice, buyer: null, reseller: null, notFound: true }
+  return { postPrice, buyer: entry.buyer, reseller: entry.reseller, notFound: false }
+}
+
 function ForwardGrid({ priceMap }) {
   const [rows, setRows] = useState(() => Array.from({ length: 12 }, mkFwdRow))
   const [copied, setCopied] = useState(false)
@@ -573,6 +600,262 @@ function ReverseGrid({ reverseMap, inputLabel }) {
   )
 }
 
+// ─── Currency Converter grid ───────────────────────────────────────────────────
+
+function CurrencyCalc({ priceMap, fxRates, fxLoading, fxError, fxUpdatedAt, onRefreshRates }) {
+  const [rows, setRows] = useState(() => Array.from({ length: 10 }, mkCurrRow))
+  const [copied, setCopied] = useState(false)
+  const gridRef = useRef(null)
+  const selectRefs = useRef([])
+  const rateRefs = useRef([])
+
+  const computedRows = useMemo(
+    () => rows.map(row => ({ ...row, ...computeCurrRow(row, fxRates, priceMap) })),
+    [rows, fxRates, priceMap]
+  )
+
+  function getCellText(rows, r, c) {
+    const row = rows[r]; if (!row) return ''
+    if (c === 0) return row.currency
+    if (c === 1) return row.rate
+    if (c === 2) return row.postPrice != null ? String(row.postPrice) : ''
+    if (c === 3) return row.buyer != null ? row.buyer.toFixed(2) : ''
+    if (c === 4) return row.reseller != null ? row.reseller.toFixed(2) : ''
+    return ''
+  }
+
+  const { sel, setSel, containerRef, onMouseDown, onMouseMove, navigate, buildTSV } = useGridSelection(computedRows, getCellText)
+
+  function focusSelect(idx, delay = 10) {
+    setTimeout(() => { selectRefs.current[idx]?.focus(); scrollRowIntoView(gridRef, idx) }, delay)
+  }
+  function focusRate(idx, delay = 10) {
+    setTimeout(() => { rateRefs.current[idx]?.focus(); scrollRowIntoView(gridRef, idx) }, delay)
+  }
+
+  function onContainerKeyDown(e) {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'c' && sel) {
+      e.preventDefault()
+      navigator.clipboard.writeText(buildTSV(sel)).catch(() => {})
+      return
+    }
+    if ((e.key === 'Delete' || e.key === 'Backspace') && sel && e.target.tagName !== 'INPUT' && e.target.tagName !== 'SELECT') {
+      e.preventDefault()
+      const n = normSel(sel)
+      setRows(prev => prev.map((row, idx) => idx >= n.r1 && idx <= n.r2 ? { ...row, rate: '' } : row))
+      return
+    }
+    const ARROWS = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']
+    if (!ARROWS.includes(e.key) || !sel) return
+    e.preventDefault()
+
+    const { cr, cc } = sel
+    const ctrl = e.ctrlKey || e.metaKey
+    const lastFilledRow = rows.reduce((last, row, i) => row.rate.trim() ? i : last, -1)
+    const ctrlDownTarget = lastFilledRow < 0 || cr >= lastFilledRow ? rows.length - 1 : lastFilledRow
+    const addingRow = e.key === 'ArrowDown' && cr === rows.length - 1 && !e.shiftKey && !ctrl
+    if (addingRow) setRows(prev => [...prev, mkCurrRow()])
+    const effectiveRows = addingRow ? rows.length + 1 : rows.length
+
+    const newPos = navigate(cr, cc, e.key, e.shiftKey, ctrl, CURR_COLS, effectiveRows, ctrlDownTarget)
+    if (!newPos) return
+
+    if (!e.shiftKey) {
+      if (newPos.c === 0) focusSelect(newPos.r, addingRow ? 40 : 10)
+      else if (newPos.c === 1) focusRate(newPos.r, addingRow ? 40 : 10)
+      else scrollRowIntoView(gridRef, newPos.r)
+    } else {
+      scrollRowIntoView(gridRef, newPos.r)
+    }
+  }
+
+  function onSelectKeyDown(e, idx) {
+    if (e.key === 'Tab' && !e.shiftKey) { e.preventDefault(); setSel({ ar: idx, ac: 1, cr: idx, cc: 1 }); focusRate(idx) }
+    else if (e.key === 'Tab' && e.shiftKey) { e.preventDefault(); focusSelect(Math.max(0, idx - 1)) }
+    // Arrow keys: browser handles option navigation in the select
+  }
+
+  function onRateKeyDown(e, idx) {
+    const ctrl = e.ctrlKey || e.metaKey
+    if (e.key === 'ArrowLeft') {
+      e.preventDefault(); setSel({ ar: idx, ac: 0, cr: idx, cc: 0 }); focusSelect(idx); return
+    }
+    if (e.key === 'ArrowRight') {
+      e.preventDefault(); setSel({ ar: idx, ac: 2, cr: idx, cc: 2 }); containerRef.current?.focus(); return
+    }
+    if (e.key === 'ArrowDown' || e.key === 'Enter' || (e.key === 'Tab' && !e.shiftKey)) {
+      e.preventDefault()
+      const isLast = idx === rows.length - 1
+      if (isLast && !ctrl) setRows(prev => [...prev, mkCurrRow()])
+      const target = ctrl ? rows.length - 1 : Math.min(idx + 1, isLast ? rows.length : rows.length - 1)
+      navigate(idx, 1, 'ArrowDown', false, ctrl, CURR_COLS, isLast && !ctrl ? rows.length + 1 : rows.length)
+      focusRate(target, isLast && !ctrl ? 40 : 10)
+      return
+    }
+    if (e.key === 'ArrowUp' || (e.key === 'Tab' && e.shiftKey)) {
+      e.preventDefault()
+      navigate(idx, 1, 'ArrowUp', false, ctrl, CURR_COLS, rows.length)
+      focusRate(Math.max(0, idx - 1))
+    }
+  }
+
+  function onPaste(e) {
+    const target = e.target
+    if (!target.hasAttribute('data-rate-row')) return
+    const text = e.clipboardData.getData('text')
+    const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean)
+    if (lines.length <= 1) return
+    e.preventDefault()
+    const start = Number(target.getAttribute('data-rate-row'))
+    const baseCurrency = rows[start]?.currency || 'USD'
+    setRows(prev => {
+      const r = [...prev]
+      lines.forEach((line, i) => {
+        const v = line.split(/\t/)[0].trim()
+        const row = { id: uid(), currency: baseCurrency, rate: v }
+        if (start + i < r.length) r[start + i] = row; else r.push(row)
+      })
+      return r
+    })
+  }
+
+  function copyAll() {
+    const filled = computedRows.filter(r => r.rate.trim())
+    if (!filled.length) return
+    const text = ['Currency\tRate\tPost Price\tBuyer\tReseller',
+      ...filled.map(r => `${r.currency}\t${r.rate}\t${r.postPrice ?? ''}\t${r.buyer != null ? r.buyer.toFixed(2) : ''}\t${r.reseller != null ? r.reseller.toFixed(2) : ''}`)
+    ].join('\n')
+    navigator.clipboard.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500) })
+  }
+
+  function clearAll() { setRows(Array.from({ length: 10 }, mkCurrRow)); setSel(null) }
+
+  const convertedCount = computedRows.filter(r => r.postPrice != null).length
+  const notFoundCount = computedRows.filter(r => r.notFound).length
+
+  function cellBg(r, c) {
+    if (isCursor(sel, r, c)) return CURSOR_BG
+    if (inSel(sel, r, c)) return SEL_BG
+    return 'transparent'
+  }
+
+  const SELECT_STYLE = {
+    width: '100%', background: 'transparent', border: 'none', outline: 'none',
+    padding: '0 4px 0 12px', fontFamily: 'var(--font-mono, monospace)', fontSize: 13,
+    color: 'var(--text)', height: 36, boxSizing: 'border-box', cursor: 'pointer',
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {/* Markup info */}
+      <div style={{ fontSize: 12, padding: '8px 12px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 6, lineHeight: 1.7, color: 'var(--text-faint)' }}>
+        <span style={{ color: 'var(--accent)', fontWeight: 600 }}>+5%</span> for EUR &nbsp;·&nbsp;
+        <span style={{ fontWeight: 600, color: 'var(--text)' }}>+15%</span> for all other currencies &nbsp;·&nbsp;
+        <span style={{ color: 'var(--text-faint)' }}>no markup</span> for INR &amp; USD
+      </div>
+
+      {/* FX rate status */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--text-faint)', flexWrap: 'wrap' }}>
+        {fxLoading && <span>Fetching live rates…</span>}
+        {fxError && <span style={{ color: '#f87171' }}>Rate fetch failed — {fxError}</span>}
+        {!fxLoading && !fxError && fxUpdatedAt && <span>Live rates as of {fxUpdatedAt}</span>}
+        <button className="btn ghost" onClick={onRefreshRates} disabled={fxLoading} style={{ fontSize: 11, height: 26, padding: '0 8px' }}>
+          <Icon name="refresh" size={12} /> Refresh
+        </button>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+          {convertedCount > 0 && <span style={{ color: 'var(--accent)' }}>{convertedCount} converted</span>}
+          {notFoundCount > 0 && <span style={{ color: '#f87171' }}>{notFoundCount} not found</span>}
+          {sel && <span>
+            {(() => { const n = normSel(sel); return n && (n.r2 > n.r1 || n.c2 > n.c1) ? `${n.r2-n.r1+1}×${n.c2-n.c1+1} · ` : '' })()}
+            Ctrl+C to copy
+          </span>}
+        </div>
+      </div>
+
+      <div
+        ref={containerRef}
+        tabIndex={0}
+        style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', userSelect: 'none', outline: 'none' }}
+        onPaste={onPaste}
+        onMouseDown={onMouseDown}
+        onMouseMove={onMouseMove}
+        onKeyDown={onContainerKeyDown}
+      >
+        <div style={{ display: 'grid', gridTemplateColumns: '36px 130px 1fr 1fr 1fr 1fr 32px', background: 'var(--surface)', borderBottom: '2px solid var(--border)' }}>
+          {['#', 'Currency', 'Rate', 'Post Price', 'Buyer', 'Reseller', ''].map((h, i) => (
+            <div key={i} style={{ ...TH, textAlign: i === 0 ? 'center' : 'left' }}>{h}</div>
+          ))}
+        </div>
+
+        <div ref={gridRef} style={{ maxHeight: 480, overflowY: 'auto' }}>
+          {computedRows.map((row, idx) => (
+            <div key={row.id} data-row-idx={idx} style={{ display: 'grid', gridTemplateColumns: '36px 130px 1fr 1fr 1fr 1fr 32px', borderBottom: idx < rows.length - 1 ? '1px solid var(--border)' : 'none', background: idx % 2 ? 'rgba(255,255,255,.013)' : 'transparent' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: 'var(--text-faint)', borderRight: '1px solid var(--border)' }}>
+                {idx + 1}
+              </div>
+
+              <div data-cr={`${idx},0`} style={{ borderRight: '1px solid var(--border)', background: cellBg(idx, 0) }}>
+                <select
+                  ref={el => { selectRefs.current[idx] = el }}
+                  value={row.currency}
+                  onChange={e => setRows(prev => prev.map(r => r.id !== row.id ? r : { ...r, currency: e.target.value }))}
+                  onKeyDown={e => onSelectKeyDown(e, idx)}
+                  onFocus={() => setSel({ ar: idx, ac: 0, cr: idx, cc: 0 })}
+                  style={SELECT_STYLE}
+                >
+                  {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+
+              <div data-cr={`${idx},1`} style={{ borderRight: '1px solid var(--border)', background: cellBg(idx, 1) }}>
+                <input
+                  ref={el => { rateRefs.current[idx] = el }}
+                  data-rate-row={idx}
+                  type="number"
+                  value={row.rate}
+                  onChange={e => setRows(prev => prev.map(r => r.id !== row.id ? r : { ...r, rate: e.target.value }))}
+                  onKeyDown={e => onRateKeyDown(e, idx)}
+                  onFocus={() => setSel({ ar: idx, ac: 1, cr: idx, cc: 1 })}
+                  placeholder={idx === 0 ? 'Amount…' : ''}
+                  style={INPUT_STYLE}
+                />
+              </div>
+
+              <div data-cr={`${idx},2`} style={{ ...MONO, padding: '0 12px', display: 'flex', alignItems: 'center', height: 36, borderRight: '1px solid var(--border)', color: row.postPrice != null ? 'var(--accent)' : row.notFound ? '#f87171' : 'var(--text-faint)', background: cellBg(idx, 2) }}>
+                {row.postPrice != null ? `$${row.postPrice}` : row.notFound ? '—' : ''}
+              </div>
+
+              <div data-cr={`${idx},3`} style={{ ...MONO, padding: '0 12px', display: 'flex', alignItems: 'center', height: 36, borderRight: '1px solid var(--border)', color: row.buyer != null ? 'var(--text)' : 'var(--text-faint)', background: cellBg(idx, 3) }}>
+                {row.buyer != null ? row.buyer.toFixed(2) : ''}
+              </div>
+
+              <div data-cr={`${idx},4`} style={{ ...MONO, padding: '0 12px', display: 'flex', alignItems: 'center', height: 36, color: row.reseller != null ? 'var(--text)' : 'var(--text-faint)', background: cellBg(idx, 4) }}>
+                {row.reseller != null ? row.reseller.toFixed(2) : ''}
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                {row.rate.trim() && (
+                  <button onClick={() => setRows(prev => prev.length > 1 ? prev.filter(r => r.id !== row.id) : [mkCurrRow()])} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-faint)', padding: '4px 6px', borderRadius: 4, display: 'flex', lineHeight: 1 }}>
+                    <Icon name="x" size={11} />
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button className="btn ghost" onClick={() => setRows(prev => [...prev, mkCurrRow()])} style={{ fontSize: 12, height: 30 }}><Icon name="plus" size={13} /> Add Row</button>
+        <button className="btn ghost" onClick={copyAll} style={{ fontSize: 12, height: 30, ...(copied ? { color: 'var(--accent)' } : {}) }}>
+          <Icon name="copy" size={13} /> {copied ? 'Copied!' : 'Copy All'}
+        </button>
+        <button className="btn ghost" onClick={clearAll} style={{ fontSize: 12, height: 30, marginLeft: 'auto', color: 'var(--text-faint)' }}>Clear</button>
+      </div>
+    </div>
+  )
+}
+
 // ─── Price Calculator wrapper ──────────────────────────────────────────────────
 
 function PriceCalc({ priceMap, loading, error }) {
@@ -624,7 +907,8 @@ function PriceCalc({ priceMap, loading, error }) {
 // ─── Tool registry ─────────────────────────────────────────────────────────────
 
 const TOOLS = [
-  { id: 'price-calc', title: 'Price Calculator', desc: 'Convert admin price to buyer & reseller price instantly', icon: 'tool', tag: 'Pricing' },
+  { id: 'price-calc',    title: 'Price Calculator',   desc: 'Convert admin price to buyer & reseller price instantly',              icon: 'tool',   tag: 'Pricing' },
+  { id: 'currency-calc', title: 'Currency Converter', desc: 'Convert foreign currency amounts to USD post price with buyer/reseller lookup', icon: 'globe',  tag: 'Pricing' },
 ]
 
 // ─── Tools Page ────────────────────────────────────────────────────────────────
@@ -635,11 +919,32 @@ export function ToolsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
+  const [fxRates, setFxRates]       = useState(null)
+  const [fxLoading, setFxLoading]   = useState(false)
+  const [fxError, setFxError]       = useState(null)
+  const [fxUpdatedAt, setFxUpdatedAt] = useState(null)
+
+  async function fetchRates() {
+    setFxLoading(true); setFxError(null)
+    try {
+      const res = await fetch('https://open.er-api.com/v6/latest/USD')
+      const json = await res.json()
+      if (json.result !== 'success') throw new Error('API returned error')
+      setFxRates(json.rates)
+      setFxUpdatedAt(new Date().toLocaleTimeString())
+    } catch (err) {
+      setFxError(err.message)
+    } finally {
+      setFxLoading(false)
+    }
+  }
+
   useEffect(() => {
     loadPriceTable()
       .then(rows => setPriceMap(new Map(rows.map(r => [r.admin, { buyer: r.buyer, reseller: r.reseller }]))))
       .catch(err => setError(err.message))
       .finally(() => setLoading(false))
+    fetchRates()
   }, [])
 
   return (
@@ -690,6 +995,20 @@ export function ToolsPage() {
           </div>
           <div className="card-pad">
             <PriceCalc priceMap={priceMap} loading={loading} error={error} />
+          </div>
+        </div>
+      ) : activeTool === 'currency-calc' ? (
+        <div className="card">
+          <div className="card-head">
+            <div>
+              <h3>Currency Converter</h3>
+              <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 2 }}>
+                Select currency, enter amount — post price and buyer/reseller rates shown instantly
+              </div>
+            </div>
+          </div>
+          <div className="card-pad">
+            <CurrencyCalc priceMap={priceMap} fxRates={fxRates} fxLoading={fxLoading} fxError={fxError} fxUpdatedAt={fxUpdatedAt} onRefreshRates={fetchRates} />
           </div>
         </div>
       ) : null}
