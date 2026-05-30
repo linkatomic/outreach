@@ -131,28 +131,34 @@ const FWD_COLS = 3
 // ─── Currency Converter ────────────────────────────────────────────────────────
 
 const CURRENCIES = ['AFN','ALL','DZD','AOA','ARS','AMD','AWG','AUD','AZN','BSD','BHD','BDT','BBD','BYR','BZD','BMD','BTN','BOB','BAM','BWP','BRL','GBP','BND','BGN','BIF','KHR','CAD','CVE','KYD','GQE','XAF','XPF','CLP','CNY','COP','KMF','CDF','CRC','HRK','CUC','CZK','DKK','DJF','DOP','XCD','EGP','ERN','EEK','ETB','EUR','FKP','FJD','GMD','GEL','GHS','GIP','GTQ','GNF','GYD','HTG','HNL','HKD','HUF','ISK','INR','IDR','IRR','IQD','ILS','JMD','JPY','JOD','KZT','KES','KWD','KGS','LAK','LVL','LBP','LSL','LRD','LYD','LTL','MOP','MKD','MGA','MWK','MYR','MVR','MRO','MUR','MXN','MDL','MNT','MAD','MZM','MMK','NAD','NPR','ANG','TWD','NZD','NIO','NGN','KPW','NOK','OMR','PKR','PAB','PGK','PYG','PEN','PHP','PLN','QAR','RON','RUB','SHP','WST','SAR','RSD','SCR','SLL','SGD','SBD','SOS','ZAR','KRW','XDR','LKR','SDG','SRD','SZL','SEK','CHF','SYP','TJS','TZS','THB','TTD','TND','TRY','TMT','AED','UGX','UAH','USD','UYU','UZS','VUV','VEB','VND','XOF','YER','ZMK','ZWR','USDT']
-const CURR_COLS = 4
+
+const CURRENCY_NAMES = {
+  AFN:'Afghan Afghani',ALL:'Albanian Lek',DZD:'Algerian Dinar',AOA:'Angolan Kwanza',ARS:'Argentine Peso',AMD:'Armenian Dram',AWG:'Aruban Florin',AUD:'Australian Dollar',AZN:'Azerbaijani Manat',BSD:'Bahamian Dollar',BHD:'Bahraini Dinar',BDT:'Bangladeshi Taka',BBD:'Barbadian Dollar',BYR:'Belarusian Ruble',BZD:'Belize Dollar',BMD:'Bermudian Dollar',BTN:'Bhutanese Ngultrum',BOB:'Bolivian Boliviano',BAM:'Bosnia-Herzegovina Mark',BWP:'Botswana Pula',BRL:'Brazilian Real',GBP:'British Pound Sterling',BND:'Brunei Dollar',BGN:'Bulgarian Lev',BIF:'Burundian Franc',KHR:'Cambodian Riel',CAD:'Canadian Dollar',CVE:'Cape Verdean Escudo',KYD:'Cayman Islands Dollar',GQE:'Equatorial Guinean Ekwele',XAF:'Central African CFA Franc',XPF:'CFP Franc',CLP:'Chilean Peso',CNY:'Chinese Yuan',COP:'Colombian Peso',KMF:'Comorian Franc',CDF:'Congolese Franc',CRC:'Costa Rican Colón',HRK:'Croatian Kuna',CUC:'Cuban Convertible Peso',CZK:'Czech Koruna',DKK:'Danish Krone',DJF:'Djiboutian Franc',DOP:'Dominican Peso',XCD:'East Caribbean Dollar',EGP:'Egyptian Pound',ERN:'Eritrean Nakfa',EEK:'Estonian Kroon',ETB:'Ethiopian Birr',EUR:'Euro',FKP:'Falkland Islands Pound',FJD:'Fijian Dollar',GMD:'Gambian Dalasi',GEL:'Georgian Lari',GHS:'Ghanaian Cedi',GIP:'Gibraltar Pound',GTQ:'Guatemalan Quetzal',GNF:'Guinean Franc',GYD:'Guyanese Dollar',HTG:'Haitian Gourde',HNL:'Honduran Lempira',HKD:'Hong Kong Dollar',HUF:'Hungarian Forint',ISK:'Icelandic Króna',INR:'Indian Rupee',IDR:'Indonesian Rupiah',IRR:'Iranian Rial',IQD:'Iraqi Dinar',ILS:'Israeli New Shekel',JMD:'Jamaican Dollar',JPY:'Japanese Yen',JOD:'Jordanian Dinar',KZT:'Kazakhstani Tenge',KES:'Kenyan Shilling',KWD:'Kuwaiti Dinar',KGS:'Kyrgyzstani Som',LAK:'Laotian Kip',LVL:'Latvian Lats',LBP:'Lebanese Pound',LSL:'Lesotho Loti',LRD:'Liberian Dollar',LYD:'Libyan Dinar',LTL:'Lithuanian Litas',MOP:'Macanese Pataca',MKD:'Macedonian Denar',MGA:'Malagasy Ariary',MWK:'Malawian Kwacha',MYR:'Malaysian Ringgit',MVR:'Maldivian Rufiyaa',MRO:'Mauritanian Ouguiya',MUR:'Mauritian Rupee',MXN:'Mexican Peso',MDL:'Moldovan Leu',MNT:'Mongolian Tögrög',MAD:'Moroccan Dirham',MZM:'Mozambican Metical',MMK:'Myanmar Kyat',NAD:'Namibian Dollar',NPR:'Nepalese Rupee',ANG:'Netherlands Antillean Guilder',TWD:'New Taiwan Dollar',NZD:'New Zealand Dollar',NIO:'Nicaraguan Córdoba',NGN:'Nigerian Naira',KPW:'North Korean Won',NOK:'Norwegian Krone',OMR:'Omani Rial',PKR:'Pakistani Rupee',PAB:'Panamanian Balboa',PGK:'Papua New Guinean Kina',PYG:'Paraguayan Guaraní',PEN:'Peruvian Sol',PHP:'Philippine Peso',PLN:'Polish Zloty',QAR:'Qatari Riyal',RON:'Romanian Leu',RUB:'Russian Ruble',SHP:'Saint Helena Pound',WST:'Samoan Tala',SAR:'Saudi Riyal',RSD:'Serbian Dinar',SCR:'Seychellois Rupee',SLL:'Sierra Leonean Leone',SGD:'Singapore Dollar',SBD:'Solomon Islands Dollar',SOS:'Somali Shilling',ZAR:'South African Rand',KRW:'South Korean Won',XDR:'Special Drawing Rights',LKR:'Sri Lankan Rupee',SDG:'Sudanese Pound',SRD:'Surinamese Dollar',SZL:'Swazi Lilangeni',SEK:'Swedish Krona',CHF:'Swiss Franc',SYP:'Syrian Pound',TJS:'Tajikistani Somoni',TZS:'Tanzanian Shilling',THB:'Thai Baht',TTD:'Trinidad & Tobago Dollar',TND:'Tunisian Dinar',TRY:'Turkish Lira',TMT:'Turkmenistani Manat',AED:'UAE Dirham',UGX:'Ugandan Shilling',UAH:'Ukrainian Hryvnia',USD:'United States Dollar',UYU:'Uruguayan Peso',UZS:'Uzbekistani Som',VUV:'Vanuatu Vatu',VEB:'Venezuelan Bolívar',VND:'Vietnamese Dong',XOF:'West African CFA Franc',YER:'Yemeni Rial',ZMK:'Zambian Kwacha',ZWR:'Zimbabwean Dollar',USDT:'Tether (USD Stablecoin)',
+}
+const CURR_COLS = 5
 
 function mkCurrRow() { return { id: uid(), rate: '' } }
 
 function computeCurrRow(row, currency, fxRates, priceMap) {
   const r = parseFloat(row.rate)
-  if (!row.rate.trim() || isNaN(r) || r === 0) return { postPrice: null, buyer: null, reseller: null, notFound: false }
+  if (!row.rate.trim() || isNaN(r) || r === 0) return { converted: null, postPrice: null, buyer: null, reseller: null, notFound: false }
 
-  let postPrice
+  let usdValue
   if (currency === 'USD') {
-    postPrice = Math.ceil(r)
+    usdValue = r
   } else {
     const fxRate = fxRates?.[currency] // units of currency per 1 USD
-    if (!fxRate) return { postPrice: null, buyer: null, reseller: null, notFound: !!fxRates }
-    const usdValue = r / fxRate
-    const markup = currency === 'EUR' ? 1.05 : currency === 'INR' ? 1.0 : 1.15
-    postPrice = Math.ceil(usdValue * markup)
+    if (!fxRate) return { converted: null, postPrice: null, buyer: null, reseller: null, notFound: !!fxRates }
+    usdValue = r / fxRate
   }
 
+  const converted = Math.round(usdValue * 100) / 100 // raw USD, 2dp
+  const markup = currency === 'EUR' ? 1.05 : currency === 'INR' ? 1.0 : 1.15
+  const postPrice = currency === 'USD' ? Math.ceil(r) : Math.ceil(usdValue * markup)
+
   const entry = priceMap.get(postPrice)
-  if (!entry) return { postPrice, buyer: null, reseller: null, notFound: true }
-  return { postPrice, buyer: Math.ceil(entry.buyer), reseller: Math.ceil(entry.reseller), notFound: false }
+  if (!entry) return { converted, postPrice, buyer: null, reseller: null, notFound: true }
+  return { converted, postPrice, buyer: Math.ceil(entry.buyer), reseller: Math.ceil(entry.reseller), notFound: false }
 }
 
 function ForwardGrid({ priceMap }) {
@@ -608,10 +614,12 @@ function CurrencyDropdown({ value, onChange }) {
   const wrapRef = useRef(null)
   const listRef = useRef(null)
 
-  const filtered = useMemo(
-    () => CURRENCIES.filter(c => c.toLowerCase().includes(search.toLowerCase())),
-    [search]
-  )
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase()
+    return CURRENCIES.filter(c =>
+      c.toLowerCase().includes(q) || (CURRENCY_NAMES[c] || '').toLowerCase().includes(q)
+    )
+  }, [search])
 
   useEffect(() => {
     if (!open) { setSearch(''); return }
@@ -637,18 +645,18 @@ function CurrencyDropdown({ value, onChange }) {
         <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}><path d="M6 9l6 6 6-6"/></svg>
       </button>
       {open && (
-        <div style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 200, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, boxShadow: '0 8px 32px rgba(0,0,0,.4)', width: 200, overflow: 'hidden' }}>
+        <div style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 200, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, boxShadow: '0 8px 32px rgba(0,0,0,.4)', width: 280, overflow: 'hidden' }}>
           <div style={{ padding: '8px 8px 6px', borderBottom: '1px solid var(--border)' }}>
             <input
               autoFocus
               value={search}
               onChange={e => setSearch(e.target.value)}
               onKeyDown={e => { if (e.key === 'Escape') setOpen(false) }}
-              placeholder="Search currency…"
+              placeholder="Search by code or name…"
               style={{ width: '100%', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 5, padding: '6px 10px', fontSize: 12, color: 'var(--text)', outline: 'none', boxSizing: 'border-box' }}
             />
           </div>
-          <div ref={listRef} style={{ maxHeight: 240, overflowY: 'auto' }}>
+          <div ref={listRef} style={{ maxHeight: 260, overflowY: 'auto' }}>
             {filtered.length === 0
               ? <div style={{ padding: '10px 14px', fontSize: 12, color: 'var(--text-faint)' }}>No match</div>
               : filtered.map(c => (
@@ -656,9 +664,10 @@ function CurrencyDropdown({ value, onChange }) {
                   key={c}
                   data-selected={c === value}
                   onClick={() => { onChange(c); setOpen(false) }}
-                  style={{ padding: '7px 14px', fontSize: 13, fontFamily: 'var(--font-mono, monospace)', cursor: 'pointer', background: c === value ? 'color-mix(in srgb, var(--accent) 15%, transparent)' : 'transparent', color: c === value ? 'var(--accent)' : 'var(--text)', fontWeight: c === value ? 600 : 400 }}
+                  style={{ padding: '6px 14px', cursor: 'pointer', background: c === value ? 'color-mix(in srgb, var(--accent) 15%, transparent)' : 'transparent' }}
                 >
-                  {c}
+                  <div style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: 13, fontWeight: 600, color: c === value ? 'var(--accent)' : 'var(--text)' }}>{c}</div>
+                  <div style={{ fontSize: 11, color: c === value ? 'var(--accent)' : 'var(--text-faint)', marginTop: 1 }}>{CURRENCY_NAMES[c] || ''}</div>
                 </div>
               ))
             }
@@ -686,9 +695,10 @@ function CurrencyCalc({ priceMap, fxRates, fxLoading, fxError, fxUpdatedAt, onRe
   function getCellText(rows, r, c) {
     const row = rows[r]; if (!row) return ''
     if (c === 0) return row.rate
-    if (c === 1) return row.postPrice != null ? String(row.postPrice) : ''
-    if (c === 2) return row.buyer != null ? String(row.buyer) : ''
-    if (c === 3) return row.reseller != null ? String(row.reseller) : ''
+    if (c === 1) return row.converted != null ? String(row.converted) : ''
+    if (c === 2) return row.postPrice != null ? String(row.postPrice) : ''
+    if (c === 3) return row.buyer != null ? String(row.buyer) : ''
+    if (c === 4) return row.reseller != null ? String(row.reseller) : ''
     return ''
   }
 
@@ -732,7 +742,7 @@ function CurrencyCalc({ priceMap, fxRates, fxLoading, fxError, fxUpdatedAt, onRe
   function onRateKeyDown(e, idx) {
     const ctrl = e.ctrlKey || e.metaKey
     if (e.key === 'ArrowRight') {
-      e.preventDefault(); setSel({ ar: idx, ac: 1, cr: idx, cc: 1 }); containerRef.current?.focus(); return
+      e.preventDefault(); setSel({ ar: idx, ac: 1, cr: idx, cc: 1 }); containerRef.current?.focus(); return  // move to Converted col
     }
     if (e.key === 'ArrowDown' || e.key === 'Enter' || (e.key === 'Tab' && !e.shiftKey)) {
       e.preventDefault()
@@ -773,8 +783,8 @@ function CurrencyCalc({ priceMap, fxRates, fxLoading, fxError, fxUpdatedAt, onRe
   function copyAll() {
     const filled = computedRows.filter(r => r.rate.trim())
     if (!filled.length) return
-    const text = [`Rate (${currency})\tPost Price\tBuyer\tReseller`,
-      ...filled.map(r => `${r.rate}\t${r.postPrice ?? ''}\t${r.buyer ?? ''}\t${r.reseller ?? ''}`)
+    const text = [`Rate (${currency})\tConverted (USD)\tPost Price\tBuyer\tReseller`,
+      ...filled.map(r => `${r.rate}\t${r.converted != null ? r.converted.toFixed(2) : ''}\t${r.postPrice ?? ''}\t${r.buyer ?? ''}\t${r.reseller ?? ''}`)
     ].join('\n')
     navigator.clipboard.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500) })
   }
@@ -828,15 +838,15 @@ function CurrencyCalc({ priceMap, fxRates, fxLoading, fxError, fxUpdatedAt, onRe
         onMouseMove={onMouseMove}
         onKeyDown={onContainerKeyDown}
       >
-        <div style={{ display: 'grid', gridTemplateColumns: '36px 1fr 1fr 1fr 1fr 32px', background: 'var(--surface)', borderBottom: '2px solid var(--border)' }}>
-          {['#', `Rate (${currency})`, 'Post Price', 'Buyer', 'Reseller', ''].map((h, i) => (
+        <div style={{ display: 'grid', gridTemplateColumns: '36px 1fr 1fr 1fr 1fr 1fr 32px', background: 'var(--surface)', borderBottom: '2px solid var(--border)' }}>
+          {['#', `Rate (${currency})`, 'Converted (USD)', 'Post Price', 'Buyer', 'Reseller', ''].map((h, i) => (
             <div key={i} style={{ ...TH, textAlign: i === 0 ? 'center' : 'left' }}>{h}</div>
           ))}
         </div>
 
         <div ref={gridRef} style={{ maxHeight: 480, overflowY: 'auto' }}>
           {computedRows.map((row, idx) => (
-            <div key={row.id} data-row-idx={idx} style={{ display: 'grid', gridTemplateColumns: '36px 1fr 1fr 1fr 1fr 32px', borderBottom: idx < rows.length - 1 ? '1px solid var(--border)' : 'none', background: idx % 2 ? 'rgba(255,255,255,.013)' : 'transparent' }}>
+            <div key={row.id} data-row-idx={idx} style={{ display: 'grid', gridTemplateColumns: '36px 1fr 1fr 1fr 1fr 1fr 32px', borderBottom: idx < rows.length - 1 ? '1px solid var(--border)' : 'none', background: idx % 2 ? 'rgba(255,255,255,.013)' : 'transparent' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: 'var(--text-faint)', borderRight: '1px solid var(--border)' }}>
                 {idx + 1}
               </div>
@@ -855,15 +865,19 @@ function CurrencyCalc({ priceMap, fxRates, fxLoading, fxError, fxUpdatedAt, onRe
                 />
               </div>
 
-              <div data-cr={`${idx},1`} style={{ ...MONO, padding: '0 12px', display: 'flex', alignItems: 'center', height: 36, borderRight: '1px solid var(--border)', color: row.postPrice != null ? 'var(--accent)' : row.notFound ? '#f87171' : 'var(--text-faint)', background: cellBg(idx, 1) }}>
+              <div data-cr={`${idx},1`} style={{ ...MONO, padding: '0 12px', display: 'flex', alignItems: 'center', height: 36, borderRight: '1px solid var(--border)', color: row.converted != null ? 'var(--text-faint)' : 'var(--text-faint)', background: cellBg(idx, 1) }}>
+                {row.converted != null ? `$${row.converted.toFixed(2)}` : ''}
+              </div>
+
+              <div data-cr={`${idx},2`} style={{ ...MONO, padding: '0 12px', display: 'flex', alignItems: 'center', height: 36, borderRight: '1px solid var(--border)', color: row.postPrice != null ? 'var(--accent)' : row.notFound ? '#f87171' : 'var(--text-faint)', background: cellBg(idx, 2) }}>
                 {row.postPrice != null ? `$${row.postPrice}` : row.notFound ? '—' : ''}
               </div>
 
-              <div data-cr={`${idx},2`} style={{ ...MONO, padding: '0 12px', display: 'flex', alignItems: 'center', height: 36, borderRight: '1px solid var(--border)', color: row.buyer != null ? 'var(--text)' : 'var(--text-faint)', background: cellBg(idx, 2) }}>
+              <div data-cr={`${idx},3`} style={{ ...MONO, padding: '0 12px', display: 'flex', alignItems: 'center', height: 36, borderRight: '1px solid var(--border)', color: row.buyer != null ? 'var(--text)' : 'var(--text-faint)', background: cellBg(idx, 3) }}>
                 {row.buyer != null ? row.buyer : ''}
               </div>
 
-              <div data-cr={`${idx},3`} style={{ ...MONO, padding: '0 12px', display: 'flex', alignItems: 'center', height: 36, color: row.reseller != null ? 'var(--text)' : 'var(--text-faint)', background: cellBg(idx, 3) }}>
+              <div data-cr={`${idx},4`} style={{ ...MONO, padding: '0 12px', display: 'flex', alignItems: 'center', height: 36, color: row.reseller != null ? 'var(--text)' : 'var(--text-faint)', background: cellBg(idx, 4) }}>
                 {row.reseller != null ? row.reseller : ''}
               </div>
 
