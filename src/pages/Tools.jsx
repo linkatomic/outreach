@@ -24,9 +24,16 @@ const INPUT_STYLE = { width: '100%', background: 'transparent', border: 'none', 
 const SEL_BG = 'color-mix(in srgb, var(--accent) 14%, transparent)'
 
 // Shared hook: drag-select + Ctrl+C copy
-function useGridSelection(gridRef, rows, getCellText) {
+function useGridSelection(rows, getCellText) {
   const [sel, setSel] = useState(null)
   const dragging = useRef(false)
+  const containerRef = useRef(null)
+
+  // Stable ref so onContainerKeyDown always sees current rows/getCellText
+  const getCellTextRef = useRef(getCellText)
+  useEffect(() => { getCellTextRef.current = getCellText })
+  const rowsRef = useRef(rows)
+  useEffect(() => { rowsRef.current = rows })
 
   function getCellPos(e) {
     const el = e.target.closest('[data-cr]')
@@ -44,6 +51,11 @@ function useGridSelection(gridRef, rows, getCellText) {
       dragging.current = true
       setSel({ r1: pos.r, c1: pos.c, r2: pos.r, c2: pos.c })
     }
+    // Focus the container so Ctrl+C fires here after clicking output (div) cells
+    if (e.target.tagName !== 'INPUT') {
+      e.preventDefault()
+      containerRef.current?.focus()
+    }
   }
 
   function onMouseMove(e) {
@@ -58,36 +70,22 @@ function useGridSelection(gridRef, rows, getCellText) {
     return () => window.removeEventListener('mouseup', onUp)
   }, [])
 
-  // Keep a stable ref to getCellText so the keydown effect doesn't re-register every render
-  const getCellTextRef = useRef(getCellText)
-  useEffect(() => { getCellTextRef.current = getCellText })
-
-  // Ctrl+C: copy selected range as TSV via keydown (copy-event approach fails when
-  // output div cells are clicked because focus falls to document.body, not inside gridRef)
-  useEffect(() => {
-    function onKeyDown(e) {
-      if (!sel) return
-      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'c') return
-      const active = document.activeElement
-      // Don't intercept if an input outside our grid has focus (user typing elsewhere)
-      if (active?.tagName === 'INPUT' && !gridRef.current?.contains(active)) return
-      // Single admin cell with focused input → let browser copy the input's own text
-      const n = normSel(sel)
-      if (n.r1 === n.r2 && n.c1 === n.c2 && n.c1 === 0 && active?.tagName === 'INPUT') return
-      e.preventDefault()
-      const lines = []
-      for (let r = n.r1; r <= n.r2; r++) {
-        const cells = []
-        for (let c = n.c1; c <= n.c2; c++) cells.push(getCellTextRef.current(rows, r, c))
-        lines.push(cells.join('\t'))
-      }
-      navigator.clipboard.writeText(lines.join('\n')).catch(() => {})
+  function onContainerKeyDown(e) {
+    if (!((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'c')) return
+    const currentSel = sel
+    if (!currentSel) return
+    e.preventDefault()
+    const n = normSel(currentSel)
+    const lines = []
+    for (let r = n.r1; r <= n.r2; r++) {
+      const cells = []
+      for (let c = n.c1; c <= n.c2; c++) cells.push(getCellTextRef.current(rowsRef.current, r, c))
+      lines.push(cells.join('\t'))
     }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [sel, rows, gridRef])
+    navigator.clipboard.writeText(lines.join('\n')).catch(() => {})
+  }
 
-  return { sel, setSel, onMouseDown, onMouseMove }
+  return { sel, setSel, containerRef, onMouseDown, onMouseMove, onContainerKeyDown }
 }
 
 // ─── Forward grid (Admin → Buyer, Reseller) ────────────────────────────────────
@@ -112,7 +110,7 @@ function ForwardGrid({ priceMap }) {
     return ''
   }
 
-  const { sel, setSel, onMouseDown, onMouseMove } = useGridSelection(gridRef, rows, getCellText)
+  const { sel, setSel, containerRef, onMouseDown, onMouseMove, onContainerKeyDown } = useGridSelection(rows, getCellText)
 
   function setAdmin(id, val) {
     setRows(prev => prev.map(r => r.id !== id ? r : { ...r, admin: val, ...resolve(val) }))
@@ -174,10 +172,13 @@ function ForwardGrid({ priceMap }) {
       </div>
 
       <div
-        style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', userSelect: 'none' }}
+        ref={containerRef}
+        tabIndex={0}
+        style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', userSelect: 'none', outline: 'none' }}
         onPaste={onPaste}
         onMouseDown={onMouseDown}
         onMouseMove={onMouseMove}
+        onKeyDown={onContainerKeyDown}
       >
         <div style={{ display: 'grid', gridTemplateColumns: '36px 1fr 1fr 1fr 32px', background: 'var(--surface)', borderBottom: '2px solid var(--border)' }}>
           {['#', 'Admin', 'Buyer', 'Reseller', ''].map((h, i) => (
@@ -256,7 +257,7 @@ function ReverseGrid({ reverseMap, inputLabel }) {
     return ''
   }
 
-  const { sel, setSel, onMouseDown, onMouseMove } = useGridSelection(gridRef, rows, getCellText)
+  const { sel, setSel, containerRef, onMouseDown, onMouseMove, onContainerKeyDown } = useGridSelection(rows, getCellText)
 
   function setInput(id, val) {
     setRows(prev => prev.map(r => r.id !== id ? r : { ...r, input: val, ...resolve(val) }))
@@ -317,10 +318,13 @@ function ReverseGrid({ reverseMap, inputLabel }) {
       </div>
 
       <div
-        style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', userSelect: 'none' }}
+        ref={containerRef}
+        tabIndex={0}
+        style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', userSelect: 'none', outline: 'none' }}
         onPaste={onPaste}
         onMouseDown={onMouseDown}
         onMouseMove={onMouseMove}
+        onKeyDown={onContainerKeyDown}
       >
         <div style={{ display: 'grid', gridTemplateColumns: '36px 1fr 1fr 32px', background: 'var(--surface)', borderBottom: '2px solid var(--border)' }}>
           {['#', inputLabel, 'Admin Price(s)', ''].map((h, i) => (
