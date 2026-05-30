@@ -135,30 +135,34 @@ const CURRENCIES = ['AFN','ALL','DZD','AOA','ARS','AMD','AWG','AUD','AZN','BSD',
 const CURRENCY_NAMES = {
   AFN:'Afghan Afghani',ALL:'Albanian Lek',DZD:'Algerian Dinar',AOA:'Angolan Kwanza',ARS:'Argentine Peso',AMD:'Armenian Dram',AWG:'Aruban Florin',AUD:'Australian Dollar',AZN:'Azerbaijani Manat',BSD:'Bahamian Dollar',BHD:'Bahraini Dinar',BDT:'Bangladeshi Taka',BBD:'Barbadian Dollar',BYR:'Belarusian Ruble',BZD:'Belize Dollar',BMD:'Bermudian Dollar',BTN:'Bhutanese Ngultrum',BOB:'Bolivian Boliviano',BAM:'Bosnia-Herzegovina Mark',BWP:'Botswana Pula',BRL:'Brazilian Real',GBP:'British Pound Sterling',BND:'Brunei Dollar',BGN:'Bulgarian Lev',BIF:'Burundian Franc',KHR:'Cambodian Riel',CAD:'Canadian Dollar',CVE:'Cape Verdean Escudo',KYD:'Cayman Islands Dollar',GQE:'Equatorial Guinean Ekwele',XAF:'Central African CFA Franc',XPF:'CFP Franc',CLP:'Chilean Peso',CNY:'Chinese Yuan',COP:'Colombian Peso',KMF:'Comorian Franc',CDF:'Congolese Franc',CRC:'Costa Rican Colón',HRK:'Croatian Kuna',CUC:'Cuban Convertible Peso',CZK:'Czech Koruna',DKK:'Danish Krone',DJF:'Djiboutian Franc',DOP:'Dominican Peso',XCD:'East Caribbean Dollar',EGP:'Egyptian Pound',ERN:'Eritrean Nakfa',EEK:'Estonian Kroon',ETB:'Ethiopian Birr',EUR:'Euro',FKP:'Falkland Islands Pound',FJD:'Fijian Dollar',GMD:'Gambian Dalasi',GEL:'Georgian Lari',GHS:'Ghanaian Cedi',GIP:'Gibraltar Pound',GTQ:'Guatemalan Quetzal',GNF:'Guinean Franc',GYD:'Guyanese Dollar',HTG:'Haitian Gourde',HNL:'Honduran Lempira',HKD:'Hong Kong Dollar',HUF:'Hungarian Forint',ISK:'Icelandic Króna',INR:'Indian Rupee',IDR:'Indonesian Rupiah',IRR:'Iranian Rial',IQD:'Iraqi Dinar',ILS:'Israeli New Shekel',JMD:'Jamaican Dollar',JPY:'Japanese Yen',JOD:'Jordanian Dinar',KZT:'Kazakhstani Tenge',KES:'Kenyan Shilling',KWD:'Kuwaiti Dinar',KGS:'Kyrgyzstani Som',LAK:'Laotian Kip',LVL:'Latvian Lats',LBP:'Lebanese Pound',LSL:'Lesotho Loti',LRD:'Liberian Dollar',LYD:'Libyan Dinar',LTL:'Lithuanian Litas',MOP:'Macanese Pataca',MKD:'Macedonian Denar',MGA:'Malagasy Ariary',MWK:'Malawian Kwacha',MYR:'Malaysian Ringgit',MVR:'Maldivian Rufiyaa',MRO:'Mauritanian Ouguiya',MUR:'Mauritian Rupee',MXN:'Mexican Peso',MDL:'Moldovan Leu',MNT:'Mongolian Tögrög',MAD:'Moroccan Dirham',MZM:'Mozambican Metical',MMK:'Myanmar Kyat',NAD:'Namibian Dollar',NPR:'Nepalese Rupee',ANG:'Netherlands Antillean Guilder',TWD:'New Taiwan Dollar',NZD:'New Zealand Dollar',NIO:'Nicaraguan Córdoba',NGN:'Nigerian Naira',KPW:'North Korean Won',NOK:'Norwegian Krone',OMR:'Omani Rial',PKR:'Pakistani Rupee',PAB:'Panamanian Balboa',PGK:'Papua New Guinean Kina',PYG:'Paraguayan Guaraní',PEN:'Peruvian Sol',PHP:'Philippine Peso',PLN:'Polish Zloty',QAR:'Qatari Riyal',RON:'Romanian Leu',RUB:'Russian Ruble',SHP:'Saint Helena Pound',WST:'Samoan Tala',SAR:'Saudi Riyal',RSD:'Serbian Dinar',SCR:'Seychellois Rupee',SLL:'Sierra Leonean Leone',SGD:'Singapore Dollar',SBD:'Solomon Islands Dollar',SOS:'Somali Shilling',ZAR:'South African Rand',KRW:'South Korean Won',XDR:'Special Drawing Rights',LKR:'Sri Lankan Rupee',SDG:'Sudanese Pound',SRD:'Surinamese Dollar',SZL:'Swazi Lilangeni',SEK:'Swedish Krona',CHF:'Swiss Franc',SYP:'Syrian Pound',TJS:'Tajikistani Somoni',TZS:'Tanzanian Shilling',THB:'Thai Baht',TTD:'Trinidad & Tobago Dollar',TND:'Tunisian Dinar',TRY:'Turkish Lira',TMT:'Turkmenistani Manat',AED:'UAE Dirham',UGX:'Ugandan Shilling',UAH:'Ukrainian Hryvnia',USD:'United States Dollar',UYU:'Uruguayan Peso',UZS:'Uzbekistani Som',VUV:'Vanuatu Vatu',VEB:'Venezuelan Bolívar',VND:'Vietnamese Dong',XOF:'West African CFA Franc',YER:'Yemeni Rial',ZMK:'Zambian Kwacha',ZWR:'Zimbabwean Dollar',USDT:'Tether (USD Stablecoin)',
 }
-const CURR_COLS = 5
+const COMB_COLS = 6
 
-function mkCurrRow() { return { id: uid(), rate: '' } }
+function mkCombRow() { return { id: uid(), rate: '' } }
 
-function computeCurrRow(row, currency, fxRates, priceMap) {
-  const r = parseFloat(row.rate)
-  if (!row.rate.trim() || isNaN(r) || r === 0) return { converted: null, postPrice: null, buyer: null, reseller: null, notFound: false }
+function computeCombRow(row, currency, pct, op, fxRates, priceMap) {
+  const rate = parseFloat(row.rate)
+  if (!row.rate.trim() || isNaN(rate)) return { adjRate: null, converted: null, postPrice: null, buyer: null, reseller: null, notFound: false }
+
+  const p = parseFloat(pct)
+  const pctMult = (!pct.trim() || isNaN(p)) ? 1 : (op === '+' ? 1 + p / 100 : 1 - p / 100)
+  const adjRate = rate * pctMult
 
   let usdValue
   if (currency === 'USD') {
-    usdValue = r
+    usdValue = adjRate
   } else {
-    const fxRate = fxRates?.[currency] // units of currency per 1 USD
-    if (!fxRate) return { converted: null, postPrice: null, buyer: null, reseller: null, notFound: !!fxRates }
-    usdValue = r / fxRate
+    const fxRate = fxRates?.[currency]
+    if (!fxRate) return { adjRate, converted: null, postPrice: null, buyer: null, reseller: null, notFound: !!fxRates }
+    usdValue = adjRate / fxRate
   }
 
-  const converted = Math.round(usdValue * 100) / 100 // raw USD, 2dp
+  const converted = Math.round(usdValue * 100) / 100
   const markup = currency === 'EUR' ? 1.05 : currency === 'INR' ? 1.0 : 1.15
-  const postPrice = currency === 'USD' ? Math.ceil(r) : Math.ceil(usdValue * markup)
+  const postPrice = Math.ceil(usdValue * (currency === 'USD' ? 1.0 : markup))
 
   const entry = priceMap.get(postPrice)
-  if (!entry) return { converted, postPrice, buyer: null, reseller: null, notFound: true }
-  return { converted, postPrice, buyer: Math.ceil(entry.buyer), reseller: Math.ceil(entry.reseller), notFound: false }
+  if (!entry) return { adjRate, converted, postPrice, buyer: null, reseller: null, notFound: true }
+  return { adjRate, converted, postPrice, buyer: Math.ceil(entry.buyer), reseller: Math.ceil(entry.reseller), notFound: false }
 }
 
 function ForwardGrid({ priceMap }) {
@@ -678,262 +682,36 @@ function CurrencyDropdown({ value, onChange }) {
   )
 }
 
-// ─── Currency Converter grid ───────────────────────────────────────────────────
+// ─── Combined Currency + Percentage Calculator ─────────────────────────────────
 
-function CurrencyCalc({ priceMap, fxRates, fxLoading, fxError, fxUpdatedAt, onRefreshRates }) {
+function CombinedCalc({ priceMap, fxRates, fxLoading, fxError, fxUpdatedAt, onRefreshRates }) {
   const [currency, setCurrency] = useState('EUR')
-  const [rows, setRows] = useState(() => Array.from({ length: 10 }, mkCurrRow))
-  const [copied, setCopied] = useState(false)
-  const gridRef = useRef(null)
-  const rateRefs = useRef([])
-
-  const computedRows = useMemo(
-    () => rows.map(row => ({ ...row, ...computeCurrRow(row, currency, fxRates, priceMap) })),
-    [rows, currency, fxRates, priceMap]
-  )
-
-  function getCellText(rows, r, c) {
-    const row = rows[r]; if (!row) return ''
-    if (c === 0) return row.rate
-    if (c === 1) return row.converted != null ? String(row.converted) : ''
-    if (c === 2) return row.postPrice != null ? String(row.postPrice) : ''
-    if (c === 3) return row.buyer != null ? String(row.buyer) : ''
-    if (c === 4) return row.reseller != null ? String(row.reseller) : ''
-    return ''
-  }
-
-  const { sel, setSel, containerRef, onMouseDown, onMouseMove, navigate, buildTSV } = useGridSelection(computedRows, getCellText)
-
-  function focusRate(idx, delay = 10) {
-    setTimeout(() => { rateRefs.current[idx]?.focus(); scrollRowIntoView(gridRef, idx) }, delay)
-  }
-
-  function onContainerKeyDown(e) {
-    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'c' && sel) {
-      e.preventDefault()
-      navigator.clipboard.writeText(buildTSV(sel)).catch(() => {})
-      return
-    }
-    if ((e.key === 'Delete' || e.key === 'Backspace') && sel && e.target.tagName !== 'INPUT') {
-      e.preventDefault()
-      const n = normSel(sel)
-      setRows(prev => prev.map((row, idx) => idx >= n.r1 && idx <= n.r2 ? { ...row, rate: '' } : row))
-      return
-    }
-    const ARROWS = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']
-    if (!ARROWS.includes(e.key) || !sel) return
-    e.preventDefault()
-
-    const { cr, cc } = sel
-    const ctrl = e.ctrlKey || e.metaKey
-    const lastFilledRow = rows.reduce((last, row, i) => row.rate.trim() ? i : last, -1)
-    const ctrlDownTarget = lastFilledRow < 0 || cr >= lastFilledRow ? rows.length - 1 : lastFilledRow
-    const addingRow = e.key === 'ArrowDown' && cr === rows.length - 1 && !e.shiftKey && !ctrl
-    if (addingRow) setRows(prev => [...prev, mkCurrRow()])
-    const effectiveRows = addingRow ? rows.length + 1 : rows.length
-
-    const newPos = navigate(cr, cc, e.key, e.shiftKey, ctrl, CURR_COLS, effectiveRows, ctrlDownTarget)
-    if (!newPos) return
-
-    if (newPos.c === 0 && !e.shiftKey) focusRate(newPos.r, addingRow ? 40 : 10)
-    else scrollRowIntoView(gridRef, newPos.r)
-  }
-
-  function onRateKeyDown(e, idx) {
-    const ctrl = e.ctrlKey || e.metaKey
-    if (e.key === 'ArrowRight') {
-      e.preventDefault(); setSel({ ar: idx, ac: 1, cr: idx, cc: 1 }); containerRef.current?.focus(); return  // move to Converted col
-    }
-    if (e.key === 'ArrowDown' || e.key === 'Enter' || (e.key === 'Tab' && !e.shiftKey)) {
-      e.preventDefault()
-      const isLast = idx === rows.length - 1
-      if (isLast && !ctrl) setRows(prev => [...prev, mkCurrRow()])
-      const target = ctrl ? rows.length - 1 : Math.min(idx + 1, isLast ? rows.length : rows.length - 1)
-      navigate(idx, 0, 'ArrowDown', false, ctrl, CURR_COLS, isLast && !ctrl ? rows.length + 1 : rows.length)
-      focusRate(target, isLast && !ctrl ? 40 : 10)
-      return
-    }
-    if (e.key === 'ArrowUp' || (e.key === 'Tab' && e.shiftKey)) {
-      e.preventDefault()
-      navigate(idx, 0, 'ArrowUp', false, ctrl, CURR_COLS, rows.length)
-      focusRate(Math.max(0, idx - 1))
-    }
-    // ArrowLeft: let browser move text cursor within input
-  }
-
-  function onPaste(e) {
-    const target = e.target
-    if (!target.hasAttribute('data-rate-row')) return
-    const text = e.clipboardData.getData('text')
-    const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean)
-    if (lines.length <= 1) return
-    e.preventDefault()
-    const start = Number(target.getAttribute('data-rate-row'))
-    setRows(prev => {
-      const r = [...prev]
-      lines.forEach((line, i) => {
-        const v = line.split(/\t/)[0].trim()
-        const row = { id: uid(), rate: v }
-        if (start + i < r.length) r[start + i] = row; else r.push(row)
-      })
-      return r
-    })
-  }
-
-  function copyAll() {
-    const filled = computedRows.filter(r => r.rate.trim())
-    if (!filled.length) return
-    const text = [`Rate (${currency})\tConverted (USD)\tPost Price\tBuyer\tReseller`,
-      ...filled.map(r => `${r.rate}\t${r.converted != null ? r.converted.toFixed(2) : ''}\t${r.postPrice ?? ''}\t${r.buyer ?? ''}\t${r.reseller ?? ''}`)
-    ].join('\n')
-    navigator.clipboard.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500) })
-  }
-
-  function clearAll() { setRows(Array.from({ length: 10 }, mkCurrRow)); setSel(null) }
-
-  const convertedCount = computedRows.filter(r => r.postPrice != null).length
-  const notFoundCount = computedRows.filter(r => r.notFound).length
-
-  function cellBg(r, c) {
-    if (isCursor(sel, r, c)) return CURSOR_BG
-    if (inSel(sel, r, c)) return SEL_BG
-    return 'transparent'
-  }
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      {/* Markup info */}
-      <div style={{ fontSize: 12, padding: '8px 12px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 6, lineHeight: 1.7, color: 'var(--text-faint)' }}>
-        <span style={{ color: 'var(--accent)', fontWeight: 600 }}>+5%</span> for EUR &nbsp;·&nbsp;
-        <span style={{ fontWeight: 600, color: 'var(--text)' }}>+15%</span> for all other currencies &nbsp;·&nbsp;
-        <span style={{ color: 'var(--text-faint)' }}>no markup</span> for INR &amp; USD
-      </div>
-
-      {/* Currency picker + FX status row */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-        <CurrencyDropdown value={currency} onChange={setCurrency} />
-        <div style={{ width: 1, height: 20, background: 'var(--border)' }} />
-        {fxLoading && <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>Fetching live rates…</span>}
-        {fxError && <span style={{ fontSize: 12, color: '#f87171' }}>Rate fetch failed</span>}
-        {!fxLoading && !fxError && fxUpdatedAt && <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>Rates as of {fxUpdatedAt}</span>}
-        <button className="btn ghost" onClick={onRefreshRates} disabled={fxLoading} style={{ fontSize: 11, height: 28, padding: '0 8px' }}>
-          <Icon name="refresh" size={12} /> Refresh
-        </button>
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, fontSize: 12 }}>
-          {convertedCount > 0 && <span style={{ color: 'var(--accent)' }}>{convertedCount} converted</span>}
-          {notFoundCount > 0 && <span style={{ color: '#f87171' }}>{notFoundCount} not found</span>}
-          {sel && <span style={{ color: 'var(--text-faint)' }}>
-            {(() => { const n = normSel(sel); return n && (n.r2 > n.r1 || n.c2 > n.c1) ? `${n.r2-n.r1+1}×${n.c2-n.c1+1} · ` : '' })()}
-            Ctrl+C to copy
-          </span>}
-        </div>
-      </div>
-
-      <div
-        ref={containerRef}
-        tabIndex={0}
-        style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', userSelect: 'none', outline: 'none' }}
-        onPaste={onPaste}
-        onMouseDown={onMouseDown}
-        onMouseMove={onMouseMove}
-        onKeyDown={onContainerKeyDown}
-      >
-        <div style={{ display: 'grid', gridTemplateColumns: '36px 1fr 1fr 1fr 1fr 1fr 32px', background: 'var(--surface)', borderBottom: '2px solid var(--border)' }}>
-          {['#', `Rate (${currency})`, 'Converted (USD)', 'Post Price', 'Buyer', 'Reseller', ''].map((h, i) => (
-            <div key={i} style={{ ...TH, textAlign: i === 0 ? 'center' : 'left' }}>{h}</div>
-          ))}
-        </div>
-
-        <div ref={gridRef} style={{ maxHeight: 480, overflowY: 'auto' }}>
-          {computedRows.map((row, idx) => (
-            <div key={row.id} data-row-idx={idx} style={{ display: 'grid', gridTemplateColumns: '36px 1fr 1fr 1fr 1fr 1fr 32px', borderBottom: idx < rows.length - 1 ? '1px solid var(--border)' : 'none', background: idx % 2 ? 'rgba(255,255,255,.013)' : 'transparent' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: 'var(--text-faint)', borderRight: '1px solid var(--border)' }}>
-                {idx + 1}
-              </div>
-
-              <div data-cr={`${idx},0`} style={{ borderRight: '1px solid var(--border)', background: cellBg(idx, 0) }}>
-                <input
-                  ref={el => { rateRefs.current[idx] = el }}
-                  data-rate-row={idx}
-                  type="number"
-                  value={row.rate}
-                  onChange={e => setRows(prev => prev.map(r => r.id !== row.id ? r : { ...r, rate: e.target.value }))}
-                  onKeyDown={e => onRateKeyDown(e, idx)}
-                  onFocus={() => setSel({ ar: idx, ac: 0, cr: idx, cc: 0 })}
-                  placeholder={idx === 0 ? 'Amount…' : ''}
-                  style={INPUT_STYLE}
-                />
-              </div>
-
-              <div data-cr={`${idx},1`} style={{ ...MONO, padding: '0 12px', display: 'flex', alignItems: 'center', height: 36, borderRight: '1px solid var(--border)', color: row.converted != null ? 'var(--text-faint)' : 'var(--text-faint)', background: cellBg(idx, 1) }}>
-                {row.converted != null ? `$${row.converted.toFixed(2)}` : ''}
-              </div>
-
-              <div data-cr={`${idx},2`} style={{ ...MONO, padding: '0 12px', display: 'flex', alignItems: 'center', height: 36, borderRight: '1px solid var(--border)', color: row.postPrice != null ? 'var(--accent)' : row.notFound ? '#f87171' : 'var(--text-faint)', background: cellBg(idx, 2) }}>
-                {row.postPrice != null ? `$${row.postPrice}` : row.notFound ? '—' : ''}
-              </div>
-
-              <div data-cr={`${idx},3`} style={{ ...MONO, padding: '0 12px', display: 'flex', alignItems: 'center', height: 36, borderRight: '1px solid var(--border)', color: row.buyer != null ? 'var(--text)' : 'var(--text-faint)', background: cellBg(idx, 3) }}>
-                {row.buyer != null ? row.buyer : ''}
-              </div>
-
-              <div data-cr={`${idx},4`} style={{ ...MONO, padding: '0 12px', display: 'flex', alignItems: 'center', height: 36, color: row.reseller != null ? 'var(--text)' : 'var(--text-faint)', background: cellBg(idx, 4) }}>
-                {row.reseller != null ? row.reseller : ''}
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                {row.rate.trim() && (
-                  <button onClick={() => setRows(prev => prev.length > 1 ? prev.filter(r => r.id !== row.id) : [mkCurrRow()])} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-faint)', padding: '4px 6px', borderRadius: 4, display: 'flex', lineHeight: 1 }}>
-                    <Icon name="x" size={11} />
-                  </button>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div style={{ display: 'flex', gap: 8 }}>
-        <button className="btn ghost" onClick={() => setRows(prev => [...prev, mkCurrRow()])} style={{ fontSize: 12, height: 30 }}><Icon name="plus" size={13} /> Add Row</button>
-        <button className="btn ghost" onClick={copyAll} style={{ fontSize: 12, height: 30, ...(copied ? { color: 'var(--accent)' } : {}) }}>
-          <Icon name="copy" size={13} /> {copied ? 'Copied!' : 'Copy All'}
-        </button>
-        <button className="btn ghost" onClick={clearAll} style={{ fontSize: 12, height: 30, marginLeft: 'auto', color: 'var(--text-faint)' }}>Clear</button>
-      </div>
-    </div>
-  )
-}
-
-// ─── Percentage Calculator ─────────────────────────────────────────────────────
-
-const PCT_COLS = 2
-
-function mkPctRow() { return { id: uid(), amount: '' } }
-
-function PercentCalc() {
   const [pct, setPct] = useState('10')
-  const [op, setOp]   = useState('+')
-  const [rows, setRows] = useState(() => Array.from({ length: 10 }, mkPctRow))
+  const [op, setOp]   = useState('-')
+  const [rows, setRows] = useState(() => Array.from({ length: 10 }, mkCombRow))
   const [copied, setCopied] = useState(false)
   const gridRef   = useRef(null)
   const inputRefs = useRef([])
 
-  function computeResult(amount, pct, op) {
-    const a = parseFloat(amount), p = parseFloat(pct)
-    if (!amount.trim() || isNaN(a) || isNaN(p) || pct.trim() === '') return null
-    const r = op === '+' ? a * (1 + p / 100) : a * (1 - p / 100)
-    return Math.round(r * 100) / 100
-  }
-
   const computedRows = useMemo(
-    () => rows.map(row => ({ ...row, result: computeResult(row.amount, pct, op) })),
-    [rows, pct, op]
+    () => rows.map(row => ({ ...row, ...computeCombRow(row, currency, pct, op, fxRates, priceMap) })),
+    [rows, currency, pct, op, fxRates, priceMap]
   )
+
+  function fmtNum(n) {
+    if (n == null) return ''
+    const r = Math.round(n * 100) / 100
+    return r % 1 === 0 ? String(r) : r.toFixed(2)
+  }
 
   function getCellText(rows, r, c) {
     const row = rows[r]; if (!row) return ''
-    if (c === 0) return row.amount
-    if (c === 1) return row.result != null ? String(row.result) : ''
+    if (c === 0) return row.rate
+    if (c === 1) return fmtNum(row.adjRate)
+    if (c === 2) return row.converted != null ? String(row.converted) : ''
+    if (c === 3) return row.postPrice != null ? String(row.postPrice) : ''
+    if (c === 4) return row.buyer != null ? String(row.buyer) : ''
+    if (c === 5) return row.reseller != null ? String(row.reseller) : ''
     return ''
   }
 
@@ -950,7 +728,7 @@ function PercentCalc() {
     if ((e.key === 'Delete' || e.key === 'Backspace') && sel && e.target.tagName !== 'INPUT') {
       e.preventDefault()
       const n = normSel(sel)
-      setRows(prev => prev.map((row, idx) => idx >= n.r1 && idx <= n.r2 ? { ...row, amount: '' } : row))
+      setRows(prev => prev.map((row, idx) => idx >= n.r1 && idx <= n.r2 ? { ...row, rate: '' } : row))
       return
     }
     const ARROWS = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']
@@ -959,13 +737,13 @@ function PercentCalc() {
 
     const { cr, cc } = sel
     const ctrl = e.ctrlKey || e.metaKey
-    const lastFilledRow = rows.reduce((last, row, i) => row.amount.trim() ? i : last, -1)
+    const lastFilledRow = rows.reduce((last, row, i) => row.rate.trim() ? i : last, -1)
     const ctrlDownTarget = lastFilledRow < 0 || cr >= lastFilledRow ? rows.length - 1 : lastFilledRow
     const addingRow = e.key === 'ArrowDown' && cr === rows.length - 1 && !e.shiftKey && !ctrl
-    if (addingRow) setRows(prev => [...prev, mkPctRow()])
+    if (addingRow) setRows(prev => [...prev, mkCombRow()])
     const effectiveRows = addingRow ? rows.length + 1 : rows.length
 
-    const newPos = navigate(cr, cc, e.key, e.shiftKey, ctrl, PCT_COLS, effectiveRows, ctrlDownTarget)
+    const newPos = navigate(cr, cc, e.key, e.shiftKey, ctrl, COMB_COLS, effectiveRows, ctrlDownTarget)
     if (!newPos) return
     if (newPos.c === 0 && !e.shiftKey) focusInput(newPos.r, addingRow ? 40 : 10)
     else scrollRowIntoView(gridRef, newPos.r)
@@ -979,32 +757,32 @@ function PercentCalc() {
     if (e.key === 'ArrowDown' || e.key === 'Enter' || (e.key === 'Tab' && !e.shiftKey)) {
       e.preventDefault()
       const isLast = idx === rows.length - 1
-      if (isLast && !ctrl) setRows(prev => [...prev, mkPctRow()])
+      if (isLast && !ctrl) setRows(prev => [...prev, mkCombRow()])
       const target = ctrl ? rows.length - 1 : Math.min(idx + 1, isLast ? rows.length : rows.length - 1)
-      navigate(idx, 0, 'ArrowDown', false, ctrl, PCT_COLS, isLast && !ctrl ? rows.length + 1 : rows.length)
+      navigate(idx, 0, 'ArrowDown', false, ctrl, COMB_COLS, isLast && !ctrl ? rows.length + 1 : rows.length)
       focusInput(target, isLast && !ctrl ? 40 : 10)
       return
     }
     if (e.key === 'ArrowUp' || (e.key === 'Tab' && e.shiftKey)) {
       e.preventDefault()
-      navigate(idx, 0, 'ArrowUp', false, ctrl, PCT_COLS, rows.length)
+      navigate(idx, 0, 'ArrowUp', false, ctrl, COMB_COLS, rows.length)
       focusInput(Math.max(0, idx - 1))
     }
   }
 
   function onPaste(e) {
     const target = e.target
-    if (!target.hasAttribute('data-amt-row')) return
+    if (!target.hasAttribute('data-comb-row')) return
     const text = e.clipboardData.getData('text')
     const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean)
     if (lines.length <= 1) return
     e.preventDefault()
-    const start = Number(target.getAttribute('data-amt-row'))
+    const start = Number(target.getAttribute('data-comb-row'))
     setRows(prev => {
       const r = [...prev]
       lines.forEach((line, i) => {
         const v = line.split(/\t/)[0].trim()
-        const row = { id: uid(), amount: v }
+        const row = { id: uid(), rate: v }
         if (start + i < r.length) r[start + i] = row; else r.push(row)
       })
       return r
@@ -1012,41 +790,44 @@ function PercentCalc() {
   }
 
   function copyAll() {
-    const filled = computedRows.filter(r => r.amount.trim())
+    const filled = computedRows.filter(r => r.rate.trim())
     if (!filled.length) return
-    const text = [`Amount\tResult (${op}${pct}%)`,
-      ...filled.map(r => `${r.amount}\t${r.result ?? ''}`)
+    const text = [`Rate (${currency})\tAfter ${op}${pct}%\tConverted (USD)\tPost Price\tBuyer\tReseller`,
+      ...filled.map(r => `${r.rate}\t${fmtNum(r.adjRate)}\t${r.converted != null ? r.converted.toFixed(2) : ''}\t${r.postPrice ?? ''}\t${r.buyer ?? ''}\t${r.reseller ?? ''}`)
     ].join('\n')
     navigator.clipboard.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500) })
   }
 
-  function clearAll() { setRows(Array.from({ length: 10 }, mkPctRow)); setSel(null) }
+  function clearAll() { setRows(Array.from({ length: 10 }, mkCombRow)); setSel(null) }
 
-  const computedCount = computedRows.filter(r => r.result != null).length
+  const convertedCount = computedRows.filter(r => r.postPrice != null).length
+  const notFoundCount  = computedRows.filter(r => r.notFound).length
 
   function cellBg(r, c) {
     if (isCursor(sel, r, c)) return CURSOR_BG
-    if (inSel(sel, r, c)) return SEL_BG
+    if (inSel(sel, r, c))   return SEL_BG
     return 'transparent'
-  }
-
-  function fmtResult(n) {
-    if (n == null) return ''
-    return n % 1 === 0 ? String(n) : n.toFixed(2)
   }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      {/* Shared controls */}
+      {/* Markup info */}
+      <div style={{ fontSize: 12, padding: '8px 12px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 6, lineHeight: 1.7, color: 'var(--text-faint)' }}>
+        <span style={{ color: 'var(--accent)', fontWeight: 600 }}>+5%</span> markup for EUR &nbsp;·&nbsp;
+        <span style={{ fontWeight: 600, color: 'var(--text)' }}>+15%</span> for all other currencies &nbsp;·&nbsp;
+        <span>no markup</span> for INR &amp; USD
+      </div>
+
+      {/* Controls row */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <CurrencyDropdown value={currency} onChange={setCurrency} />
+        <div style={{ width: 1, height: 20, background: 'var(--border)' }} />
+
         {/* % input */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 4, border: '1px solid var(--border)', borderRadius: 7, padding: '0 12px', height: 34, background: 'var(--surface)' }}>
           <input
-            type="number"
-            value={pct}
-            onChange={e => setPct(e.target.value)}
-            min={0}
-            style={{ width: 54, background: 'transparent', border: 'none', outline: 'none', fontFamily: 'var(--font-mono, monospace)', fontSize: 14, fontWeight: 700, color: 'var(--text)', textAlign: 'right' }}
+            type="number" value={pct} onChange={e => setPct(e.target.value)} min={0}
+            style={{ width: 48, background: 'transparent', border: 'none', outline: 'none', fontFamily: 'var(--font-mono, monospace)', fontSize: 14, fontWeight: 700, color: 'var(--text)', textAlign: 'right' }}
           />
           <span style={{ color: 'var(--text-faint)', fontSize: 14, fontWeight: 600 }}>%</span>
         </div>
@@ -1054,14 +835,23 @@ function PercentCalc() {
         {/* +/− toggle */}
         <div style={{ display: 'flex', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 7, padding: 3, gap: 3 }}>
           {['+', '-'].map(o => (
-            <button key={o} onClick={() => setOp(o)} style={{ height: 28, padding: '0 20px', borderRadius: 5, border: 'none', cursor: 'pointer', background: op === o ? 'var(--accent)' : 'transparent', color: op === o ? 'var(--accent-ink)' : 'var(--text-faint)', fontWeight: 700, fontSize: 18, lineHeight: 1 }}>
+            <button key={o} onClick={() => setOp(o)} style={{ height: 28, padding: '0 16px', borderRadius: 5, border: 'none', cursor: 'pointer', background: op === o ? 'var(--accent)' : 'transparent', color: op === o ? 'var(--accent-ink)' : 'var(--text-faint)', fontWeight: 700, fontSize: 18, lineHeight: 1 }}>
               {o}
             </button>
           ))}
         </div>
 
+        <div style={{ width: 1, height: 20, background: 'var(--border)' }} />
+        {fxLoading && <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>Fetching rates…</span>}
+        {fxError   && <span style={{ fontSize: 12, color: '#f87171' }}>Rate fetch failed</span>}
+        {!fxLoading && !fxError && fxUpdatedAt && <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>Rates {fxUpdatedAt}</span>}
+        <button className="btn ghost" onClick={onRefreshRates} disabled={fxLoading} style={{ fontSize: 11, height: 28, padding: '0 8px' }}>
+          <Icon name="refresh" size={12} /> Refresh
+        </button>
+
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, fontSize: 12 }}>
-          {computedCount > 0 && <span style={{ color: 'var(--accent)' }}>{computedCount} calculated</span>}
+          {convertedCount > 0 && <span style={{ color: 'var(--accent)' }}>{convertedCount} converted</span>}
+          {notFoundCount  > 0 && <span style={{ color: '#f87171' }}>{notFoundCount} not found</span>}
           {sel && <span style={{ color: 'var(--text-faint)' }}>
             {(() => { const n = normSel(sel); return n && (n.r2 > n.r1 || n.c2 > n.c1) ? `${n.r2-n.r1+1}×${n.c2-n.c1+1} · ` : '' })()}
             Ctrl+C to copy
@@ -1070,48 +860,66 @@ function PercentCalc() {
       </div>
 
       <div
-        ref={containerRef}
-        tabIndex={0}
+        ref={containerRef} tabIndex={0}
         style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', userSelect: 'none', outline: 'none' }}
-        onPaste={onPaste}
-        onMouseDown={onMouseDown}
-        onMouseMove={onMouseMove}
-        onKeyDown={onContainerKeyDown}
+        onPaste={onPaste} onMouseDown={onMouseDown} onMouseMove={onMouseMove} onKeyDown={onContainerKeyDown}
       >
-        <div style={{ display: 'grid', gridTemplateColumns: '36px 1fr 1fr 32px', background: 'var(--surface)', borderBottom: '2px solid var(--border)' }}>
-          {['#', 'Amount', `Result (${op === '+' ? '+' : '−'}${pct || 0}%)`, ''].map((h, i) => (
+        {/* Header */}
+        <div style={{ display: 'grid', gridTemplateColumns: '36px 1fr 1fr 1fr 1fr 1fr 1fr 32px', background: 'var(--surface)', borderBottom: '2px solid var(--border)' }}>
+          {['#', `Rate (${currency})`, `After ${op}${pct || 0}%`, 'Converted (USD)', 'Post Price', 'Buyer', 'Reseller', ''].map((h, i) => (
             <div key={i} style={{ ...TH, textAlign: i === 0 ? 'center' : 'left' }}>{h}</div>
           ))}
         </div>
 
+        {/* Rows */}
         <div ref={gridRef} style={{ maxHeight: 480, overflowY: 'auto' }}>
           {computedRows.map((row, idx) => (
-            <div key={row.id} data-row-idx={idx} style={{ display: 'grid', gridTemplateColumns: '36px 1fr 1fr 32px', borderBottom: idx < rows.length - 1 ? '1px solid var(--border)' : 'none', background: idx % 2 ? 'rgba(255,255,255,.013)' : 'transparent' }}>
+            <div key={row.id} data-row-idx={idx} style={{ display: 'grid', gridTemplateColumns: '36px 1fr 1fr 1fr 1fr 1fr 1fr 32px', borderBottom: idx < rows.length - 1 ? '1px solid var(--border)' : 'none', background: idx % 2 ? 'rgba(255,255,255,.013)' : 'transparent' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: 'var(--text-faint)', borderRight: '1px solid var(--border)' }}>
                 {idx + 1}
               </div>
 
+              {/* Rate input */}
               <div data-cr={`${idx},0`} style={{ borderRight: '1px solid var(--border)', background: cellBg(idx, 0) }}>
                 <input
                   ref={el => { inputRefs.current[idx] = el }}
-                  data-amt-row={idx}
-                  type="number"
-                  value={row.amount}
-                  onChange={e => setRows(prev => prev.map(r => r.id !== row.id ? r : { ...r, amount: e.target.value }))}
+                  data-comb-row={idx} type="number" value={row.rate}
+                  onChange={e => setRows(prev => prev.map(r => r.id !== row.id ? r : { ...r, rate: e.target.value }))}
                   onKeyDown={e => onInputKeyDown(e, idx)}
                   onFocus={() => setSel({ ar: idx, ac: 0, cr: idx, cc: 0 })}
-                  placeholder={idx === 0 ? 'Enter or paste amounts…' : ''}
+                  placeholder={idx === 0 ? 'Enter or paste…' : ''}
                   style={INPUT_STYLE}
                 />
               </div>
 
-              <div data-cr={`${idx},1`} style={{ ...MONO, padding: '0 12px', display: 'flex', alignItems: 'center', height: 36, color: row.result != null ? 'var(--accent)' : 'var(--text-faint)', background: cellBg(idx, 1) }}>
-                {fmtResult(row.result)}
+              {/* Adjusted rate (after % op) */}
+              <div data-cr={`${idx},1`} style={{ ...MONO, padding: '0 12px', display: 'flex', alignItems: 'center', height: 36, borderRight: '1px solid var(--border)', color: row.adjRate != null ? 'var(--text)' : 'var(--text-faint)', background: cellBg(idx, 1) }}>
+                {fmtNum(row.adjRate)}
+              </div>
+
+              {/* Raw USD */}
+              <div data-cr={`${idx},2`} style={{ ...MONO, padding: '0 12px', display: 'flex', alignItems: 'center', height: 36, borderRight: '1px solid var(--border)', color: 'var(--text-faint)', background: cellBg(idx, 2) }}>
+                {row.converted != null ? `$${row.converted.toFixed(2)}` : ''}
+              </div>
+
+              {/* Post price */}
+              <div data-cr={`${idx},3`} style={{ ...MONO, padding: '0 12px', display: 'flex', alignItems: 'center', height: 36, borderRight: '1px solid var(--border)', color: row.postPrice != null ? 'var(--accent)' : row.notFound ? '#f87171' : 'var(--text-faint)', background: cellBg(idx, 3) }}>
+                {row.postPrice != null ? `$${row.postPrice}` : row.notFound ? '—' : ''}
+              </div>
+
+              {/* Buyer */}
+              <div data-cr={`${idx},4`} style={{ ...MONO, padding: '0 12px', display: 'flex', alignItems: 'center', height: 36, borderRight: '1px solid var(--border)', color: row.buyer != null ? 'var(--text)' : 'var(--text-faint)', background: cellBg(idx, 4) }}>
+                {row.buyer != null ? row.buyer : ''}
+              </div>
+
+              {/* Reseller */}
+              <div data-cr={`${idx},5`} style={{ ...MONO, padding: '0 12px', display: 'flex', alignItems: 'center', height: 36, color: row.reseller != null ? 'var(--text)' : 'var(--text-faint)', background: cellBg(idx, 5) }}>
+                {row.reseller != null ? row.reseller : ''}
               </div>
 
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                {row.amount.trim() && (
-                  <button onClick={() => setRows(prev => prev.length > 1 ? prev.filter(r => r.id !== row.id) : [mkPctRow()])} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-faint)', padding: '4px 6px', borderRadius: 4, display: 'flex', lineHeight: 1 }}>
+                {row.rate.trim() && (
+                  <button onClick={() => setRows(prev => prev.length > 1 ? prev.filter(r => r.id !== row.id) : [mkCombRow()])} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-faint)', padding: '4px 6px', borderRadius: 4, display: 'flex', lineHeight: 1 }}>
                     <Icon name="x" size={11} />
                   </button>
                 )}
@@ -1122,7 +930,7 @@ function PercentCalc() {
       </div>
 
       <div style={{ display: 'flex', gap: 8 }}>
-        <button className="btn ghost" onClick={() => setRows(prev => [...prev, mkPctRow()])} style={{ fontSize: 12, height: 30 }}><Icon name="plus" size={13} /> Add Row</button>
+        <button className="btn ghost" onClick={() => setRows(prev => [...prev, mkCombRow()])} style={{ fontSize: 12, height: 30 }}><Icon name="plus" size={13} /> Add Row</button>
         <button className="btn ghost" onClick={copyAll} style={{ fontSize: 12, height: 30, ...(copied ? { color: 'var(--accent)' } : {}) }}>
           <Icon name="copy" size={13} /> {copied ? 'Copied!' : 'Copy All'}
         </button>
@@ -1183,9 +991,8 @@ function PriceCalc({ priceMap, loading, error }) {
 // ─── Tool registry ─────────────────────────────────────────────────────────────
 
 const TOOLS = [
-  { id: 'price-calc',    title: 'Price Calculator',       desc: 'Convert admin price to buyer & reseller price instantly',                       icon: 'tool',    tag: 'Pricing' },
-  { id: 'currency-calc', title: 'Currency Converter',     desc: 'Convert foreign currency amounts to USD post price with buyer/reseller lookup',  icon: 'globe',   tag: 'Pricing' },
-  { id: 'percent-calc',  title: 'Percentage Calculator',  desc: 'Add or subtract a percentage from any amount — bulk calculate in a grid',        icon: 'percent', tag: 'Math'    },
+  { id: 'combined-calc', title: 'Currency & % Calculator', desc: 'Apply % discount/markup, convert currency, get post price with buyer/reseller lookup', icon: 'globe',   tag: 'Pricing' },
+  { id: 'price-calc',    title: 'Price Calculator',        desc: 'Convert admin price to buyer & reseller price instantly',                              icon: 'tool',    tag: 'Pricing' },
 ]
 
 // ─── Tools Page ────────────────────────────────────────────────────────────────
@@ -1274,32 +1081,18 @@ export function ToolsPage() {
             <PriceCalc priceMap={priceMap} loading={loading} error={error} />
           </div>
         </div>
-      ) : activeTool === 'percent-calc' ? (
+      ) : activeTool === 'combined-calc' ? (
         <div className="card">
           <div className="card-head">
             <div>
-              <h3>Percentage Calculator</h3>
+              <h3>Currency & % Calculator</h3>
               <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 2 }}>
-                Set % and +/− above, enter amounts — results update instantly
+                Apply discount/markup, convert to USD, get buyer/reseller lookup
               </div>
             </div>
           </div>
           <div className="card-pad">
-            <PercentCalc />
-          </div>
-        </div>
-      ) : activeTool === 'currency-calc' ? (
-        <div className="card">
-          <div className="card-head">
-            <div>
-              <h3>Currency Converter</h3>
-              <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 2 }}>
-                Select currency, enter amount — post price and buyer/reseller rates shown instantly
-              </div>
-            </div>
-          </div>
-          <div className="card-pad">
-            <CurrencyCalc priceMap={priceMap} fxRates={fxRates} fxLoading={fxLoading} fxError={fxError} fxUpdatedAt={fxUpdatedAt} onRefreshRates={fetchRates} />
+            <CombinedCalc priceMap={priceMap} fxRates={fxRates} fxLoading={fxLoading} fxError={fxError} fxUpdatedAt={fxUpdatedAt} onRefreshRates={fetchRates} />
           </div>
         </div>
       ) : null}
