@@ -58,25 +58,34 @@ function useGridSelection(gridRef, rows, getCellText) {
     return () => window.removeEventListener('mouseup', onUp)
   }, [])
 
-  // Intercept native copy when grid contains focus and there's a multi-cell selection
+  // Keep a stable ref to getCellText so the keydown effect doesn't re-register every render
+  const getCellTextRef = useRef(getCellText)
+  useEffect(() => { getCellTextRef.current = getCellText })
+
+  // Ctrl+C: copy selected range as TSV via keydown (copy-event approach fails when
+  // output div cells are clicked because focus falls to document.body, not inside gridRef)
   useEffect(() => {
-    function onCopy(e) {
-      if (!sel || !gridRef.current?.contains(document.activeElement)) return
+    function onKeyDown(e) {
+      if (!sel) return
+      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'c') return
+      const active = document.activeElement
+      // Don't intercept if an input outside our grid has focus (user typing elsewhere)
+      if (active?.tagName === 'INPUT' && !gridRef.current?.contains(active)) return
+      // Single admin cell with focused input → let browser copy the input's own text
       const n = normSel(sel)
-      // Let browser handle normal text selection in a single input cell
-      if (n.r1 === n.r2 && n.c1 === n.c2 && document.activeElement?.tagName === 'INPUT') return
+      if (n.r1 === n.r2 && n.c1 === n.c2 && n.c1 === 0 && active?.tagName === 'INPUT') return
       e.preventDefault()
       const lines = []
       for (let r = n.r1; r <= n.r2; r++) {
         const cells = []
-        for (let c = n.c1; c <= n.c2; c++) cells.push(getCellText(rows, r, c))
+        for (let c = n.c1; c <= n.c2; c++) cells.push(getCellTextRef.current(rows, r, c))
         lines.push(cells.join('\t'))
       }
-      e.clipboardData.setData('text/plain', lines.join('\n'))
+      navigator.clipboard.writeText(lines.join('\n')).catch(() => {})
     }
-    document.addEventListener('copy', onCopy)
-    return () => document.removeEventListener('copy', onCopy)
-  }, [sel, rows, getCellText, gridRef])
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [sel, rows, gridRef])
 
   return { sel, setSel, onMouseDown, onMouseMove }
 }
