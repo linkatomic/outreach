@@ -904,6 +904,234 @@ function CurrencyCalc({ priceMap, fxRates, fxLoading, fxError, fxUpdatedAt, onRe
   )
 }
 
+// ─── Percentage Calculator ─────────────────────────────────────────────────────
+
+const PCT_COLS = 2
+
+function mkPctRow() { return { id: uid(), amount: '' } }
+
+function PercentCalc() {
+  const [pct, setPct] = useState('10')
+  const [op, setOp]   = useState('+')
+  const [rows, setRows] = useState(() => Array.from({ length: 10 }, mkPctRow))
+  const [copied, setCopied] = useState(false)
+  const gridRef   = useRef(null)
+  const inputRefs = useRef([])
+
+  function computeResult(amount, pct, op) {
+    const a = parseFloat(amount), p = parseFloat(pct)
+    if (!amount.trim() || isNaN(a) || isNaN(p) || pct.trim() === '') return null
+    const r = op === '+' ? a * (1 + p / 100) : a * (1 - p / 100)
+    return Math.round(r * 100) / 100
+  }
+
+  const computedRows = useMemo(
+    () => rows.map(row => ({ ...row, result: computeResult(row.amount, pct, op) })),
+    [rows, pct, op]
+  )
+
+  function getCellText(rows, r, c) {
+    const row = rows[r]; if (!row) return ''
+    if (c === 0) return row.amount
+    if (c === 1) return row.result != null ? String(row.result) : ''
+    return ''
+  }
+
+  const { sel, setSel, containerRef, onMouseDown, onMouseMove, navigate, buildTSV } = useGridSelection(computedRows, getCellText)
+
+  function focusInput(idx, delay = 10) {
+    setTimeout(() => { inputRefs.current[idx]?.focus(); scrollRowIntoView(gridRef, idx) }, delay)
+  }
+
+  function onContainerKeyDown(e) {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'c' && sel) {
+      e.preventDefault(); navigator.clipboard.writeText(buildTSV(sel)).catch(() => {}); return
+    }
+    if ((e.key === 'Delete' || e.key === 'Backspace') && sel && e.target.tagName !== 'INPUT') {
+      e.preventDefault()
+      const n = normSel(sel)
+      setRows(prev => prev.map((row, idx) => idx >= n.r1 && idx <= n.r2 ? { ...row, amount: '' } : row))
+      return
+    }
+    const ARROWS = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']
+    if (!ARROWS.includes(e.key) || !sel) return
+    e.preventDefault()
+
+    const { cr, cc } = sel
+    const ctrl = e.ctrlKey || e.metaKey
+    const lastFilledRow = rows.reduce((last, row, i) => row.amount.trim() ? i : last, -1)
+    const ctrlDownTarget = lastFilledRow < 0 || cr >= lastFilledRow ? rows.length - 1 : lastFilledRow
+    const addingRow = e.key === 'ArrowDown' && cr === rows.length - 1 && !e.shiftKey && !ctrl
+    if (addingRow) setRows(prev => [...prev, mkPctRow()])
+    const effectiveRows = addingRow ? rows.length + 1 : rows.length
+
+    const newPos = navigate(cr, cc, e.key, e.shiftKey, ctrl, PCT_COLS, effectiveRows, ctrlDownTarget)
+    if (!newPos) return
+    if (newPos.c === 0 && !e.shiftKey) focusInput(newPos.r, addingRow ? 40 : 10)
+    else scrollRowIntoView(gridRef, newPos.r)
+  }
+
+  function onInputKeyDown(e, idx) {
+    const ctrl = e.ctrlKey || e.metaKey
+    if (e.key === 'ArrowRight') {
+      e.preventDefault(); setSel({ ar: idx, ac: 1, cr: idx, cc: 1 }); containerRef.current?.focus(); return
+    }
+    if (e.key === 'ArrowDown' || e.key === 'Enter' || (e.key === 'Tab' && !e.shiftKey)) {
+      e.preventDefault()
+      const isLast = idx === rows.length - 1
+      if (isLast && !ctrl) setRows(prev => [...prev, mkPctRow()])
+      const target = ctrl ? rows.length - 1 : Math.min(idx + 1, isLast ? rows.length : rows.length - 1)
+      navigate(idx, 0, 'ArrowDown', false, ctrl, PCT_COLS, isLast && !ctrl ? rows.length + 1 : rows.length)
+      focusInput(target, isLast && !ctrl ? 40 : 10)
+      return
+    }
+    if (e.key === 'ArrowUp' || (e.key === 'Tab' && e.shiftKey)) {
+      e.preventDefault()
+      navigate(idx, 0, 'ArrowUp', false, ctrl, PCT_COLS, rows.length)
+      focusInput(Math.max(0, idx - 1))
+    }
+  }
+
+  function onPaste(e) {
+    const target = e.target
+    if (!target.hasAttribute('data-amt-row')) return
+    const text = e.clipboardData.getData('text')
+    const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean)
+    if (lines.length <= 1) return
+    e.preventDefault()
+    const start = Number(target.getAttribute('data-amt-row'))
+    setRows(prev => {
+      const r = [...prev]
+      lines.forEach((line, i) => {
+        const v = line.split(/\t/)[0].trim()
+        const row = { id: uid(), amount: v }
+        if (start + i < r.length) r[start + i] = row; else r.push(row)
+      })
+      return r
+    })
+  }
+
+  function copyAll() {
+    const filled = computedRows.filter(r => r.amount.trim())
+    if (!filled.length) return
+    const text = [`Amount\tResult (${op}${pct}%)`,
+      ...filled.map(r => `${r.amount}\t${r.result ?? ''}`)
+    ].join('\n')
+    navigator.clipboard.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500) })
+  }
+
+  function clearAll() { setRows(Array.from({ length: 10 }, mkPctRow)); setSel(null) }
+
+  const computedCount = computedRows.filter(r => r.result != null).length
+
+  function cellBg(r, c) {
+    if (isCursor(sel, r, c)) return CURSOR_BG
+    if (inSel(sel, r, c)) return SEL_BG
+    return 'transparent'
+  }
+
+  function fmtResult(n) {
+    if (n == null) return ''
+    return n % 1 === 0 ? String(n) : n.toFixed(2)
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {/* Shared controls */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        {/* % input */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, border: '1px solid var(--border)', borderRadius: 7, padding: '0 12px', height: 34, background: 'var(--surface)' }}>
+          <input
+            type="number"
+            value={pct}
+            onChange={e => setPct(e.target.value)}
+            min={0}
+            style={{ width: 54, background: 'transparent', border: 'none', outline: 'none', fontFamily: 'var(--font-mono, monospace)', fontSize: 14, fontWeight: 700, color: 'var(--text)', textAlign: 'right' }}
+          />
+          <span style={{ color: 'var(--text-faint)', fontSize: 14, fontWeight: 600 }}>%</span>
+        </div>
+
+        {/* +/− toggle */}
+        <div style={{ display: 'flex', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 7, padding: 3, gap: 3 }}>
+          {['+', '-'].map(o => (
+            <button key={o} onClick={() => setOp(o)} style={{ height: 28, padding: '0 20px', borderRadius: 5, border: 'none', cursor: 'pointer', background: op === o ? 'var(--accent)' : 'transparent', color: op === o ? 'var(--accent-ink)' : 'var(--text-faint)', fontWeight: 700, fontSize: 18, lineHeight: 1 }}>
+              {o}
+            </button>
+          ))}
+        </div>
+
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, fontSize: 12 }}>
+          {computedCount > 0 && <span style={{ color: 'var(--accent)' }}>{computedCount} calculated</span>}
+          {sel && <span style={{ color: 'var(--text-faint)' }}>
+            {(() => { const n = normSel(sel); return n && (n.r2 > n.r1 || n.c2 > n.c1) ? `${n.r2-n.r1+1}×${n.c2-n.c1+1} · ` : '' })()}
+            Ctrl+C to copy
+          </span>}
+        </div>
+      </div>
+
+      <div
+        ref={containerRef}
+        tabIndex={0}
+        style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', userSelect: 'none', outline: 'none' }}
+        onPaste={onPaste}
+        onMouseDown={onMouseDown}
+        onMouseMove={onMouseMove}
+        onKeyDown={onContainerKeyDown}
+      >
+        <div style={{ display: 'grid', gridTemplateColumns: '36px 1fr 1fr 32px', background: 'var(--surface)', borderBottom: '2px solid var(--border)' }}>
+          {['#', 'Amount', `Result (${op === '+' ? '+' : '−'}${pct || 0}%)`, ''].map((h, i) => (
+            <div key={i} style={{ ...TH, textAlign: i === 0 ? 'center' : 'left' }}>{h}</div>
+          ))}
+        </div>
+
+        <div ref={gridRef} style={{ maxHeight: 480, overflowY: 'auto' }}>
+          {computedRows.map((row, idx) => (
+            <div key={row.id} data-row-idx={idx} style={{ display: 'grid', gridTemplateColumns: '36px 1fr 1fr 32px', borderBottom: idx < rows.length - 1 ? '1px solid var(--border)' : 'none', background: idx % 2 ? 'rgba(255,255,255,.013)' : 'transparent' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: 'var(--text-faint)', borderRight: '1px solid var(--border)' }}>
+                {idx + 1}
+              </div>
+
+              <div data-cr={`${idx},0`} style={{ borderRight: '1px solid var(--border)', background: cellBg(idx, 0) }}>
+                <input
+                  ref={el => { inputRefs.current[idx] = el }}
+                  data-amt-row={idx}
+                  type="number"
+                  value={row.amount}
+                  onChange={e => setRows(prev => prev.map(r => r.id !== row.id ? r : { ...r, amount: e.target.value }))}
+                  onKeyDown={e => onInputKeyDown(e, idx)}
+                  onFocus={() => setSel({ ar: idx, ac: 0, cr: idx, cc: 0 })}
+                  placeholder={idx === 0 ? 'Enter or paste amounts…' : ''}
+                  style={INPUT_STYLE}
+                />
+              </div>
+
+              <div data-cr={`${idx},1`} style={{ ...MONO, padding: '0 12px', display: 'flex', alignItems: 'center', height: 36, color: row.result != null ? 'var(--accent)' : 'var(--text-faint)', background: cellBg(idx, 1) }}>
+                {fmtResult(row.result)}
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                {row.amount.trim() && (
+                  <button onClick={() => setRows(prev => prev.length > 1 ? prev.filter(r => r.id !== row.id) : [mkPctRow()])} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-faint)', padding: '4px 6px', borderRadius: 4, display: 'flex', lineHeight: 1 }}>
+                    <Icon name="x" size={11} />
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button className="btn ghost" onClick={() => setRows(prev => [...prev, mkPctRow()])} style={{ fontSize: 12, height: 30 }}><Icon name="plus" size={13} /> Add Row</button>
+        <button className="btn ghost" onClick={copyAll} style={{ fontSize: 12, height: 30, ...(copied ? { color: 'var(--accent)' } : {}) }}>
+          <Icon name="copy" size={13} /> {copied ? 'Copied!' : 'Copy All'}
+        </button>
+        <button className="btn ghost" onClick={clearAll} style={{ fontSize: 12, height: 30, marginLeft: 'auto', color: 'var(--text-faint)' }}>Clear</button>
+      </div>
+    </div>
+  )
+}
+
 // ─── Price Calculator wrapper ──────────────────────────────────────────────────
 
 function PriceCalc({ priceMap, loading, error }) {
@@ -955,8 +1183,9 @@ function PriceCalc({ priceMap, loading, error }) {
 // ─── Tool registry ─────────────────────────────────────────────────────────────
 
 const TOOLS = [
-  { id: 'price-calc',    title: 'Price Calculator',   desc: 'Convert admin price to buyer & reseller price instantly',              icon: 'tool',   tag: 'Pricing' },
-  { id: 'currency-calc', title: 'Currency Converter', desc: 'Convert foreign currency amounts to USD post price with buyer/reseller lookup', icon: 'globe',  tag: 'Pricing' },
+  { id: 'price-calc',    title: 'Price Calculator',       desc: 'Convert admin price to buyer & reseller price instantly',                       icon: 'tool',    tag: 'Pricing' },
+  { id: 'currency-calc', title: 'Currency Converter',     desc: 'Convert foreign currency amounts to USD post price with buyer/reseller lookup',  icon: 'globe',   tag: 'Pricing' },
+  { id: 'percent-calc',  title: 'Percentage Calculator',  desc: 'Add or subtract a percentage from any amount — bulk calculate in a grid',        icon: 'percent', tag: 'Math'    },
 ]
 
 // ─── Tools Page ────────────────────────────────────────────────────────────────
@@ -1043,6 +1272,20 @@ export function ToolsPage() {
           </div>
           <div className="card-pad">
             <PriceCalc priceMap={priceMap} loading={loading} error={error} />
+          </div>
+        </div>
+      ) : activeTool === 'percent-calc' ? (
+        <div className="card">
+          <div className="card-head">
+            <div>
+              <h3>Percentage Calculator</h3>
+              <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 2 }}>
+                Set % and +/− above, enter amounts — results update instantly
+              </div>
+            </div>
+          </div>
+          <div className="card-pad">
+            <PercentCalc />
           </div>
         </div>
       ) : activeTool === 'currency-calc' ? (
