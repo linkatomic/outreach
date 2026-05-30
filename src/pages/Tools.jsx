@@ -131,28 +131,28 @@ const FWD_COLS = 3
 // ─── Currency Converter ────────────────────────────────────────────────────────
 
 const CURRENCIES = ['AFN','ALL','DZD','AOA','ARS','AMD','AWG','AUD','AZN','BSD','BHD','BDT','BBD','BYR','BZD','BMD','BTN','BOB','BAM','BWP','BRL','GBP','BND','BGN','BIF','KHR','CAD','CVE','KYD','GQE','XAF','XPF','CLP','CNY','COP','KMF','CDF','CRC','HRK','CUC','CZK','DKK','DJF','DOP','XCD','EGP','ERN','EEK','ETB','EUR','FKP','FJD','GMD','GEL','GHS','GIP','GTQ','GNF','GYD','HTG','HNL','HKD','HUF','ISK','INR','IDR','IRR','IQD','ILS','JMD','JPY','JOD','KZT','KES','KWD','KGS','LAK','LVL','LBP','LSL','LRD','LYD','LTL','MOP','MKD','MGA','MWK','MYR','MVR','MRO','MUR','MXN','MDL','MNT','MAD','MZM','MMK','NAD','NPR','ANG','TWD','NZD','NIO','NGN','KPW','NOK','OMR','PKR','PAB','PGK','PYG','PEN','PHP','PLN','QAR','RON','RUB','SHP','WST','SAR','RSD','SCR','SLL','SGD','SBD','SOS','ZAR','KRW','XDR','LKR','SDG','SRD','SZL','SEK','CHF','SYP','TJS','TZS','THB','TTD','TND','TRY','TMT','AED','UGX','UAH','USD','UYU','UZS','VUV','VEB','VND','XOF','YER','ZMK','ZWR','USDT']
-const CURR_COLS = 5
+const CURR_COLS = 4
 
-function mkCurrRow() { return { id: uid(), currency: 'USD', rate: '' } }
+function mkCurrRow() { return { id: uid(), rate: '' } }
 
-function computeCurrRow(row, fxRates, priceMap) {
+function computeCurrRow(row, currency, fxRates, priceMap) {
   const r = parseFloat(row.rate)
   if (!row.rate.trim() || isNaN(r) || r === 0) return { postPrice: null, buyer: null, reseller: null, notFound: false }
 
   let postPrice
-  if (row.currency === 'USD') {
+  if (currency === 'USD') {
     postPrice = Math.ceil(r)
   } else {
-    const fxRate = fxRates?.[row.currency] // units of this currency per 1 USD
+    const fxRate = fxRates?.[currency] // units of currency per 1 USD
     if (!fxRate) return { postPrice: null, buyer: null, reseller: null, notFound: !!fxRates }
     const usdValue = r / fxRate
-    const markup = row.currency === 'EUR' ? 1.05 : row.currency === 'INR' ? 1.0 : 1.15
+    const markup = currency === 'EUR' ? 1.05 : currency === 'INR' ? 1.0 : 1.15
     postPrice = Math.ceil(usdValue * markup)
   }
 
   const entry = priceMap.get(postPrice)
   if (!entry) return { postPrice, buyer: null, reseller: null, notFound: true }
-  return { postPrice, buyer: entry.buyer, reseller: entry.reseller, notFound: false }
+  return { postPrice, buyer: Math.ceil(entry.buyer), reseller: Math.ceil(entry.reseller), notFound: false }
 }
 
 function ForwardGrid({ priceMap }) {
@@ -600,35 +600,100 @@ function ReverseGrid({ reverseMap, inputLabel }) {
   )
 }
 
+// ─── Searchable currency picker ────────────────────────────────────────────────
+
+function CurrencyDropdown({ value, onChange }) {
+  const [open, setOpen] = useState(false)
+  const [search, setSearch] = useState('')
+  const wrapRef = useRef(null)
+  const listRef = useRef(null)
+
+  const filtered = useMemo(
+    () => CURRENCIES.filter(c => c.toLowerCase().includes(search.toLowerCase())),
+    [search]
+  )
+
+  useEffect(() => {
+    if (!open) { setSearch(''); return }
+    function onDown(e) { if (!wrapRef.current?.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [open])
+
+  // Scroll selected item into view when dropdown opens
+  useEffect(() => {
+    if (!open || !listRef.current) return
+    const el = listRef.current.querySelector('[data-selected="true"]')
+    el?.scrollIntoView({ block: 'nearest' })
+  }, [open])
+
+  return (
+    <div ref={wrapRef} style={{ position: 'relative', display: 'inline-block' }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        style={{ display: 'flex', alignItems: 'center', gap: 8, height: 34, padding: '0 12px', border: '1px solid var(--border)', borderRadius: 7, background: 'var(--surface)', color: 'var(--text)', cursor: 'pointer', fontFamily: 'var(--font-mono, monospace)', fontSize: 14, fontWeight: 700, minWidth: 90 }}
+      >
+        {value}
+        <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}><path d="M6 9l6 6 6-6"/></svg>
+      </button>
+      {open && (
+        <div style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 200, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, boxShadow: '0 8px 32px rgba(0,0,0,.4)', width: 200, overflow: 'hidden' }}>
+          <div style={{ padding: '8px 8px 6px', borderBottom: '1px solid var(--border)' }}>
+            <input
+              autoFocus
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Escape') setOpen(false) }}
+              placeholder="Search currency…"
+              style={{ width: '100%', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 5, padding: '6px 10px', fontSize: 12, color: 'var(--text)', outline: 'none', boxSizing: 'border-box' }}
+            />
+          </div>
+          <div ref={listRef} style={{ maxHeight: 240, overflowY: 'auto' }}>
+            {filtered.length === 0
+              ? <div style={{ padding: '10px 14px', fontSize: 12, color: 'var(--text-faint)' }}>No match</div>
+              : filtered.map(c => (
+                <div
+                  key={c}
+                  data-selected={c === value}
+                  onClick={() => { onChange(c); setOpen(false) }}
+                  style={{ padding: '7px 14px', fontSize: 13, fontFamily: 'var(--font-mono, monospace)', cursor: 'pointer', background: c === value ? 'color-mix(in srgb, var(--accent) 15%, transparent)' : 'transparent', color: c === value ? 'var(--accent)' : 'var(--text)', fontWeight: c === value ? 600 : 400 }}
+                >
+                  {c}
+                </div>
+              ))
+            }
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Currency Converter grid ───────────────────────────────────────────────────
 
 function CurrencyCalc({ priceMap, fxRates, fxLoading, fxError, fxUpdatedAt, onRefreshRates }) {
+  const [currency, setCurrency] = useState('EUR')
   const [rows, setRows] = useState(() => Array.from({ length: 10 }, mkCurrRow))
   const [copied, setCopied] = useState(false)
   const gridRef = useRef(null)
-  const selectRefs = useRef([])
   const rateRefs = useRef([])
 
   const computedRows = useMemo(
-    () => rows.map(row => ({ ...row, ...computeCurrRow(row, fxRates, priceMap) })),
-    [rows, fxRates, priceMap]
+    () => rows.map(row => ({ ...row, ...computeCurrRow(row, currency, fxRates, priceMap) })),
+    [rows, currency, fxRates, priceMap]
   )
 
   function getCellText(rows, r, c) {
     const row = rows[r]; if (!row) return ''
-    if (c === 0) return row.currency
-    if (c === 1) return row.rate
-    if (c === 2) return row.postPrice != null ? String(row.postPrice) : ''
-    if (c === 3) return row.buyer != null ? row.buyer.toFixed(2) : ''
-    if (c === 4) return row.reseller != null ? row.reseller.toFixed(2) : ''
+    if (c === 0) return row.rate
+    if (c === 1) return row.postPrice != null ? String(row.postPrice) : ''
+    if (c === 2) return row.buyer != null ? String(row.buyer) : ''
+    if (c === 3) return row.reseller != null ? String(row.reseller) : ''
     return ''
   }
 
   const { sel, setSel, containerRef, onMouseDown, onMouseMove, navigate, buildTSV } = useGridSelection(computedRows, getCellText)
 
-  function focusSelect(idx, delay = 10) {
-    setTimeout(() => { selectRefs.current[idx]?.focus(); scrollRowIntoView(gridRef, idx) }, delay)
-  }
   function focusRate(idx, delay = 10) {
     setTimeout(() => { rateRefs.current[idx]?.focus(); scrollRowIntoView(gridRef, idx) }, delay)
   }
@@ -639,7 +704,7 @@ function CurrencyCalc({ priceMap, fxRates, fxLoading, fxError, fxUpdatedAt, onRe
       navigator.clipboard.writeText(buildTSV(sel)).catch(() => {})
       return
     }
-    if ((e.key === 'Delete' || e.key === 'Backspace') && sel && e.target.tagName !== 'INPUT' && e.target.tagName !== 'SELECT') {
+    if ((e.key === 'Delete' || e.key === 'Backspace') && sel && e.target.tagName !== 'INPUT') {
       e.preventDefault()
       const n = normSel(sel)
       setRows(prev => prev.map((row, idx) => idx >= n.r1 && idx <= n.r2 ? { ...row, rate: '' } : row))
@@ -660,43 +725,30 @@ function CurrencyCalc({ priceMap, fxRates, fxLoading, fxError, fxUpdatedAt, onRe
     const newPos = navigate(cr, cc, e.key, e.shiftKey, ctrl, CURR_COLS, effectiveRows, ctrlDownTarget)
     if (!newPos) return
 
-    if (!e.shiftKey) {
-      if (newPos.c === 0) focusSelect(newPos.r, addingRow ? 40 : 10)
-      else if (newPos.c === 1) focusRate(newPos.r, addingRow ? 40 : 10)
-      else scrollRowIntoView(gridRef, newPos.r)
-    } else {
-      scrollRowIntoView(gridRef, newPos.r)
-    }
-  }
-
-  function onSelectKeyDown(e, idx) {
-    if (e.key === 'Tab' && !e.shiftKey) { e.preventDefault(); setSel({ ar: idx, ac: 1, cr: idx, cc: 1 }); focusRate(idx) }
-    else if (e.key === 'Tab' && e.shiftKey) { e.preventDefault(); focusSelect(Math.max(0, idx - 1)) }
-    // Arrow keys: browser handles option navigation in the select
+    if (newPos.c === 0 && !e.shiftKey) focusRate(newPos.r, addingRow ? 40 : 10)
+    else scrollRowIntoView(gridRef, newPos.r)
   }
 
   function onRateKeyDown(e, idx) {
     const ctrl = e.ctrlKey || e.metaKey
-    if (e.key === 'ArrowLeft') {
-      e.preventDefault(); setSel({ ar: idx, ac: 0, cr: idx, cc: 0 }); focusSelect(idx); return
-    }
     if (e.key === 'ArrowRight') {
-      e.preventDefault(); setSel({ ar: idx, ac: 2, cr: idx, cc: 2 }); containerRef.current?.focus(); return
+      e.preventDefault(); setSel({ ar: idx, ac: 1, cr: idx, cc: 1 }); containerRef.current?.focus(); return
     }
     if (e.key === 'ArrowDown' || e.key === 'Enter' || (e.key === 'Tab' && !e.shiftKey)) {
       e.preventDefault()
       const isLast = idx === rows.length - 1
       if (isLast && !ctrl) setRows(prev => [...prev, mkCurrRow()])
       const target = ctrl ? rows.length - 1 : Math.min(idx + 1, isLast ? rows.length : rows.length - 1)
-      navigate(idx, 1, 'ArrowDown', false, ctrl, CURR_COLS, isLast && !ctrl ? rows.length + 1 : rows.length)
+      navigate(idx, 0, 'ArrowDown', false, ctrl, CURR_COLS, isLast && !ctrl ? rows.length + 1 : rows.length)
       focusRate(target, isLast && !ctrl ? 40 : 10)
       return
     }
     if (e.key === 'ArrowUp' || (e.key === 'Tab' && e.shiftKey)) {
       e.preventDefault()
-      navigate(idx, 1, 'ArrowUp', false, ctrl, CURR_COLS, rows.length)
+      navigate(idx, 0, 'ArrowUp', false, ctrl, CURR_COLS, rows.length)
       focusRate(Math.max(0, idx - 1))
     }
+    // ArrowLeft: let browser move text cursor within input
   }
 
   function onPaste(e) {
@@ -707,12 +759,11 @@ function CurrencyCalc({ priceMap, fxRates, fxLoading, fxError, fxUpdatedAt, onRe
     if (lines.length <= 1) return
     e.preventDefault()
     const start = Number(target.getAttribute('data-rate-row'))
-    const baseCurrency = rows[start]?.currency || 'USD'
     setRows(prev => {
       const r = [...prev]
       lines.forEach((line, i) => {
         const v = line.split(/\t/)[0].trim()
-        const row = { id: uid(), currency: baseCurrency, rate: v }
+        const row = { id: uid(), rate: v }
         if (start + i < r.length) r[start + i] = row; else r.push(row)
       })
       return r
@@ -722,8 +773,8 @@ function CurrencyCalc({ priceMap, fxRates, fxLoading, fxError, fxUpdatedAt, onRe
   function copyAll() {
     const filled = computedRows.filter(r => r.rate.trim())
     if (!filled.length) return
-    const text = ['Currency\tRate\tPost Price\tBuyer\tReseller',
-      ...filled.map(r => `${r.currency}\t${r.rate}\t${r.postPrice ?? ''}\t${r.buyer != null ? r.buyer.toFixed(2) : ''}\t${r.reseller != null ? r.reseller.toFixed(2) : ''}`)
+    const text = [`Rate (${currency})\tPost Price\tBuyer\tReseller`,
+      ...filled.map(r => `${r.rate}\t${r.postPrice ?? ''}\t${r.buyer ?? ''}\t${r.reseller ?? ''}`)
     ].join('\n')
     navigator.clipboard.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500) })
   }
@@ -739,12 +790,6 @@ function CurrencyCalc({ priceMap, fxRates, fxLoading, fxError, fxUpdatedAt, onRe
     return 'transparent'
   }
 
-  const SELECT_STYLE = {
-    width: '100%', background: 'transparent', border: 'none', outline: 'none',
-    padding: '0 4px 0 12px', fontFamily: 'var(--font-mono, monospace)', fontSize: 13,
-    color: 'var(--text)', height: 36, boxSizing: 'border-box', cursor: 'pointer',
-  }
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       {/* Markup info */}
@@ -754,18 +799,20 @@ function CurrencyCalc({ priceMap, fxRates, fxLoading, fxError, fxUpdatedAt, onRe
         <span style={{ color: 'var(--text-faint)' }}>no markup</span> for INR &amp; USD
       </div>
 
-      {/* FX rate status */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--text-faint)', flexWrap: 'wrap' }}>
-        {fxLoading && <span>Fetching live rates…</span>}
-        {fxError && <span style={{ color: '#f87171' }}>Rate fetch failed — {fxError}</span>}
-        {!fxLoading && !fxError && fxUpdatedAt && <span>Live rates as of {fxUpdatedAt}</span>}
-        <button className="btn ghost" onClick={onRefreshRates} disabled={fxLoading} style={{ fontSize: 11, height: 26, padding: '0 8px' }}>
+      {/* Currency picker + FX status row */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <CurrencyDropdown value={currency} onChange={setCurrency} />
+        <div style={{ width: 1, height: 20, background: 'var(--border)' }} />
+        {fxLoading && <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>Fetching live rates…</span>}
+        {fxError && <span style={{ fontSize: 12, color: '#f87171' }}>Rate fetch failed</span>}
+        {!fxLoading && !fxError && fxUpdatedAt && <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>Rates as of {fxUpdatedAt}</span>}
+        <button className="btn ghost" onClick={onRefreshRates} disabled={fxLoading} style={{ fontSize: 11, height: 28, padding: '0 8px' }}>
           <Icon name="refresh" size={12} /> Refresh
         </button>
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, fontSize: 12 }}>
           {convertedCount > 0 && <span style={{ color: 'var(--accent)' }}>{convertedCount} converted</span>}
           {notFoundCount > 0 && <span style={{ color: '#f87171' }}>{notFoundCount} not found</span>}
-          {sel && <span>
+          {sel && <span style={{ color: 'var(--text-faint)' }}>
             {(() => { const n = normSel(sel); return n && (n.r2 > n.r1 || n.c2 > n.c1) ? `${n.r2-n.r1+1}×${n.c2-n.c1+1} · ` : '' })()}
             Ctrl+C to copy
           </span>}
@@ -781,33 +828,20 @@ function CurrencyCalc({ priceMap, fxRates, fxLoading, fxError, fxUpdatedAt, onRe
         onMouseMove={onMouseMove}
         onKeyDown={onContainerKeyDown}
       >
-        <div style={{ display: 'grid', gridTemplateColumns: '36px 130px 1fr 1fr 1fr 1fr 32px', background: 'var(--surface)', borderBottom: '2px solid var(--border)' }}>
-          {['#', 'Currency', 'Rate', 'Post Price', 'Buyer', 'Reseller', ''].map((h, i) => (
+        <div style={{ display: 'grid', gridTemplateColumns: '36px 1fr 1fr 1fr 1fr 32px', background: 'var(--surface)', borderBottom: '2px solid var(--border)' }}>
+          {['#', `Rate (${currency})`, 'Post Price', 'Buyer', 'Reseller', ''].map((h, i) => (
             <div key={i} style={{ ...TH, textAlign: i === 0 ? 'center' : 'left' }}>{h}</div>
           ))}
         </div>
 
         <div ref={gridRef} style={{ maxHeight: 480, overflowY: 'auto' }}>
           {computedRows.map((row, idx) => (
-            <div key={row.id} data-row-idx={idx} style={{ display: 'grid', gridTemplateColumns: '36px 130px 1fr 1fr 1fr 1fr 32px', borderBottom: idx < rows.length - 1 ? '1px solid var(--border)' : 'none', background: idx % 2 ? 'rgba(255,255,255,.013)' : 'transparent' }}>
+            <div key={row.id} data-row-idx={idx} style={{ display: 'grid', gridTemplateColumns: '36px 1fr 1fr 1fr 1fr 32px', borderBottom: idx < rows.length - 1 ? '1px solid var(--border)' : 'none', background: idx % 2 ? 'rgba(255,255,255,.013)' : 'transparent' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: 'var(--text-faint)', borderRight: '1px solid var(--border)' }}>
                 {idx + 1}
               </div>
 
               <div data-cr={`${idx},0`} style={{ borderRight: '1px solid var(--border)', background: cellBg(idx, 0) }}>
-                <select
-                  ref={el => { selectRefs.current[idx] = el }}
-                  value={row.currency}
-                  onChange={e => setRows(prev => prev.map(r => r.id !== row.id ? r : { ...r, currency: e.target.value }))}
-                  onKeyDown={e => onSelectKeyDown(e, idx)}
-                  onFocus={() => setSel({ ar: idx, ac: 0, cr: idx, cc: 0 })}
-                  style={SELECT_STYLE}
-                >
-                  {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
-              </div>
-
-              <div data-cr={`${idx},1`} style={{ borderRight: '1px solid var(--border)', background: cellBg(idx, 1) }}>
                 <input
                   ref={el => { rateRefs.current[idx] = el }}
                   data-rate-row={idx}
@@ -815,22 +849,22 @@ function CurrencyCalc({ priceMap, fxRates, fxLoading, fxError, fxUpdatedAt, onRe
                   value={row.rate}
                   onChange={e => setRows(prev => prev.map(r => r.id !== row.id ? r : { ...r, rate: e.target.value }))}
                   onKeyDown={e => onRateKeyDown(e, idx)}
-                  onFocus={() => setSel({ ar: idx, ac: 1, cr: idx, cc: 1 })}
+                  onFocus={() => setSel({ ar: idx, ac: 0, cr: idx, cc: 0 })}
                   placeholder={idx === 0 ? 'Amount…' : ''}
                   style={INPUT_STYLE}
                 />
               </div>
 
-              <div data-cr={`${idx},2`} style={{ ...MONO, padding: '0 12px', display: 'flex', alignItems: 'center', height: 36, borderRight: '1px solid var(--border)', color: row.postPrice != null ? 'var(--accent)' : row.notFound ? '#f87171' : 'var(--text-faint)', background: cellBg(idx, 2) }}>
+              <div data-cr={`${idx},1`} style={{ ...MONO, padding: '0 12px', display: 'flex', alignItems: 'center', height: 36, borderRight: '1px solid var(--border)', color: row.postPrice != null ? 'var(--accent)' : row.notFound ? '#f87171' : 'var(--text-faint)', background: cellBg(idx, 1) }}>
                 {row.postPrice != null ? `$${row.postPrice}` : row.notFound ? '—' : ''}
               </div>
 
-              <div data-cr={`${idx},3`} style={{ ...MONO, padding: '0 12px', display: 'flex', alignItems: 'center', height: 36, borderRight: '1px solid var(--border)', color: row.buyer != null ? 'var(--text)' : 'var(--text-faint)', background: cellBg(idx, 3) }}>
-                {row.buyer != null ? row.buyer.toFixed(2) : ''}
+              <div data-cr={`${idx},2`} style={{ ...MONO, padding: '0 12px', display: 'flex', alignItems: 'center', height: 36, borderRight: '1px solid var(--border)', color: row.buyer != null ? 'var(--text)' : 'var(--text-faint)', background: cellBg(idx, 2) }}>
+                {row.buyer != null ? row.buyer : ''}
               </div>
 
-              <div data-cr={`${idx},4`} style={{ ...MONO, padding: '0 12px', display: 'flex', alignItems: 'center', height: 36, color: row.reseller != null ? 'var(--text)' : 'var(--text-faint)', background: cellBg(idx, 4) }}>
-                {row.reseller != null ? row.reseller.toFixed(2) : ''}
+              <div data-cr={`${idx},3`} style={{ ...MONO, padding: '0 12px', display: 'flex', alignItems: 'center', height: 36, color: row.reseller != null ? 'var(--text)' : 'var(--text-faint)', background: cellBg(idx, 3) }}>
+                {row.reseller != null ? row.reseller : ''}
               </div>
 
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
