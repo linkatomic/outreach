@@ -686,7 +686,7 @@ function CurrencyDropdown({ value, onChange }) {
 
 function CombinedCalc({ priceMap, fxRates, fxLoading, fxError, fxUpdatedAt, onRefreshRates }) {
   const [currency, setCurrency] = useState('EUR')
-  const [pct, setPct] = useState('10')
+  const [pct, setPct] = useState('')
   const [op, setOp]   = useState('-')
   const [rows, setRows] = useState(() => Array.from({ length: 10 }, mkCombRow))
   const [copied, setCopied] = useState(false)
