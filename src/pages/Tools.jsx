@@ -1080,7 +1080,7 @@ export function ToolsPage() {
             </div>
           </div>
           <div className="card-pad">
-            <SheetParser />
+            <SheetParser priceMap={priceMap} />
           </div>
         </div>
       ) : activeTool === 'price-calc' ? (
