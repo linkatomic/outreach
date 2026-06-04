@@ -38,11 +38,17 @@ export function SheetParser({ priceMap }) {
             const headerRow = Math.max(0, Math.min(det.headerRow ?? 0, rows.length - 1))
             const allColumns = (rows[headerRow] || []).map(c => String(c ?? '').trim()).filter(Boolean)
 
+            const priceColNames = (det.priceColumns || []).map(p => p.name)
+            const additionalColumns = allColumns
+              .filter(c => c !== det.domainColumn && !priceColNames.includes(c))
+              .map(c => ({ name: c, selected: false }))
+
             return {
               name, skip: false, rows, allColumns, headerRow,
               domainColumn: det.domainColumn ?? null,
               domainConfidence: det.domainConfidence ?? 'low',
               priceColumns: (det.priceColumns || []).map(p => ({ ...p, enabled: true })),
+              additionalColumns,
               enabled: true,
             }
           } catch (err) {
@@ -76,7 +82,19 @@ export function SheetParser({ priceMap }) {
         }
       }
 
-      const headers = ['Tab Name', 'Website', ...allPriceLabels.flatMap(l => [l, 'Buyer'])]
+      // Union of selected additional column names across all enabled tabs
+      const allAdditionalNames = []
+      for (const tab of enabledTabs) {
+        for (const ac of (tab.additionalColumns || []).filter(c => c.selected)) {
+          if (!allAdditionalNames.includes(ac.name)) allAdditionalNames.push(ac.name)
+        }
+      }
+
+      const headers = [
+        'Tab Name', 'Website',
+        ...allPriceLabels.flatMap(l => [l, 'Buyer']),
+        ...(allAdditionalNames.length ? ['', ...allAdditionalNames] : []),
+      ]
       const outputRows = []
       let totalSites = 0
 
@@ -103,6 +121,11 @@ export function SheetParser({ priceMap }) {
             priceValues[label] = price
           }
 
+          const additionalValues = allAdditionalNames.map(colName => {
+            const idx = headerCells.indexOf(colName)
+            return idx === -1 ? '' : (row[idx] ?? '')
+          })
+
           const outRow = [
             tab.name,
             domain,
@@ -112,6 +135,7 @@ export function SheetParser({ priceMap }) {
               const buyer = priceMap?.get(Math.round(price))?.buyer ?? ''
               return [price, buyer]
             }),
+            ...(allAdditionalNames.length ? ['', ...additionalValues] : []),
           ]
           outputRows.push(outRow)
           totalSites++
@@ -121,7 +145,7 @@ export function SheetParser({ priceMap }) {
       if (!outputRows.length) throw new Error('No valid website rows found in the selected tabs')
 
       const date = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-      const sheetUrl = await createOutputSheet(`Processed Sites — ${date}`, headers, outputRows)
+      const sheetUrl = await createOutputSheet(`Processed Sites — ${date}`, headers, outputRows, allPriceLabels.length)
 
       setOutput({ sheetUrl, totalSites, tabsProcessed: enabledTabs.length, priceColumns: allPriceLabels.length })
       setStep('done')
@@ -137,6 +161,16 @@ export function SheetParser({ priceMap }) {
   function updatePriceCol(ti, ci, patch) {
     setTabs(prev => prev.map((t, i) => i !== ti ? t : {
       ...t, priceColumns: t.priceColumns.map((p, j) => j === ci ? { ...p, ...patch } : p),
+    }))
+  }
+  function updateAdditionalCol(ti, ci, selected) {
+    setTabs(prev => prev.map((t, i) => i !== ti ? t : {
+      ...t, additionalColumns: t.additionalColumns.map((c, j) => j === ci ? { ...c, selected } : c),
+    }))
+  }
+  function toggleAllAdditional(ti, selected) {
+    setTabs(prev => prev.map((t, i) => i !== ti ? t : {
+      ...t, additionalColumns: t.additionalColumns.map(c => ({ ...c, selected })),
     }))
   }
 
@@ -195,6 +229,8 @@ export function SheetParser({ priceMap }) {
             onDomainChange={v => updateTab(ti, { domainColumn: v })}
             onPriceColToggle={(ci, v) => updatePriceCol(ti, ci, { enabled: v })}
             onPriceLabelChange={(ci, v) => updatePriceCol(ti, ci, { label: v })}
+            onAdditionalColToggle={(ci, v) => updateAdditionalCol(ti, ci, v)}
+            onToggleAllAdditional={v => toggleAllAdditional(ti, v)}
           />
         ))}
       </div>
@@ -261,7 +297,7 @@ export function SheetParser({ priceMap }) {
 }
 
 // ── Tab review card ─────────────────────────────────────────
-function TabCard({ tab, onTabToggle, onDomainChange, onPriceColToggle, onPriceLabelChange }) {
+function TabCard({ tab, onTabToggle, onDomainChange, onPriceColToggle, onPriceLabelChange, onAdditionalColToggle, onToggleAllAdditional }) {
   const disabled = !tab.enabled || tab.skip
   return (
     <div style={{
@@ -319,6 +355,37 @@ function TabCard({ tab, onTabToggle, onDomainChange, onPriceColToggle, onPriceLa
               )
             }
           </div>
+
+          {/* Additional columns */}
+          {tab.additionalColumns?.length > 0 && (
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                  Additional Columns — appended after a blank separator
+                </div>
+                <button className="btn ghost" style={{ fontSize: 10, padding: '1px 7px', height: 20, marginLeft: 'auto' }}
+                        onClick={() => onToggleAllAdditional(true)}>All</button>
+                <button className="btn ghost" style={{ fontSize: 10, padding: '1px 7px', height: 20 }}
+                        onClick={() => onToggleAllAdditional(false)}>None</button>
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {tab.additionalColumns.map((ac, ci) => (
+                  <label key={ci} style={{
+                    display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer',
+                    padding: '3px 8px', borderRadius: 6, fontSize: 12,
+                    background: ac.selected ? 'color-mix(in srgb, var(--accent) 12%, transparent)' : 'var(--surface-2)',
+                    border: `1px solid ${ac.selected ? 'color-mix(in srgb, var(--accent) 40%, transparent)' : 'var(--border)'}`,
+                    color: ac.selected ? 'var(--text)' : 'var(--text-dim)',
+                    transition: 'all 0.1s',
+                  }}>
+                    <input type="checkbox" checked={ac.selected} onChange={e => onAdditionalColToggle(ci, e.target.checked)}
+                           style={{ accentColor: 'var(--accent)', width: 11, height: 11, cursor: 'pointer' }} />
+                    {ac.name}
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

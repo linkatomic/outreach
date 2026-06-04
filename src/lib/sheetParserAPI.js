@@ -158,9 +158,27 @@ Return ONLY valid JSON, no explanation:
   return JSON.parse(text)
 }
 
+// ── Google Drive API ─────────────────────────────────────
+
+async function gdrive(path, opts = {}) {
+  const token = await getToken()
+  const res = await fetch(`https://www.googleapis.com/drive/v3${path}`, {
+    ...opts,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      ...(opts.headers || {}),
+    },
+  })
+  if (res.status === 204) return {}
+  const data = await res.json()
+  if (!res.ok || data.error) throw new Error(data.error?.message || JSON.stringify(data.error))
+  return data
+}
+
 // ── Output sheet creation ─────────────────────────────────
 
-export async function createOutputSheet(title, headers, rows) {
+export async function createOutputSheet(title, headers, rows, numPriceCols) {
   const created = await gsheets('/spreadsheets', {
     method: 'POST',
     body: JSON.stringify({
@@ -175,6 +193,15 @@ export async function createOutputSheet(title, headers, rows) {
     method: 'PUT',
     body: JSON.stringify({ values: [headers, ...rows] }),
   })
+
+  // Buyer columns are at indices 3, 5, 7, … (3 + 2*i)
+  const buyerColRequests = Array.from({ length: numPriceCols }, (_, i) => ({
+    repeatCell: {
+      range: { sheetId, startColumnIndex: 3 + i * 2, endColumnIndex: 4 + i * 2 },
+      cell: { userEnteredFormat: { backgroundColor: { red: 0.851, green: 0.918, blue: 0.827 } } },
+      fields: 'userEnteredFormat.backgroundColor',
+    },
+  }))
 
   await gsheets(`/spreadsheets/${newId}:batchUpdate`, {
     method: 'POST',
@@ -193,8 +220,15 @@ export async function createOutputSheet(title, headers, rows) {
             fields: 'gridProperties.frozenRowCount',
           },
         },
+        ...buyerColRequests,
       ],
     }),
+  })
+
+  // Share with anyone as editor
+  await gdrive(`/files/${newId}/permissions`, {
+    method: 'POST',
+    body: JSON.stringify({ role: 'writer', type: 'anyone' }),
   })
 
   return `https://docs.google.com/spreadsheets/d/${newId}/edit`
