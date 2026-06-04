@@ -15,6 +15,15 @@ let _accessToken = null
 let _tokenExpiry = 0
 
 async function getToken() {
+  if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET || !GOOGLE_REFRESH_TOKEN) {
+    throw new Error(
+      `Missing credentials — check Vercel env vars:\n` +
+      `VITE_GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID ? 'OK' : 'MISSING'}\n` +
+      `VITE_GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET ? 'OK' : 'MISSING'}\n` +
+      `VITE_GOOGLE_REFRESH_TOKEN: ${GOOGLE_REFRESH_TOKEN ? 'OK' : 'MISSING'}`
+    )
+  }
+
   if (_accessToken && Date.now() < _tokenExpiry - 60_000) return _accessToken
 
   const res = await fetch('https://oauth2.googleapis.com/token', {
