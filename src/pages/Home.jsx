@@ -343,7 +343,7 @@ export function LeadHome({ me, setRoute }) {
   useEffect(() => {
     setLoading(true);
     Promise.all([
-      loadEmailLogsByDateRange(isoNDaysAgo(29)),
+      loadEmailLogsByDateRange(isoNDaysAgo(31)),
       loadAllReportsForDate(today),
       loadReportsByDateRange(isoNDaysAgo(25)),
     ]).then(([logs, todayRpts, allRpts]) => {
@@ -381,11 +381,13 @@ export function LeadHome({ me, setRoute }) {
 
   const reviewQueue = recentReports.filter(r => r.status === 'pending' && isTeam(r.member_id)).length;
 
+  const monthStart = `${today.slice(0, 7)}-01`
   const leaderboard = teamMembersList.map(m => ({
     m,
-    score: cnt(e => e.date >= isoNDaysAgo(6) && e.member_id === m.id),
+    score: cnt(e => e.date >= monthStart && e.member_id === m.id),
   })).sort((a, b) => b.score - a.score);
   const maxScore = Math.max(...leaderboard.map(l => l.score), 1);
+  const monthLabel = new Date(today + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 
   if (loading) {
     return <div className="page" style={{ display: 'grid', placeItems: 'center', minHeight: 300 }}><div className="faint">Loading…</div></div>;
@@ -514,7 +516,7 @@ export function LeadHome({ me, setRoute }) {
 
       <div className="card">
         <div className="card-head">
-          <h3>This week's leaderboard</h3>
+          <h3>Leaderboard · {monthLabel}</h3>
           <button className="btn ghost" onClick={() => setRoute('leaderboard')}>View all <Icon name="arrow" size={11} /></button>
         </div>
         <div style={{ padding: '0 16px' }}>

@@ -62,6 +62,7 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
   const [bulkEntry, setBulkEntry]     = useState(false)
   const [filter, setFilter]           = useState('today')
   const [filterDate, setFilterDate]   = useState(todayISO())
+  const [filterDateTo, setFilterDateTo] = useState(todayISO())
   const [filterMember, setFilterMember] = useState(me.id)
   const [filterLabel, setFilterLabel] = useState(null)
   const [search, setSearch]           = useState('')
@@ -129,6 +130,7 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
         search,
         label: filterLabel,
         date: filter === 'date' ? filterDate : null,
+        dateTo: filter === 'date' ? filterDateTo : null,
       })
 
       // Normalize any full Missive URLs → conversation UUID.
@@ -151,7 +153,7 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
     } finally {
       setLoading(false)
     }
-  }, [filter, filterDate, filterMember, search, filterLabel])
+  }, [filter, filterDate, filterDateTo, filterMember, search, filterLabel])
 
   useEffect(() => { fetchRows() }, [fetchRows])
 
@@ -374,8 +376,8 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
   const showTime = ['lead', 'hr', 'super'].includes(me.role)
   // Last col is 52px to fit both edit + delete icon buttons
   const colTemplate = showTime
-    ? '28px 40px 80px 54px 0.85fr 1fr 100px 44px 96px 78px 52px'
-    : '28px 40px 80px 0.85fr 1fr 100px 44px 96px 78px 52px'
+    ? '28px 40px 80px 54px 0.85fr 0.75fr 100px 62px 90px 78px 52px'
+    : '28px 40px 80px 0.85fr 0.75fr 100px 62px 90px 78px 52px'
 
   const linkHint = linkStatus === 'thread'
     ? `↩ Same conversation found today · "${linkThread?.vendor}" · Adding will increment replies`
@@ -404,7 +406,7 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
         <div className="kpi">
           <div className="kpi-label">
             {filterMember !== 'all'
-              ? `${TEAM.find(m => m.id === filterMember)?.name.split(' ')[0] || 'Member'} · ${filter === 'date' ? fmtDateShort(filterDate) : filter}`
+              ? `${TEAM.find(m => m.id === filterMember)?.name.split(' ')[0] || 'Member'} · ${filter === 'date' ? (filterDateTo && filterDateTo !== filterDate ? `${fmtDateShort(filterDate)}–${fmtDateShort(filterDateTo)}` : fmtDateShort(filterDate)) : filter}`
               : `My today`}
           </div>
           <div className="kpi-value">
@@ -481,25 +483,24 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
       {/* ── Filters ── */}
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 12 }}>
         <span className="seg">
-          <button className={filter === 'today' ? 'on' : ''} onClick={() => setFilter('today')}>Today</button>
-          <button className={filter === 'week'  ? 'on' : ''} onClick={() => setFilter('week')}>Week</button>
-          <button className={filter === 'all'   ? 'on' : ''} onClick={() => setFilter('all')}>All time</button>
-          <button className={filter === 'date'  ? 'on' : ''} onClick={() => setFilter('date')}><Icon name="calendar" size={12} /> Date</button>
+          <button className={filter === 'today'     ? 'on' : ''} onClick={() => setFilter('today')}>Today</button>
+          <button className={filter === 'yesterday' ? 'on' : ''} onClick={() => setFilter('yesterday')}>Yesterday</button>
+          <button className={filter === 'week'      ? 'on' : ''} onClick={() => setFilter('week')}>Week</button>
+          <button className={filter === 'all'       ? 'on' : ''} onClick={() => setFilter('all')}>All time</button>
+          <button className={filter === 'date'      ? 'on' : ''} onClick={() => setFilter('date')}><Icon name="calendar" size={12} /> Date range</button>
         </span>
         {filter === 'date' && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <button className="btn ghost" style={{ width: 28, height: 28, padding: 0 }}
-                    onClick={() => setFilterDate(shiftDate(filterDate, -1))}
-                    title="Previous day">‹</button>
-            <input type="date" className="input" value={filterDate} max={todayISO()}
+            <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>From</span>
+            <input type="date" className="input" value={filterDate} max={filterDateTo || todayISO()}
                    onChange={e => e.target.value && setFilterDate(e.target.value)}
                    style={{ width: 148, fontFamily: 'var(--font-mono)', fontSize: 13, cursor: 'pointer' }} />
-            <button className="btn ghost" style={{ width: 28, height: 28, padding: 0 }}
-                    disabled={filterDate >= todayISO()}
-                    onClick={() => { const n = shiftDate(filterDate, 1); if (n <= todayISO()) setFilterDate(n) }}
-                    title="Next day">›</button>
-            {filterDate !== todayISO() && (
-              <button className="btn" onClick={() => setFilterDate(todayISO())}>Today</button>
+            <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>to</span>
+            <input type="date" className="input" value={filterDateTo} min={filterDate} max={todayISO()}
+                   onChange={e => e.target.value && setFilterDateTo(e.target.value)}
+                   style={{ width: 148, fontFamily: 'var(--font-mono)', fontSize: 13, cursor: 'pointer' }} />
+            {(filterDate !== todayISO() || filterDateTo !== todayISO()) && (
+              <button className="btn" onClick={() => { setFilterDate(todayISO()); setFilterDateTo(todayISO()) }}>Reset</button>
             )}
           </div>
         )}

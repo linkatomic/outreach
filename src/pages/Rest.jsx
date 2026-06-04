@@ -319,38 +319,67 @@ export function TeamPage({ role, me, setRoute, openDetailFor }) {
 }
 
 // ──────────────── LEADERBOARD ────────────────
+function isoMonthStart(year, month) {
+  return `${year}-${String(month).padStart(2, '0')}-01`
+}
+
+function isoMonthEnd(year, month) {
+  const d = new Date(year, month, 0) // day 0 of next month = last day of this month
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+function fmtMonthLabel(year, month) {
+  return new Date(year, month - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+}
+
 export function LeaderboardPage({ setRoute, openDetailFor }) {
-  const [scope, setScope]   = useState('week');
-  const [metric, setMetric] = useState('emails');
+  const now = new Date();
+  const [viewYear, setViewYear]   = useState(now.getFullYear());
+  const [viewMonth, setViewMonth] = useState(now.getMonth() + 1);
+  const [metric, setMetric]       = useState('emails');
   const [emailLogs, setEmailLogs] = useState([]);
   const [reports, setReports]     = useState([]);
   const [loading, setLoading]     = useState(true);
 
-  const days = scope === 'today' ? 1 : scope === 'week' ? 7 : 30;
   const members = TEAM.filter(m => m.role === 'member' && !m.neelOnly);
+  const isCurrentMonth = viewYear === now.getFullYear() && viewMonth === now.getMonth() + 1;
+
+  function prevMonth() {
+    if (viewMonth === 1) { setViewYear(y => y - 1); setViewMonth(12); }
+    else setViewMonth(m => m - 1);
+  }
+
+  function nextMonth() {
+    if (isCurrentMonth) return;
+    if (viewMonth === 12) { setViewYear(y => y + 1); setViewMonth(1); }
+    else setViewMonth(m => m + 1);
+  }
 
   useEffect(() => {
     setLoading(true);
-    Promise.all([loadEmailLogsByDateRange(isoNDaysAgo(30)), loadReportsByDateRange(isoNDaysAgo(30))])
-      .then(([logs, rpts]) => { setEmailLogs(logs); setReports(rpts); })
+    const start = isoMonthStart(viewYear, viewMonth);
+    const end   = isoMonthEnd(viewYear, viewMonth);
+    Promise.all([
+      loadEmailLogsByDateRange(start, end),
+      loadReportsByDateRange(start, end),
+    ]).then(([logs, rpts]) => { setEmailLogs(logs); setReports(rpts); })
       .catch(() => {}).finally(() => setLoading(false));
-  }, []);
+  }, [viewYear, viewMonth]);
 
   const scored = useMemo(() => {
-    // days=1 → today only; days=7 → last 7 days including today (isoNDaysAgo(6))
-    const start = days === 1 ? todayISO() : isoNDaysAgo(days - 1);
     return members.map(m => {
-      const emails = emailLogs.filter(e => e.member_id === m.id && e.date >= start)
+      const emails = emailLogs.filter(e => e.member_id === m.id)
         .reduce((s, e) => s + 1 + (e.replies || 0), 0);
-      const sites = reports.filter(r => r.member_id === m.id && r.date >= start)
+      const sites = reports.filter(r => r.member_id === m.id)
         .reduce((s, r) => s + (typeof r.metrics?.web_added === 'number' ? r.metrics.web_added : 0)
                               + (typeof r.metrics?.web_audited === 'number' ? r.metrics.web_audited : 0), 0);
       const score = metric === 'emails' ? emails : sites;
       return { m, score, emails, sites };
     }).sort((a, b) => b.score - a.score);
-  }, [emailLogs, reports, days, metric, members]);
+  }, [emailLogs, reports, metric, members]);
 
   const max = scored[0]?.score || 1;
+  const monthLabel = fmtMonthLabel(viewYear, viewMonth);
 
   return (
     <div className="page" style={{ maxWidth: 920 }}>
@@ -364,15 +393,20 @@ export function LeaderboardPage({ setRoute, openDetailFor }) {
             <button className={metric === 'emails' ? 'on' : ''} onClick={() => setMetric('emails')}>Emails</button>
             <button className={metric === 'sites' ? 'on' : ''} onClick={() => setMetric('sites')}>Sites</button>
           </span>
-          <span className="seg">
-            <button className={scope === 'today' ? 'on' : ''} onClick={() => setScope('today')}>Today</button>
-            <button className={scope === 'week' ? 'on' : ''} onClick={() => setScope('week')}>Week</button>
-            <button className={scope === 'month' ? 'on' : ''} onClick={() => setScope('month')}>Month</button>
-          </span>
         </div>
       </div>
 
       <div className="card">
+        <div className="card-head" style={{ padding: '14px 20px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <button className="btn ghost" style={{ width: 28, height: 28, padding: 0, fontSize: 16 }} onClick={prevMonth} title="Previous month">‹</button>
+            <span style={{ fontWeight: 600, fontSize: 15, minWidth: 140, textAlign: 'center' }}>{monthLabel}</span>
+            <button className="btn ghost" style={{ width: 28, height: 28, padding: 0, fontSize: 16, opacity: isCurrentMonth ? 0.3 : 1 }}
+                    onClick={nextMonth} disabled={isCurrentMonth} title="Next month">›</button>
+          </div>
+          {isCurrentMonth && <span className="chip accent" style={{ fontSize: 11 }}>Current month</span>}
+        </div>
+
         {loading ? (
           <div style={{ padding: 48, textAlign: 'center' }}><span className="muted">Loading…</span></div>
         ) : (
