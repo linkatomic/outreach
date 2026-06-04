@@ -2,10 +2,10 @@
 // All Google operations use a single account (the owner's refresh token).
 // No sign-in required from other users.
 
-const GOOGLE_CLIENT_ID     = '344383809330-sgk92hbpq8igotp3u7t74a0vira49e9u.apps.googleusercontent.com'
-const GOOGLE_CLIENT_SECRET = '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'
-const GOOGLE_REFRESH_TOKEN = '1//04CCS_8tFr6QQCgYIARAAGAQSNwF-L9IrpLb3dbWzQcCv1cGxXEcyvxVST6fyGWB0ufNLLSQRhpyfEhT1YHPDn8J-GeTl-cwywFE'
-const OPENAI_API_KEY       = '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'
+const GOOGLE_CLIENT_ID     = import.meta.env.VITE_GOOGLE_CLIENT_ID
+const GOOGLE_CLIENT_SECRET = import.meta.env.VITE_GOOGLE_CLIENT_SECRET
+const GOOGLE_REFRESH_TOKEN = import.meta.env.VITE_GOOGLE_REFRESH_TOKEN
+const OPENAI_API_KEY       = import.meta.env.VITE_OPENAI_API_KEY
 
 // ── Google OAuth — refresh token flow ────────────────────
 // Exchange the refresh token for a short-lived access token.
