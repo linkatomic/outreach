@@ -1,64 +1,46 @@
-// Google Sheets + OpenAI — runs entirely in the browser.
-// Auth uses Google Identity Services (GIS): a sign-in popup, no server needed.
+// Internal tool credentials — keep this repo private.
+// All Google operations use a single account (the owner's refresh token).
+// No sign-in required from other users.
 
-const CLIENT_ID  = import.meta.env.VITE_GOOGLE_CLIENT_ID
-const OPENAI_KEY = import.meta.env.VITE_OPENAI_API_KEY
+const GOOGLE_CLIENT_ID     = '344383809330-sgk92hbpq8igotp3u7t74a0vira49e9u.apps.googleusercontent.com'
+const GOOGLE_CLIENT_SECRET = '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'
+const GOOGLE_REFRESH_TOKEN = '1//04CCS_8tFr6QQCgYIARAAGAQSNwF-L9IrpLb3dbWzQcCv1cGxXEcyvxVST6fyGWB0ufNLLSQRhpyfEhT1YHPDn8J-GeTl-cwywFE'
+const OPENAI_API_KEY       = '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'
 
-const SCOPES = [
-  'https://www.googleapis.com/auth/spreadsheets',
-  'https://www.googleapis.com/auth/drive.file',
-].join(' ')
+// ── Google OAuth — refresh token flow ────────────────────
+// Exchange the refresh token for a short-lived access token.
+// Cached per session; auto-refreshes when near expiry.
 
-// ── Google Identity Services ─────────────────────────────
-let _gisLoaded   = false
-let _tokenClient = null
 let _accessToken = null
 let _tokenExpiry = 0
 
-async function loadGIS() {
-  if (_gisLoaded) return
-  await new Promise((resolve, reject) => {
-    const s = document.createElement('script')
-    s.src = 'https://accounts.google.com/gsi/client'
-    s.async = true
-    s.onload  = () => { _gisLoaded = true; resolve() }
-    s.onerror = () => reject(new Error('Could not load Google sign-in library'))
-    document.head.appendChild(s)
-  })
-}
-
-export function isConnected() {
-  return !!_accessToken && Date.now() < _tokenExpiry - 60_000
-}
-
-// Opens Google sign-in popup; resolves when done
-export async function connectGoogle() {
-  await loadGIS()
-  return new Promise((resolve, reject) => {
-    _tokenClient = window.google.accounts.oauth2.initTokenClient({
-      client_id: CLIENT_ID,
-      scope: SCOPES,
-      callback: (resp) => {
-        if (resp.error) {
-          reject(new Error(resp.error_description || resp.error))
-          return
-        }
-        _accessToken = resp.access_token
-        _tokenExpiry = Date.now() + (resp.expires_in || 3600) * 1000
-        resolve()
-      },
-      error_callback: (err) => reject(new Error(err.message || 'Google sign-in failed')),
-    })
-    _tokenClient.requestAccessToken({ prompt: '' })
-  })
-}
-
 async function getToken() {
-  if (!isConnected()) await connectGoogle()
+  if (_accessToken && Date.now() < _tokenExpiry - 60_000) return _accessToken
+
+  const res = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      client_id:     GOOGLE_CLIENT_ID,
+      client_secret: GOOGLE_CLIENT_SECRET,
+      refresh_token: GOOGLE_REFRESH_TOKEN,
+      grant_type:    'refresh_token',
+    }),
+  })
+  const data = await res.json()
+  if (!res.ok || data.error) {
+    throw new Error(
+      data.error_description
+        ? `Google auth failed: ${data.error_description}`
+        : `Google auth failed (${data.error || res.status}). The credentials may need to be refreshed — contact the tool owner.`
+    )
+  }
+  _accessToken = data.access_token
+  _tokenExpiry = Date.now() + data.expires_in * 1000
   return _accessToken
 }
 
-// ── Google Sheets API helpers ─────────────────────────────
+// ── Google Sheets API ─────────────────────────────────────
 
 async function gsheets(path, opts = {}) {
   const token = await getToken()
@@ -71,7 +53,7 @@ async function gsheets(path, opts = {}) {
     },
   })
   const data = await res.json()
-  if (data.error) throw new Error(data.error.message || JSON.stringify(data.error))
+  if (!res.ok || data.error) throw new Error(data.error?.message || JSON.stringify(data.error))
   return data
 }
 
@@ -127,20 +109,20 @@ Return ONLY valid JSON, no explanation:
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${OPENAI_KEY}`,
+      Authorization: `Bearer ${OPENAI_API_KEY}`,
     },
     body: JSON.stringify({
       model: 'gpt-5.4-nano',
       messages: [
         { role: 'system', content: 'You are a data analyst. Respond only with valid JSON, no markdown, no explanation.' },
-        { role: 'user', content: prompt },
+        { role: 'user',   content: prompt },
       ],
       temperature: 0,
       max_tokens: 800,
     }),
   })
   const data = await res.json()
-  if (data.error) throw new Error(`OpenAI: ${data.error.message}`)
+  if (!res.ok || data.error) throw new Error(`OpenAI: ${data.error?.message || res.status}`)
   const text = data.choices[0].message.content.trim()
   return JSON.parse(text)
 }
@@ -148,7 +130,6 @@ Return ONLY valid JSON, no explanation:
 // ── Output sheet creation ─────────────────────────────────
 
 export async function createOutputSheet(title, headers, rows) {
-  // Create spreadsheet
   const created = await gsheets('/spreadsheets', {
     method: 'POST',
     body: JSON.stringify({
@@ -159,13 +140,11 @@ export async function createOutputSheet(title, headers, rows) {
   const newId   = created.spreadsheetId
   const sheetId = created.sheets[0].properties.sheetId
 
-  // Write data
   await gsheets(`/spreadsheets/${newId}/values/Websites!A1?valueInputOption=USER_ENTERED`, {
     method: 'PUT',
     body: JSON.stringify({ values: [headers, ...rows] }),
   })
 
-  // Bold header + freeze row
   await gsheets(`/spreadsheets/${newId}:batchUpdate`, {
     method: 'POST',
     body: JSON.stringify({
