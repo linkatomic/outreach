@@ -4,17 +4,32 @@ import {
   extractSheetId, getSheetTabs, getSheetRows,
   detectColumns, createOutputSheet,
   cleanDomain, parsePrice,
+  isConnected, connectGoogle,
 } from '../lib/sheetParserAPI.js'
 
 const CONFIDENCE_COLOR = { high: 'var(--accent)', medium: '#f59e0b', low: '#fb7185' }
 
 export function SheetParser({ priceMap }) {
-  const [step, setStep]   = useState('idle')  // idle | analyzing | review | processing | done | error
-  const [url, setUrl]     = useState('')
+  const [step, setStep]       = useState('idle')  // idle | connecting | analyzing | review | processing | done | error
+  const [connected, setConnected] = useState(isConnected)
+  const [url, setUrl]         = useState('')
   const [sheetId, setSheetId] = useState('')
-  const [tabs, setTabs]   = useState([])
-  const [output, setOutput] = useState(null)
-  const [errMsg, setErrMsg] = useState('')
+  const [tabs, setTabs]       = useState([])
+  const [output, setOutput]   = useState(null)
+  const [errMsg, setErrMsg]   = useState('')
+
+  async function handleConnect() {
+    setStep('connecting')
+    setErrMsg('')
+    try {
+      await connectGoogle()
+      setConnected(true)
+      setStep('idle')
+    } catch (err) {
+      setErrMsg(err.message)
+      setStep('error')
+    }
+  }
 
   // ── Step 1: Analyze ────────────────────────────────────
   async function analyze() {
@@ -144,23 +159,49 @@ export function SheetParser({ priceMap }) {
 
   // ── Render ─────────────────────────────────────────────
 
-  if (step === 'idle' || step === 'analyzing') return (
+  if (step === 'idle' || step === 'analyzing' || step === 'connecting') return (
     <div style={{ maxWidth: 640 }}>
-      <p style={{ fontSize: 13, color: 'var(--text-dim)', marginBottom: 16, lineHeight: 1.6 }}>
-        Paste a Google Sheet URL — AI will detect website and pricing columns across all tabs, then you confirm before the output sheet is generated.
+      {/* Step 1: Connect Google */}
+      <div style={{
+        marginBottom: 20, padding: '16px 18px', borderRadius: 10,
+        background: connected ? 'color-mix(in srgb, var(--accent) 6%, transparent)' : 'var(--surface-2)',
+        border: `1px solid ${connected ? 'color-mix(in srgb, var(--accent) 30%, transparent)' : 'var(--border)'}`,
+        display: 'flex', alignItems: 'center', gap: 14,
+      }}>
+        <div style={{ fontSize: 22 }}>{connected ? '✓' : '①'}</div>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 2 }}>
+            {connected ? 'Google account connected' : 'Connect your Google account'}
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--text-faint)' }}>
+            {connected ? 'Ready to read sheets and create output in your Drive' : 'Needed to read sheets and create the output Google Sheet in your Drive'}
+          </div>
+        </div>
+        {!connected && (
+          <button className="btn primary" onClick={handleConnect} disabled={step === 'connecting'} style={{ flexShrink: 0 }}>
+            {step === 'connecting' ? 'Opening…' : 'Sign in with Google'}
+          </button>
+        )}
+      </div>
+
+      {/* Step 2: Paste URL */}
+      <p style={{ fontSize: 13, color: 'var(--text-dim)', marginBottom: 12, lineHeight: 1.6 }}>
+        <strong style={{ color: connected ? 'var(--text)' : 'var(--text-faint)' }}>②</strong>{' '}
+        Paste a Google Sheet URL — AI detects website and pricing columns across all tabs, then you confirm before the output is created.
       </p>
       <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
         <input
           className="input"
-          style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: 13 }}
+          style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: 13, opacity: connected ? 1 : 0.4 }}
           placeholder="https://docs.google.com/spreadsheets/d/..."
           value={url}
           onChange={e => setUrl(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && step === 'idle' && analyze()}
-          disabled={step === 'analyzing'}
-          autoFocus
+          onKeyDown={e => e.key === 'Enter' && step === 'idle' && connected && analyze()}
+          disabled={step === 'analyzing' || !connected}
+          autoFocus={connected}
         />
-        <button className="btn primary" onClick={analyze} disabled={!url.trim() || step === 'analyzing'} style={{ flexShrink: 0 }}>
+        <button className="btn primary" onClick={analyze}
+                disabled={!url.trim() || step === 'analyzing' || !connected} style={{ flexShrink: 0 }}>
           {step === 'analyzing' ? 'Analyzing…' : <><Icon name="zap" size={12} /> Analyze</>}
         </button>
       </div>

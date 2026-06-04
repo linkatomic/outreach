@@ -1,33 +1,64 @@
-// All Google Sheets + OpenAI calls run directly in the browser.
-// No server required — credentials are embedded via Vite env vars.
+// Google Sheets + OpenAI — runs entirely in the browser.
+// Auth uses Google Identity Services (GIS): a sign-in popup, no server needed.
 
-const CLIENT_ID     = import.meta.env.VITE_GOOGLE_CLIENT_ID
-const CLIENT_SECRET = import.meta.env.VITE_GOOGLE_CLIENT_SECRET
-const REFRESH_TOKEN = import.meta.env.VITE_GOOGLE_REFRESH_TOKEN
-const OPENAI_KEY    = import.meta.env.VITE_OPENAI_API_KEY
+const CLIENT_ID  = import.meta.env.VITE_GOOGLE_CLIENT_ID
+const OPENAI_KEY = import.meta.env.VITE_OPENAI_API_KEY
 
-// ── Google OAuth ─────────────────────────────────────────
-let _token = null
+const SCOPES = [
+  'https://www.googleapis.com/auth/spreadsheets',
+  'https://www.googleapis.com/auth/drive.file',
+].join(' ')
+
+// ── Google Identity Services ─────────────────────────────
+let _gisLoaded   = false
+let _tokenClient = null
+let _accessToken = null
 let _tokenExpiry = 0
 
-async function getToken() {
-  if (_token && Date.now() < _tokenExpiry - 60_000) return _token
-  const res = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      client_id: CLIENT_ID,
-      client_secret: CLIENT_SECRET,
-      refresh_token: REFRESH_TOKEN,
-      grant_type: 'refresh_token',
-    }),
+async function loadGIS() {
+  if (_gisLoaded) return
+  await new Promise((resolve, reject) => {
+    const s = document.createElement('script')
+    s.src = 'https://accounts.google.com/gsi/client'
+    s.async = true
+    s.onload  = () => { _gisLoaded = true; resolve() }
+    s.onerror = () => reject(new Error('Could not load Google sign-in library'))
+    document.head.appendChild(s)
   })
-  const data = await res.json()
-  if (data.error) throw new Error(`Google auth failed: ${data.error_description || data.error}`)
-  _token = data.access_token
-  _tokenExpiry = Date.now() + data.expires_in * 1000
-  return _token
 }
+
+export function isConnected() {
+  return !!_accessToken && Date.now() < _tokenExpiry - 60_000
+}
+
+// Opens Google sign-in popup; resolves when done
+export async function connectGoogle() {
+  await loadGIS()
+  return new Promise((resolve, reject) => {
+    _tokenClient = window.google.accounts.oauth2.initTokenClient({
+      client_id: CLIENT_ID,
+      scope: SCOPES,
+      callback: (resp) => {
+        if (resp.error) {
+          reject(new Error(resp.error_description || resp.error))
+          return
+        }
+        _accessToken = resp.access_token
+        _tokenExpiry = Date.now() + (resp.expires_in || 3600) * 1000
+        resolve()
+      },
+      error_callback: (err) => reject(new Error(err.message || 'Google sign-in failed')),
+    })
+    _tokenClient.requestAccessToken({ prompt: '' })
+  })
+}
+
+async function getToken() {
+  if (!isConnected()) await connectGoogle()
+  return _accessToken
+}
+
+// ── Google Sheets API helpers ─────────────────────────────
 
 async function gsheets(path, opts = {}) {
   const token = await getToken()
@@ -43,8 +74,6 @@ async function gsheets(path, opts = {}) {
   if (data.error) throw new Error(data.error.message || JSON.stringify(data.error))
   return data
 }
-
-// ── Sheet reading ─────────────────────────────────────────
 
 export function extractSheetId(url) {
   const m = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/)
@@ -101,7 +130,7 @@ Return ONLY valid JSON, no explanation:
       Authorization: `Bearer ${OPENAI_KEY}`,
     },
     body: JSON.stringify({
-      model: 'gpt-4o-mini',
+      model: 'gpt-5.4-nano',
       messages: [
         { role: 'system', content: 'You are a data analyst. Respond only with valid JSON, no markdown, no explanation.' },
         { role: 'user', content: prompt },
@@ -119,9 +148,7 @@ Return ONLY valid JSON, no explanation:
 // ── Output sheet creation ─────────────────────────────────
 
 export async function createOutputSheet(title, headers, rows) {
-  const token = await getToken()
-
-  // Create the spreadsheet
+  // Create spreadsheet
   const created = await gsheets('/spreadsheets', {
     method: 'POST',
     body: JSON.stringify({
@@ -129,10 +156,10 @@ export async function createOutputSheet(title, headers, rows) {
       sheets: [{ properties: { title: 'Websites' } }],
     }),
   })
-  const newId = created.spreadsheetId
+  const newId   = created.spreadsheetId
   const sheetId = created.sheets[0].properties.sheetId
 
-  // Write all data
+  // Write data
   await gsheets(`/spreadsheets/${newId}/values/Websites!A1?valueInputOption=USER_ENTERED`, {
     method: 'PUT',
     body: JSON.stringify({ values: [headers, ...rows] }),
@@ -170,8 +197,8 @@ export function cleanDomain(raw) {
   let s = String(raw).trim()
   s = s.replace(/^https?:\/\//i, '')
   s = s.replace(/^www\./i, '')
-  s = s.split('/')[0]          // remove path
-  s = s.split(/\s/)[0]         // remove " New", " (New)***", etc.
+  s = s.split('/')[0]
+  s = s.split(/\s/)[0]
   s = s.replace(/[*()\[\]]+/g, '')
   s = s.replace(/[.,;:]+$/, '').trim()
   return s.toLowerCase()
