@@ -109,22 +109,48 @@ export async function getSheetRows(spreadsheetId, tabName, maxRows = null) {
 // ── OpenAI column detection ───────────────────────────────
 
 export async function detectColumns(tabName, rows) {
-  const preview = rows.slice(0, 15).map(r => r.map(c => String(c ?? '').trim()))
+  const preview = rows.slice(0, 20).map(r => r.map(c => String(c ?? '').trim()))
 
-  const prompt = `You are analyzing a spreadsheet tab that contains a website/guest post inventory list.
+  const prompt = `You are analyzing a spreadsheet tab containing a website/guest post inventory list.
 
 Tab name: "${tabName}"
 First ${preview.length} rows (each row is an array of cell values):
 ${JSON.stringify(preview, null, 2)}
 
-TASK: Identify the header row and the relevant columns.
+TASK: Identify the header row, domain column, and ALL price columns.
 
-RULES:
-- The "header row" is the row with column labels (NOT company name, payment info, or disclaimer rows at the top).
-- The DOMAIN column contains website/domain names (labeled "Site Name", "Website", "Domain", "Guest Post Sites List", etc.). Cells look like "example.com", "https://example.com", "example.com New".
-- PRICE columns contain monetary values with labels like "Price", "Post Price", "Link Insertion", "Gray Niche", "Casino", "CBD", "Normal", "Others", "General", etc.
-- SKIP SEO metric columns: DA, DR, MOZ, Ahrefs, Traffic, Organic Traffic, TLD, TAT, "Turn Around", "Link Type", "Google News", SL, "Serial", "No." — these are NOT prices.
-- Prices look like: "$10", "10$", "$20.00", "15".
+RULES FOR DOMAIN COLUMN:
+- Contains website domain names
+- Common labels: "Site Name", "Website", "Domain", "URL", "Guest Post Sites List"
+- Cell values look like: "example.com", "https://example.com", "example.com New"
+
+RULES FOR PRICE COLUMNS (be generous — when in doubt, include it):
+- ANY column whose label suggests a monetary price for posting/linking
+- DEFINITELY price columns: "General", "Price", "Normal", "Others", "Link Insertion", "Guest Post", "Gen Post", "Casino", "CBD", "Crypto", "Forex", "Adult", "Finance", "Gray Niche", "GP", "LI"
+- Also price if label combines niches: "Casino, CBD, Crypto / Link", "Gen Post / Link Insertion"
+- Cell values look like: "$10", "10$", "$20.00", "15", "100", "N/A", "-", "Confirm First"
+- A column whose values are mostly numbers or dollar amounts is almost certainly a price column
+- If the column header is a single word like "General", "Normal", "Casino" and contains numbers — it IS a price column
+
+DEFINITELY NOT price columns (skip these):
+- DA, DR, PA, MOZ rank, Ahrefs rank — SEO authority metrics (usually 0-100)
+- Traffic, Organic Traffic, Monthly Visitors — visitor counts
+- TAT, "Turn Around Time" — delivery time
+- TLD — top level domain
+- "Link Type", "Google News", "Indexed", "Spam Score"
+- SL, Serial, No., # — row numbers
+- "Existing/New", "Status", "Notes", "Remarks"
+
+For the label field, use a SHORT canonical name:
+- "General" / "Price" / "Normal" / "GP" → label: "General Price"
+- "Link Insertion" / "LI" → label: "Link Insertion Price"
+- "Casino" alone → label: "Casino Price"
+- "CBD" alone → label: "CBD Price"
+- "Crypto" alone → label: "Crypto Price"
+- "Forex" / "Finance" → label: "Forex Price"
+- "Gray Niche" → label: "Gray Niche Price"
+- Combined (e.g. "Casino, CBD, Crypto"): use "Casino CBD Crypto Price"
+- Combined general+link (e.g. "Gen Post / Link Insertion"): use "General Price"
 
 Return ONLY valid JSON, no explanation:
 {
@@ -132,7 +158,7 @@ Return ONLY valid JSON, no explanation:
   "domainColumn": "<exact header string, or null>",
   "domainConfidence": "high" | "medium" | "low",
   "priceColumns": [
-    { "name": "<exact header string>", "label": "<clean 2-4 word label e.g. General Price, Gray Niche Price>", "confidence": "high" | "medium" | "low" }
+    { "name": "<exact header string from the sheet>", "label": "<canonical label>", "confidence": "high" | "medium" | "low" }
   ]
 }`
 
@@ -156,6 +182,57 @@ Return ONLY valid JSON, no explanation:
   if (!res.ok || data.error) throw new Error(`OpenAI: ${data.error?.message || res.status}`)
   const text = data.choices[0].message.content.trim()
   return JSON.parse(text)
+}
+
+// ── Cross-tab label normalization ─────────────────────────
+
+export async function normalizeColumnLabels(allLabels) {
+  // allLabels: string[] of all unique price labels across all tabs
+  if (allLabels.length <= 1) return Object.fromEntries(allLabels.map(l => [l, l]))
+
+  const prompt = `You are normalizing price column names from multiple spreadsheet tabs into consistent canonical names so they can be merged into a single output column.
+
+All detected price column labels (from all tabs combined):
+${allLabels.map((l, i) => `${i + 1}. "${l}"`).join('\n')}
+
+TASK: Group labels that mean the same price type. Return a canonical name for each.
+
+CANONICAL NAME RULES:
+- "General", "Price", "Normal", "Others", "GP", "General Post", "Gen Post", "Guest Post", "Gen Post / Link Insertion", "General / Link Insertion" → "General Price"
+- "Link Insertion", "LI" (when standalone) → "Link Insertion Price"
+- "Casino" only → "Casino Price"
+- "CBD" only → "CBD Price"
+- "Crypto" only → "Crypto Price"
+- "Forex", "Finance" only → "Forex Price"
+- "Gray Niche" → "Gray Niche Price"
+- Combined niches → combine with spaces: "Casino CBD Crypto Price", "Casino CBD Price", etc.
+- If two labels clearly mean the same thing, give them the SAME canonical name
+- If you're unsure, keep it descriptive but consistent
+
+Return ONLY valid JSON:
+{ "mapping": { "<original label>": "<canonical name>", ... } }`
+
+  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${OPENAI_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: 'gpt-5.4-nano',
+      messages: [
+        { role: 'system', content: 'You are a data analyst. Respond only with valid JSON, no markdown, no explanation.' },
+        { role: 'user',   content: prompt },
+      ],
+      temperature: 0,
+      max_completion_tokens: 600,
+    }),
+  })
+  const data = await res.json()
+  if (!res.ok || data.error) throw new Error(`OpenAI: ${data.error?.message || res.status}`)
+  const text = data.choices[0].message.content.trim()
+  const result = JSON.parse(text)
+  return result.mapping || {}
 }
 
 // ── Google Drive API ─────────────────────────────────────

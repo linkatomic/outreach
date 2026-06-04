@@ -3,7 +3,7 @@ import { Icon } from '../data.jsx'
 import {
   extractSheetId, getSheetTabs, getSheetRows,
   detectColumns, createOutputSheet,
-  cleanDomain, parsePrice,
+  cleanDomain, parsePrice, normalizeColumnLabels,
 } from '../lib/sheetParserAPI.js'
 
 const CONFIDENCE_COLOR = { high: 'var(--accent)', medium: '#f59e0b', low: '#fb7185' }
@@ -31,7 +31,7 @@ export function SheetParser({ priceMap }) {
       const results = await Promise.all(
         tabList.map(async ({ name }) => {
           try {
-            const rows = await getSheetRows(id, name, 20)
+            const rows = await getSheetRows(id, name, 25)
             if (rows.length < 2) return { name, skip: true, reason: 'Not enough rows', rows: [], allColumns: [], headerRow: 0, domainColumn: null, domainConfidence: 'low', priceColumns: [] }
 
             const det = await detectColumns(name, rows)
@@ -56,6 +56,19 @@ export function SheetParser({ priceMap }) {
           }
         })
       )
+
+      // Normalize price column labels across all tabs so identical concepts share one output column
+      const allLabels = [...new Set(results.flatMap(r => (r.priceColumns || []).map(p => p.label)))]
+      if (allLabels.length > 1) {
+        try {
+          const mapping = await normalizeColumnLabels(allLabels)
+          results.forEach(r => {
+            if (r.priceColumns) {
+              r.priceColumns = r.priceColumns.map(p => ({ ...p, label: mapping[p.label] || p.label }))
+            }
+          })
+        } catch (_) { /* keep original labels if normalization fails */ }
+      }
 
       setSheetId(id)
       setTabs(results)
