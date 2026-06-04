@@ -149,7 +149,7 @@ Return ONLY valid JSON, no explanation:
         { role: 'user',   content: prompt },
       ],
       temperature: 0,
-      max_tokens: 800,
+      max_completion_tokens: 800,
     }),
   })
   const data = await res.json()
