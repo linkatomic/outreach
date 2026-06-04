@@ -13,6 +13,7 @@ const OPENAI_API_KEY       = import.meta.env.VITE_OPENAI_API_KEY
 
 let _accessToken = null
 let _tokenExpiry = 0
+let _scopesVerified = false
 
 async function getToken() {
   if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET || !GOOGLE_REFRESH_TOKEN) {
@@ -53,6 +54,24 @@ async function getToken() {
 
 async function gsheets(path, opts = {}) {
   const token = await getToken()
+
+  // Check token scopes before first Sheets call
+  if (!_scopesVerified) {
+    const info = await fetch(`https://www.googleapis.com/oauth2/v3/tokeninfo?access_token=${token}`)
+    const infoData = await info.json()
+    const scopes = infoData.scope || ''
+    if (!scopes.includes('spreadsheets') && !scopes.includes('drive')) {
+      throw new Error(
+        `Refresh token is missing Sheets/Drive scope.\n` +
+        `Current scopes: ${scopes || '(none)'}\n\n` +
+        `Regenerate the refresh token and include these scopes:\n` +
+        `https://www.googleapis.com/auth/spreadsheets\n` +
+        `https://www.googleapis.com/auth/drive`
+      )
+    }
+    _scopesVerified = true
+  }
+
   const res = await fetch(`https://sheets.googleapis.com/v4${path}`, {
     ...opts,
     headers: {
@@ -62,7 +81,10 @@ async function gsheets(path, opts = {}) {
     },
   })
   const data = await res.json()
-  if (!res.ok || data.error) throw new Error(data.error?.message || JSON.stringify(data.error))
+  if (!res.ok || data.error) {
+    const msg = data.error?.message || JSON.stringify(data.error)
+    throw new Error(`[HTTP ${res.status}] ${msg}\nPath: ${path}`)
+  }
   return data
 }
 
