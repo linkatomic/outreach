@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { Icon } from '../data.jsx'
 import { loadPriceTable } from '../lib/supabase.js'
+import { SheetParser } from './SheetParser.jsx'
 
 // ─── shared helpers ────────────────────────────────────────────────────────────
 
@@ -991,8 +992,9 @@ function PriceCalc({ priceMap, loading, error }) {
 // ─── Tool registry ─────────────────────────────────────────────────────────────
 
 const TOOLS = [
-  { id: 'combined-calc', title: 'Currency & % Calculator', desc: 'Apply % discount/markup, convert currency, get post price with buyer/reseller lookup', icon: 'globe',   tag: 'Pricing' },
-  { id: 'price-calc',    title: 'Price Calculator',        desc: 'Convert admin price to buyer & reseller price instantly',                              icon: 'tool',    tag: 'Pricing' },
+  { id: 'sheet-parser',  title: 'Sheet Parser',            desc: 'Paste a reseller Google Sheet URL — AI detects columns and creates a clean output sheet with buyer prices', icon: 'download', tag: 'Sheets'  },
+  { id: 'combined-calc', title: 'Currency & % Calculator', desc: 'Apply % discount/markup, convert currency, get post price with buyer/reseller lookup',                       icon: 'globe',    tag: 'Pricing' },
+  { id: 'price-calc',    title: 'Price Calculator',        desc: 'Convert admin price to buyer & reseller price instantly',                                                     icon: 'tool',     tag: 'Pricing' },
 ]
 
 // ─── Tools Page ────────────────────────────────────────────────────────────────
@@ -1066,6 +1068,20 @@ export function ToolsPage() {
               </div>
             </div>
           ))}
+        </div>
+      ) : activeTool === 'sheet-parser' ? (
+        <div className="card">
+          <div className="card-head">
+            <div>
+              <h3>Sheet Parser</h3>
+              <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 2 }}>
+                AI detects website and pricing columns from any reseller sheet format
+              </div>
+            </div>
+          </div>
+          <div className="card-pad">
+            <SheetParser />
+          </div>
         </div>
       ) : activeTool === 'price-calc' ? (
         <div className="card">
