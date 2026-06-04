@@ -1,7 +1,13 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Icon } from '../data.jsx'
 
 const API = '/api/sheet-parser'
+
+async function safeJson(res) {
+  const text = await res.text()
+  try { return JSON.parse(text) }
+  catch { throw new Error(text.startsWith('<') || text.startsWith('The page') ? 'API server is not running. Start it with: npm run server' : text) }
+}
 
 const CONFIDENCE_COLOR = {
   high:   'var(--accent)',
@@ -10,12 +16,17 @@ const CONFIDENCE_COLOR = {
 }
 
 export function SheetParser() {
-  const [step, setStep]         = useState('idle')   // idle | analyzing | review | processing | done | error
-  const [url, setUrl]           = useState('')
-  const [result, setResult]     = useState(null)     // { spreadsheetId, tabs }
-  const [tabs, setTabs]         = useState([])        // mutable tab configs for review step
-  const [output, setOutput]     = useState(null)     // { sheetUrl, totalSites, ... }
-  const [errMsg, setErrMsg]     = useState('')
+  const [step, setStep]           = useState('idle')   // idle | analyzing | review | processing | done | error
+  const [url, setUrl]             = useState('')
+  const [result, setResult]       = useState(null)
+  const [tabs, setTabs]           = useState([])
+  const [output, setOutput]       = useState(null)
+  const [errMsg, setErrMsg]       = useState('')
+  const [serverOk, setServerOk]   = useState(null)    // null=checking, true, false
+
+  useEffect(() => {
+    fetch('/api/health').then(r => r.ok ? setServerOk(true) : setServerOk(false)).catch(() => setServerOk(false))
+  }, [])
 
   // ── Step 1: Analyze ────────────────────────────────────
   async function analyze() {
@@ -28,7 +39,7 @@ export function SheetParser() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: url.trim() }),
       })
-      const data = await res.json()
+      const data = await safeJson(res)
       if (!res.ok) throw new Error(data.error || 'Analysis failed')
 
       setResult(data)
@@ -55,7 +66,7 @@ export function SheetParser() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ spreadsheetId: result.spreadsheetId, tabs }),
       })
-      const data = await res.json()
+      const data = await safeJson(res)
       if (!res.ok) throw new Error(data.error || 'Processing failed')
       setOutput(data)
       setStep('done')
@@ -86,8 +97,22 @@ export function SheetParser() {
   if (step === 'idle' || step === 'analyzing') {
     return (
       <div style={{ maxWidth: 640 }}>
+        {/* Server status banner */}
+        {serverOk === false && (
+          <div style={{
+            marginBottom: 14, padding: '10px 14px', borderRadius: 8,
+            background: 'rgba(251,113,133,0.1)', border: '1px solid rgba(251,113,133,0.35)',
+            fontSize: 12.5, color: '#fb7185', display: 'flex', alignItems: 'center', gap: 8,
+          }}>
+            <span style={{ fontSize: 15 }}>⚠</span>
+            <span>API server is not running. Open a terminal in the project folder and run: <code style={{ background: 'rgba(0,0,0,0.2)', padding: '1px 5px', borderRadius: 3, fontFamily: 'var(--font-mono)' }}>npm run server</code></span>
+          </div>
+        )}
+        {serverOk === null && (
+          <div style={{ marginBottom: 10, fontSize: 12, color: 'var(--text-faint)' }}>Checking server…</div>
+        )}
         <p style={{ fontSize: 13, color: 'var(--text-dim)', marginBottom: 16, lineHeight: 1.6 }}>
-          Paste a Google Sheet URL — AI will detect website and pricing columns, then you confirm before the output sheet is generated.
+          Paste a Google Sheet URL — AI will detect website and pricing columns across all tabs, then you confirm before the output sheet is generated.
         </p>
         <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
           <input

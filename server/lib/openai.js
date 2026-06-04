@@ -38,7 +38,7 @@ Return ONLY valid JSON with no explanation:
 }`
 
   const response = await client.chat.completions.create({
-    model: 'gpt-4o-mini',
+    model: 'gpt-5.4-nano',
     messages: [
       { role: 'system', content: 'You are a data analyst. Respond only with valid JSON, no markdown, no explanation.' },
       { role: 'user', content: prompt },
