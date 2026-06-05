@@ -177,7 +177,12 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
     e.stopPropagation()
     if (labelMenu?.row?.id === row.id) { setLabelMenu(null); return }
     const rect = e.currentTarget.getBoundingClientRect()
-    setLabelMenu({ row, x: rect.left, y: rect.bottom + 4 })
+    const estimatedHeight = row.label ? 188 : 148  // 4 or 3 items × ~44px + padding
+    const spaceBelow = window.innerHeight - rect.bottom
+    const y = spaceBelow < estimatedHeight + 8
+      ? rect.top - estimatedHeight - 4   // flip upward
+      : rect.bottom + 4
+    setLabelMenu({ row, x: rect.left, y })
   }
 
   async function applyLabel(label) {
@@ -761,13 +766,16 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
           <div style={{ position: 'fixed', inset: 0, zIndex: 99 }} onClick={() => setLabelMenu(null)} />
           <div className="label-menu" style={{ position: 'fixed', top: labelMenu.y, left: labelMenu.x, zIndex: 100 }}>
             {LABELS.map(l => (
-              <button key={l.id} onClick={() => applyLabel(l.id)}>
+              <button key={l.id} onClick={() => applyLabel(l.id)}
+                      style={ labelMenu.row.label === l.id ? { background: 'color-mix(in srgb, var(--accent) 12%, transparent)' } : {} }>
                 <span className={`label-chip lc-${l.id}`} style={{ pointerEvents: 'none' }}>{l.dot} {l.label}</span>
+                {labelMenu.row.label === l.id && <span style={{ fontSize: 10, marginLeft: 'auto', opacity: 0.6 }}>✓</span>}
               </button>
             ))}
-            {labelMenu.row.label && (
-              <button className="remove-label" onClick={() => applyLabel(null)}>✕ Remove label</button>
-            )}
+            <button className="remove-label" onClick={() => applyLabel(null)}
+                    style={{ opacity: labelMenu.row.label ? 1 : 0.4, cursor: labelMenu.row.label ? 'pointer' : 'default' }}>
+              ✕ Remove label
+            </button>
           </div>
         </>
       )}
