@@ -120,41 +120,69 @@ ${JSON.stringify(preview, null, 2)}
 
 TASK: Identify the header row, domain column, and ALL price columns.
 
-RULES FOR DOMAIN COLUMN:
+──────────────────────────────────────
+HEADER ROW DETECTION:
+- The header row contains SHORT label strings (column names), not actual data values
+- It is often row 0, but not always
+- If row 0 looks like a sheet title (e.g. "Vendor List — Q1 2025", "SITES FOR OUTREACH", a long sentence), skip it — the real header is the next non-empty row
+- If the first few rows are blank, scan forward to find the first row with multiple short label-like strings
+- Confidence check: the row immediately below the header should contain domain-like strings in the domain column and numeric/price strings in price columns
+──────────────────────────────────────
+
+DOMAIN COLUMN:
 - Contains website domain names
 - Common labels: "Site Name", "Website", "Domain", "URL", "Guest Post Sites List"
 - Cell values look like: "example.com", "https://example.com", "example.com New"
 
-RULES FOR PRICE COLUMNS (be generous — when in doubt, include it):
-- ANY column whose label suggests a monetary price for posting/linking
-- DEFINITELY price columns: "General", "Price", "Normal", "Others", "Link Insertion", "Guest Post", "Gen Post", "Casino", "CBD", "Crypto", "Forex", "Adult", "Finance", "Gray Niche", "GP", "LI"
-- Also price if label combines niches: "Casino, CBD, Crypto / Link", "Gen Post / Link Insertion"
-- Cell values look like: "$10", "10$", "$20.00", "15", "100", "N/A", "-", "Confirm First"
-- A column whose values are mostly numbers or dollar amounts is almost certainly a price column
-- If the column header is a single word like "General", "Normal", "Casino" and contains numbers — it IS a price column
+──────────────────────────────────────
+PRICE COLUMNS — INCLUSION PRINCIPLE:
+A price column contains what a buyer would pay. Ask: "Would a buyer write this number on an invoice?"
+- "$45" on an invoice → YES, include it
+- "DA=45" on an invoice → NO, exclude it
 
-DEFINITELY NOT price columns (skip these):
-- DA, DR, PA, MOZ rank, Ahrefs rank — SEO authority metrics (usually 0-100)
+DEFINITELY price columns (be generous — when in doubt, include it):
+- Labels: "General", "Price", "Normal", "Others", "Link Insertion", "Guest Post", "Gen Post", "Casino", "CBD", "Crypto", "Forex", "Adult", "Finance", "Gray Niche", "GP", "LI"
+- Labels combining niches: "Casino, CBD, Crypto / Link", "Gen Post / Link Insertion"
+- Values look like: "$10", "10$", "$20.00", "15", "100", "N/A", "-", "Confirm First"
+- Any column where values are mostly numbers or dollar amounts is almost certainly a price column
+
+EXCLUSION PRINCIPLE:
+Exclude any column that measures a website's quality/authority rather than what a buyer pays.
+Also exclude if values are consistently 2-3 digit integers with no $ sign AND the header contains:
+Score, Authority, Rank, Rating, Index, Traffic, Visits, Sessions, Spam.
+
+Specific exclusions:
+- DA, DR, PA, MOZ rank, Ahrefs rank — authority metrics (0–100 range, never on an invoice)
 - Traffic, Organic Traffic, Monthly Visitors — visitor counts
 - TAT, "Turn Around Time" — delivery time
-- TLD — top level domain
-- "Link Type", "Google News", "Indexed", "Spam Score"
+- TLD, "Link Type", "Google News", "Indexed", "Spam Score"
 - SL, Serial, No., # — row numbers
 - "Existing/New", "Status", "Notes", "Remarks"
+──────────────────────────────────────
 
-For the label field, use a SHORT canonical name that reflects EXACTLY what types the column covers:
-- "General" / "Price" / "Normal" / "GP" alone → label: "General Price"
-- "Link Insertion" / "LI" alone → label: "LI Price"
-- "General Post" + "Link Insertion" in same column (e.g. "Gen Post / Link Insertion") → label: "General/LI Price"
-- "Other" + "Link Insertion" in same column (e.g. "Other Post / Link Insertion") → label: "Other/LI Price"
-- Any non-general type + "Link Insertion" combined → label: "[Type Abbr]/LI Price"
-- "Casino" alone → label: "Casino Price"
-- "CBD" alone → label: "CBD Price"
-- "Crypto" alone → label: "Crypto Price"
-- "Forex" / "Finance" → label: "Forex Price"
-- "Gray Niche" → label: "Gray Niche Price"
-- Combined niches without LI (e.g. "Casino, CBD, Crypto") → "Casino CBD Crypto Price"
-- IMPORTANT: DO NOT collapse combined-type columns — preserve all types in the label
+CANONICAL LABEL RULES — follow these EXACTLY:
+- "General" / "Price" / "Normal" / "GP" alone → "General Price"
+- "Link Insertion" / "LI" alone → "LI Price"
+- "General Post" + "Link Insertion" combined → "General/LI Price"
+- "Other" + "Link Insertion" combined → "Other/LI Price"
+- Any [Type] + "Link Insertion" combined → "[Type Abbr]/LI Price"
+- "Casino" alone → "Casino Price"
+- "CBD" alone → "CBD Price"
+- "Crypto" alone → "Crypto Price"
+- "Forex" / "Finance" → "Forex Price"
+- "Gray Niche" → "Gray Niche Price"
+- Combined niches without LI → space-separated: "Casino CBD Crypto Price"
+- NEVER collapse a combined-type column into a simpler single type
+
+WORKED EXAMPLES — follow these exactly:
+"Casino, CBD, Crypto / Link Insertion" → "Casino CBD Crypto/LI Price"
+"Gen Post / LI"                        → "General/LI Price"
+"Other Post / Link Insertion"          → "Other/LI Price"
+"Finance/Forex"                        → "Forex Price"
+"Casino, CBD"                          → "Casino CBD Price"
+"General"                              → "General Price"
+"Price"                                → "General Price"
+"LI"                                   → "LI Price"
 
 Return ONLY valid JSON, no explanation:
 {
@@ -188,33 +216,93 @@ Return ONLY valid JSON, no explanation:
   return JSON.parse(text)
 }
 
+// ── Post-AI validation ────────────────────────────────────
+// Catches cases where GPT returns structurally valid JSON but the
+// detected columns don't actually match the data in the rows.
+
+export function validateColumnDetectionResult(result, rawRows) {
+  const issues = []
+  const headerIdx = result.headerRow ?? 0
+  const headerCells = (rawRows[headerIdx] || []).map(c => String(c ?? '').trim())
+
+  if (result.domainColumn) {
+    const colIdx = headerCells.indexOf(result.domainColumn)
+    if (colIdx === -1) {
+      issues.push(`Domain column "${result.domainColumn}" not found in header row`)
+    } else {
+      const sampleValues = rawRows.slice(headerIdx + 1, headerIdx + 6)
+        .map(r => String((r || [])[colIdx] ?? '').trim()).filter(Boolean)
+      const domainLike = sampleValues.filter(v => /\.[a-z]{2,}/i.test(v))
+      if (sampleValues.length > 0 && domainLike.length < sampleValues.length * 0.5) {
+        issues.push(`Domain column "${result.domainColumn}" doesn't look like domains (sample: ${sampleValues.slice(0,3).join(', ')})`)
+      }
+    }
+  }
+
+  for (const pc of (result.priceColumns || [])) {
+    const colIdx = headerCells.indexOf(pc.name)
+    if (colIdx === -1) {
+      issues.push(`Price column "${pc.name}" not found in header row`)
+      continue
+    }
+    const sampleValues = rawRows.slice(headerIdx + 1, headerIdx + 6)
+      .map(r => String((r || [])[colIdx] ?? '').trim()).filter(Boolean)
+    const numericLike = sampleValues.filter(v => /[\d$]/.test(v))
+    if (sampleValues.length > 0 && numericLike.length === 0) {
+      issues.push(`Price column "${pc.name}" has no numeric values — may be misclassified (sample: ${sampleValues.slice(0,3).join(', ')})`)
+    }
+  }
+
+  return issues
+}
+
 // ── Cross-tab label normalization ─────────────────────────
+// labelInfos: Array<{ label, tab, valueSamples, domainSamples }>
 
-export async function normalizeColumnLabels(allLabels) {
-  // allLabels: string[] of all unique price labels across all tabs
-  if (allLabels.length <= 1) return Object.fromEntries(allLabels.map(l => [l, l]))
+export async function normalizeColumnLabels(labelInfos) {
+  const uniqueLabels = [...new Set(labelInfos.map(li => li.label))]
+  if (uniqueLabels.length <= 1) return Object.fromEntries(uniqueLabels.map(l => [l, l]))
 
-  const prompt = `You are normalizing price column names from multiple spreadsheet tabs into consistent canonical names so they can be merged into a single output column.
+  const labelLines = labelInfos.map((li, i) => {
+    const vals    = li.valueSamples?.length  ? ` — values: ${li.valueSamples.slice(0, 4).join(', ')}` : ''
+    const domains = li.domainSamples?.length ? ` — domains: ${li.domainSamples.slice(0, 2).join(', ')}` : ''
+    return `${i + 1}. "${li.label}" [Tab: ${li.tab}]${vals}${domains}`
+  }).join('\n')
 
-All detected price column labels (from all tabs combined):
-${allLabels.map((l, i) => `${i + 1}. "${l}"`).join('\n')}
+  const prompt = `You are normalizing price column names from multiple spreadsheet tabs into consistent canonical names so identical concepts share one output column.
 
-TASK: Group labels that mean the same price type. Return a canonical name for each.
+Labels with their source tab and sample values:
+${labelLines}
+
+TASK: Map every label to its canonical name. Labels representing the same price type MUST share the same canonical name even if from different tabs.
+
+DEDUPLICATION RULE: If the same canonical name appears in multiple tabs, it maps to ONE output column.
+Do NOT produce "General Price (Tab 1)" and "General Price (Tab 2)" — just "General Price".
+
+CONTEXT RULE: Use value samples and domain samples to distinguish ambiguous same-named columns.
+For example, a "Price" column in a Casino-specific tab (domains like casino-site.com) likely means Casino Price, not General Price.
 
 CANONICAL NAME RULES:
 - "General", "Price", "Normal", "Others", "GP", "General Post", "Gen Post", "Guest Post" alone → "General Price"
 - "Link Insertion", "LI" alone → "LI Price"
-- "General Post / Link Insertion", "General / Link Insertion", "Gen Post / LI" combined → "General/LI Price"
-- "Other Post / Link Insertion", "Other / LI" combined → "Other/LI Price"
+- "General Post / Link Insertion", "General / Link Insertion", "Gen Post / LI" → "General/LI Price"
+- "Other Post / Link Insertion", "Other / LI" → "Other/LI Price"
 - Any [Type] + Link Insertion combined → "[TypeAbbr]/LI Price" — PRESERVE both type names
 - "Casino" only → "Casino Price"
 - "CBD" only → "CBD Price"
 - "Crypto" only → "Crypto Price"
 - "Forex", "Finance" only → "Forex Price"
 - "Gray Niche" → "Gray Niche Price"
-- Combined niches without LI → combine with spaces: "Casino CBD Crypto Price", "Casino CBD Price", etc.
-- CRITICAL: DO NOT merge combined-type labels into a simpler single-type label. "Other/LI Price" must NOT become "General Price"
-- If two labels clearly mean the same thing, give them the SAME canonical name
+- Combined niches without LI → space-separated: "Casino CBD Crypto Price"
+- CRITICAL: DO NOT merge combined-type labels into a simpler single-type label
+
+WORKED EXAMPLES — follow these exactly:
+"Casino, CBD, Crypto / Link Insertion" → "Casino CBD Crypto/LI Price"
+"Gen Post / LI"                        → "General/LI Price"
+"Other Post / Link Insertion"          → "Other/LI Price"
+"Finance/Forex"                        → "Forex Price"
+"Casino, CBD"                          → "Casino CBD Price"
+"General"                              → "General Price"
 
 Return ONLY valid JSON:
 { "mapping": { "<original label>": "<canonical name>", ... } }`
