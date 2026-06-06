@@ -6,6 +6,7 @@ const GOOGLE_CLIENT_ID     = import.meta.env.VITE_GOOGLE_CLIENT_ID
 const GOOGLE_CLIENT_SECRET = import.meta.env.VITE_GOOGLE_CLIENT_SECRET
 const GOOGLE_REFRESH_TOKEN = import.meta.env.VITE_GOOGLE_REFRESH_TOKEN
 const OPENAI_API_KEY       = import.meta.env.VITE_OPENAI_API_KEY
+const GPL_API_TOKEN        = import.meta.env.VITE_GPL_API_TOKEN
 
 // ── Google OAuth — refresh token flow ────────────────────
 // Exchange the refresh token for a short-lived access token.
@@ -233,6 +234,35 @@ Return ONLY valid JSON:
   const text = data.choices[0].message.content.trim()
   const result = JSON.parse(text)
   return result.mapping || {}
+}
+
+// ── GPL publisher status lookup ───────────────────────────
+
+export async function lookupPublisherStatuses(domains, onProgress) {
+  const result = new Map()
+  if (!GPL_API_TOKEN || !domains.length) return result
+
+  const BATCH = 100
+  const batches = []
+  for (let i = 0; i < domains.length; i += BATCH) batches.push(domains.slice(i, i + BATCH))
+
+  for (let i = 0; i < batches.length; i++) {
+    onProgress?.(i + 1, batches.length)
+    try {
+      const res = await fetch('https://api.records.guestpostlinks.net/v2/publisher/website/gpl/search-publishers', {
+        method: 'POST',
+        headers: { 'Authorization': GPL_API_TOKEN, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ websites: batches[i] }),
+      })
+      if (!res.ok) continue
+      const data = await res.json()
+      if (data.success && data.data?.websites) {
+        for (const site of data.data.websites) result.set(site.website, site.status)
+      }
+    } catch { /* skip failed batches silently */ }
+  }
+
+  return result
 }
 
 // ── Google Drive API ─────────────────────────────────────

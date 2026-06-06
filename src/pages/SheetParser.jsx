@@ -4,12 +4,14 @@ import {
   extractSheetId, getSheetTabs, getSheetRows,
   detectColumns, createOutputSheet,
   cleanDomain, parsePrice, normalizeColumnLabels,
+  lookupPublisherStatuses,
 } from '../lib/sheetParserAPI.js'
 
 const CONFIDENCE_COLOR = { high: 'var(--accent)', medium: '#f59e0b', low: '#fb7185' }
 
 export function SheetParser({ priceMap }) {
   const [step, setStep]       = useState('idle')  // idle | analyzing | review | processing | done | error
+  const [processingMsg, setProcessingMsg] = useState('')
   const [url, setUrl]         = useState('')
   const [sheetId, setSheetId] = useState('')
   const [tabs, setTabs]       = useState([])
@@ -106,7 +108,8 @@ export function SheetParser({ priceMap }) {
       const headers = [
         'Tab Name', 'Website',
         ...allPriceLabels.flatMap(l => [l, 'Buyer']),
-        ...(allAdditionalNames.length ? ['', ...allAdditionalNames] : []),
+        'Status',
+        ...allAdditionalNames,
       ]
       const outputRows = []
       let totalSites = 0
@@ -148,7 +151,8 @@ export function SheetParser({ priceMap }) {
               const buyer = priceMap?.get(Math.round(price))?.buyer ?? ''
               return [price, buyer]
             }),
-            ...(allAdditionalNames.length ? ['', ...additionalValues] : []),
+            '',  // Status placeholder — filled in after GPL lookup
+            ...additionalValues,
           ]
           outputRows.push(outRow)
           totalSites++
@@ -157,6 +161,20 @@ export function SheetParser({ priceMap }) {
 
       if (!outputRows.length) throw new Error('No valid website rows found in the selected tabs')
 
+      // GPL status lookup — Status col is at index 2 + 2*numPriceCols
+      const statusColIdx = 2 + 2 * allPriceLabels.length
+      const uniqueDomains = [...new Set(outputRows.map(r => r[1]))]
+      setProcessingMsg(`Looking up publisher status for ${uniqueDomains.length} sites…`)
+      const statusMap = await lookupPublisherStatuses(uniqueDomains, (cur, total) => {
+        setProcessingMsg(`Looking up publisher statuses — batch ${cur} of ${total}…`)
+      })
+      const statusLabels = { publish: 'Active', disable: 'Disabled', draft: 'Draft', trash: 'Removed' }
+      outputRows.forEach(r => {
+        const raw = statusMap.get(r[1])
+        r[statusColIdx] = raw ? (statusLabels[raw] || raw) : ''
+      })
+
+      setProcessingMsg('Writing to Google Sheets…')
       const date = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
       const sheetUrl = await createOutputSheet(`Processed Sites — ${date}`, headers, outputRows, allPriceLabels.length)
 
@@ -261,8 +279,8 @@ export function SheetParser({ priceMap }) {
     <div style={{ maxWidth: 480, textAlign: 'center', padding: '32px 0' }}>
       <div style={{ fontSize: 28, marginBottom: 12 }}>⚙️</div>
       <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 6 }}>Creating your sheet…</div>
-      <div style={{ fontSize: 13, color: 'var(--text-faint)' }}>
-        Fetching all rows, cleaning domains, looking up buyer prices, writing to Google Sheets.
+      <div style={{ fontSize: 13, color: 'var(--text-faint)', minHeight: 20 }}>
+        {processingMsg || 'Fetching rows, cleaning domains, looking up prices…'}
       </div>
     </div>
   )
