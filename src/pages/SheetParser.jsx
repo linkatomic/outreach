@@ -10,6 +10,93 @@ import {
 
 const CONFIDENCE_COLOR = { high: 'var(--accent)', medium: '#f59e0b', low: '#fb7185' }
 
+const DETECT_PROMPT = `You are analyzing a spreadsheet tab containing a website/guest post inventory list.
+
+Tab name: "[TAB NAME]"
+First 20 rows (each row is an array of cell values):
+[ROW DATA — first 20 rows of the tab, as a JSON array of arrays]
+
+TASK: Identify the header row, domain column, and ALL price columns.
+
+RULES FOR DOMAIN COLUMN:
+- Contains website domain names
+- Common labels: "Site Name", "Website", "Domain", "URL", "Guest Post Sites List"
+- Cell values look like: "example.com", "https://example.com", "example.com New"
+
+RULES FOR PRICE COLUMNS (be generous — when in doubt, include it):
+- ANY column whose label suggests a monetary price for posting/linking
+- DEFINITELY price columns: "General", "Price", "Normal", "Others", "Link Insertion", "Guest Post",
+  "Gen Post", "Casino", "CBD", "Crypto", "Forex", "Adult", "Finance", "Gray Niche", "GP", "LI"
+- Also price if label combines niches: "Casino, CBD, Crypto / Link", "Gen Post / Link Insertion"
+- Cell values look like: "$10", "10$", "$20.00", "15", "100", "N/A", "-", "Confirm First"
+- A column whose values are mostly numbers or dollar amounts is almost certainly a price column
+- If the column header is a single word like "General", "Normal", "Casino" and contains numbers — it IS a price column
+
+DEFINITELY NOT price columns (skip these):
+- DA, DR, PA, MOZ rank, Ahrefs rank — SEO authority metrics (usually 0-100)
+- Traffic, Organic Traffic, Monthly Visitors — visitor counts
+- TAT, "Turn Around Time" — delivery time
+- TLD — top level domain
+- "Link Type", "Google News", "Indexed", "Spam Score"
+- SL, Serial, No., # — row numbers
+- "Existing/New", "Status", "Notes", "Remarks"
+
+For the label field, use a SHORT canonical name that reflects EXACTLY what types the column covers:
+- "General" / "Price" / "Normal" / "GP" alone → label: "General Price"
+- "Link Insertion" / "LI" alone → label: "LI Price"
+- "General Post" + "Link Insertion" in same column (e.g. "Gen Post / Link Insertion") → label: "General/LI Price"
+- "Other" + "Link Insertion" in same column (e.g. "Other Post / Link Insertion") → label: "Other/LI Price"
+- Any non-general type + "Link Insertion" combined → label: "[Type Abbr]/LI Price"
+- "Casino" alone → label: "Casino Price"
+- "CBD" alone → label: "CBD Price"
+- "Crypto" alone → label: "Crypto Price"
+- "Forex" / "Finance" → label: "Forex Price"
+- "Gray Niche" → label: "Gray Niche Price"
+- Combined niches without LI (e.g. "Casino, CBD, Crypto") → "Casino CBD Crypto Price"
+- IMPORTANT: DO NOT collapse combined-type columns — preserve all types in the label
+
+Return ONLY valid JSON, no explanation:
+{
+  "headerRow": <0-indexed row number of column headers>,
+  "domainColumn": "<exact header string, or null>",
+  "domainConfidence": "high" | "medium" | "low",
+  "priceColumns": [
+    { "name": "<exact header string from the sheet>", "label": "<canonical label>", "confidence": "high" | "medium" | "low" }
+  ]
+}`
+
+const NORMALIZE_PROMPT = `You are normalizing price column names from multiple spreadsheet tabs into consistent
+canonical names so they can be merged into a single output column.
+
+All detected price column labels (from all tabs combined):
+[LIST OF LABELS — e.g.
+1. "General Price"
+2. "LI Price"
+3. "Gen Post / Link Insertion"
+4. "Casino Price"
+...]
+
+TASK: Group labels that mean the same price type. Return a canonical name for each.
+
+CANONICAL NAME RULES:
+- "General", "Price", "Normal", "Others", "GP", "General Post", "Gen Post", "Guest Post" alone → "General Price"
+- "Link Insertion", "LI" alone → "LI Price"
+- "General Post / Link Insertion", "General / Link Insertion", "Gen Post / LI" combined → "General/LI Price"
+- "Other Post / Link Insertion", "Other / LI" combined → "Other/LI Price"
+- Any [Type] + Link Insertion combined → "[TypeAbbr]/LI Price" — PRESERVE both type names
+- "Casino" only → "Casino Price"
+- "CBD" only → "CBD Price"
+- "Crypto" only → "Crypto Price"
+- "Forex", "Finance" only → "Forex Price"
+- "Gray Niche" → "Gray Niche Price"
+- Combined niches without LI → combine with spaces: "Casino CBD Crypto Price", "Casino CBD Price", etc.
+- CRITICAL: DO NOT merge combined-type labels into a simpler single-type label.
+  "Other/LI Price" must NOT become "General Price"
+- If two labels clearly mean the same thing, give them the SAME canonical name
+
+Return ONLY valid JSON:
+{ "mapping": { "<original label>": "<canonical name>", ... } }`
+
 export function SheetParser({ priceMap, me }) {
   const [activeTab, setActiveTab]  = useState('parse')  // 'parse' | 'history'
   const [step, setStep]            = useState('idle')  // idle | analyzing | review | processing | done | error
@@ -20,8 +107,8 @@ export function SheetParser({ priceMap, me }) {
   const [output, setOutput]   = useState(null)
   const [errMsg, setErrMsg]   = useState('')
 
-  // ── History ───────────────────────────────────────────
-  const [sheetName, setSheetName] = useState('')
+  const [sheetName, setSheetName]     = useState('')
+  const [showPrompts, setShowPrompts] = useState(false)
 
   // ── History ───────────────────────────────────────────
   const [history, setHistory]         = useState([])
@@ -390,6 +477,31 @@ export function SheetParser({ priceMap, me }) {
           Reading all tabs and running AI column detection — this takes 10–20 seconds…
         </div>
       )}
+
+      <div style={{ marginTop: 28, borderTop: '1px solid var(--border)', paddingTop: 18 }}>
+        <button
+          className="btn ghost"
+          style={{ fontSize: 12, gap: 6 }}
+          onClick={() => setShowPrompts(v => !v)}
+        >
+          <Icon name={showPrompts ? 'chevron-up' : 'chevron-down'} size={11} />
+          {showPrompts ? 'Hide' : 'View'} AI Prompts
+        </button>
+        {showPrompts && (
+          <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <PromptCard
+              title="Prompt 1 — Column Detection"
+              subtitle="Sent once per tab with the first 20 rows of data. AI identifies the domain column and all price columns."
+              content={DETECT_PROMPT}
+            />
+            <PromptCard
+              title="Prompt 2 — Label Normalization"
+              subtitle="Sent once after all tabs are scanned. Merges similar price column names across tabs into unified labels."
+              content={NORMALIZE_PROMPT}
+            />
+          </div>
+        )}
+      </div>
     </div>
   )
 
@@ -595,5 +707,44 @@ function Badge({ confidence }) {
     <span style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color, border: `1px solid ${color}`, borderRadius: 4, padding: '1px 5px', flexShrink: 0 }}>
       {confidence}
     </span>
+  )
+}
+
+// ── AI Prompt viewer ────────────────────────────────────────
+function PromptCard({ title, subtitle, content }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
+      <button
+        onClick={() => setOpen(v => !v)}
+        style={{
+          width: '100%', display: 'flex', alignItems: 'center', gap: 10,
+          padding: '12px 16px', background: 'var(--surface-2)',
+          border: 'none', cursor: 'pointer', textAlign: 'left',
+        }}
+      >
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--text)' }}>{title}</div>
+          <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 2 }}>{subtitle}</div>
+        </div>
+        <span style={{ fontSize: 11, color: 'var(--text-faint)', flexShrink: 0 }}>
+          {open ? '▲ collapse' : '▼ expand'}
+        </span>
+      </button>
+      {open && (
+        <div style={{ padding: '0 0 0 0' }}>
+          <pre style={{
+            margin: 0, padding: '16px', overflowX: 'auto',
+            fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: 1.65,
+            color: 'var(--text-dim)', background: 'var(--bg)',
+            whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+            userSelect: 'text', cursor: 'text',
+            borderTop: '1px solid var(--border)',
+          }}>
+            {content}
+          </pre>
+        </div>
+      )}
+    </div>
   )
 }
