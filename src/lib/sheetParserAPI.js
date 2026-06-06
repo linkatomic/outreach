@@ -236,30 +236,53 @@ Return ONLY valid JSON:
   return result.mapping || {}
 }
 
-// ── GPL publisher status lookup ───────────────────────────
+// ── GPL publisher data lookup ─────────────────────────────
 
-export async function lookupPublisherStatuses(domains, onProgress) {
+export async function lookupPublisherData(domains, onProgress) {
   const result = new Map()
   if (!GPL_API_TOKEN || !domains.length) return result
 
   const BATCH = 100
+  const CONCURRENCY = 5
   const batches = []
   for (let i = 0; i < domains.length; i += BATCH) batches.push(domains.slice(i, i + BATCH))
 
-  for (let i = 0; i < batches.length; i++) {
-    onProgress?.(i + 1, batches.length)
-    try {
-      const res = await fetch('https://api.records.guestpostlinks.net/v2/publisher/website/gpl/search-publishers', {
-        method: 'POST',
-        headers: { 'Authorization': GPL_API_TOKEN, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ websites: batches[i] }),
-      })
-      if (!res.ok) continue
-      const data = await res.json()
-      if (data.success && data.data?.websites) {
-        for (const site of data.data.websites) result.set(site.website, site.status)
-      }
-    } catch { /* skip failed batches silently */ }
+  let done = 0
+  for (let i = 0; i < batches.length; i += CONCURRENCY) {
+    const chunk = batches.slice(i, i + CONCURRENCY)
+    await Promise.allSettled(chunk.map(async batch => {
+      try {
+        const res = await fetch('https://api.records.guestpostlinks.net/v2/publisher/website/gpl/search-publishers', {
+          method: 'POST',
+          headers: { 'Authorization': GPL_API_TOKEN, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ websites: batch }),
+        })
+        if (!res.ok) return
+        const data = await res.json()
+        if (data.success && data.data?.websites) {
+          for (const site of data.data.websites) {
+            const vendor = site.vendors?.find(v => v.is_primary) || site.vendors?.[0] || null
+            const primaryEmail = vendor?.email?.find(e => e.isPrimary)?.address
+                              || vendor?.email?.[0]?.address || ''
+            result.set(site.website, {
+              status: site.status,
+              disableReason: site.disable_reason || '',
+              vendorName: vendor?.name || '',
+              vendorType: vendor?.vendorType || '',
+              email: primaryEmail,
+              currency: vendor?.actualCurrency?.cc || '',
+              addons: (vendor?.addons || []).map(a => ({
+                label: a.label,
+                name: a.name,
+                actualPrice: a.actualPrice ?? '',
+              })),
+            })
+          }
+        }
+      } catch { /* skip failed batches */ }
+      done++
+      onProgress?.(done, batches.length)
+    }))
   }
 
   return result

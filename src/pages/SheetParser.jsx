@@ -4,7 +4,7 @@ import {
   extractSheetId, getSheetTabs, getSheetRows,
   detectColumns, createOutputSheet,
   cleanDomain, parsePrice, normalizeColumnLabels,
-  lookupPublisherStatuses,
+  lookupPublisherData,
 } from '../lib/sheetParserAPI.js'
 
 const CONFIDENCE_COLOR = { high: 'var(--accent)', medium: '#f59e0b', low: '#fb7185' }
@@ -161,22 +161,54 @@ export function SheetParser({ priceMap }) {
 
       if (!outputRows.length) throw new Error('No valid website rows found in the selected tabs')
 
-      // GPL status lookup — Status col is at index 2 + 2*numPriceCols
+      // GPL publisher data lookup (5 parallel batches of 100)
       const statusColIdx = 2 + 2 * allPriceLabels.length
       const uniqueDomains = [...new Set(outputRows.map(r => r[1]))]
-      setProcessingMsg(`Looking up publisher status for ${uniqueDomains.length} sites…`)
-      const statusMap = await lookupPublisherStatuses(uniqueDomains, (cur, total) => {
-        setProcessingMsg(`Looking up publisher statuses — batch ${cur} of ${total}…`)
+      setProcessingMsg(`Looking up publisher data for ${uniqueDomains.length} sites…`)
+      const gplMap = await lookupPublisherData(uniqueDomains, (cur, total) => {
+        setProcessingMsg(`Publisher lookup — batch ${cur} of ${total}…`)
       })
-      const statusLabels = { publish: 'Active', disable: 'Disabled', draft: 'Draft', trash: 'Removed' }
-      outputRows.forEach(r => {
-        const raw = statusMap.get(r[1])
-        r[statusColIdx] = raw ? (statusLabels[raw] || raw) : ''
+
+      // Collect all unique addon labels (label → display name) in order of first appearance
+      const addonLabelToName = new Map()
+      for (const [, info] of gplMap) {
+        for (const addon of info.addons) {
+          if (!addonLabelToName.has(addon.label)) addonLabelToName.set(addon.label, addon.name)
+        }
+      }
+      const addonLabels     = [...addonLabelToName.keys()]
+      const gplFixedHeaders = ['Disable Reason', 'Vendor Name', 'Vendor Type', 'Email', 'Currency']
+      const gplAddonHeaders = [...addonLabelToName.values()].map(n => `Actual ${n}`)
+      const gplHeaders      = [...gplFixedHeaders, ...gplAddonHeaders]
+
+      // Build final headers: insert GPL columns after Status
+      const finalHeaders = [
+        ...headers.slice(0, statusColIdx + 1),
+        ...gplHeaders,
+        ...headers.slice(statusColIdx + 1),
+      ]
+
+      // Build final rows: fill Status + splice in GPL data after it
+      const STATUS_LABELS = { publish: 'Active', disable: 'Disabled', draft: 'Draft', trash: 'Removed' }
+      const finalRows = outputRows.map(r => {
+        const info = gplMap.get(r[1])
+        const statusStr = info ? (STATUS_LABELS[info.status] || info.status) : 'Not in DB'
+        const gplData = info ? [
+          info.disableReason,
+          info.vendorName,
+          info.vendorType,
+          info.email,
+          info.currency,
+          ...addonLabels.map(lbl => info.addons.find(a => a.label === lbl)?.actualPrice ?? ''),
+        ] : Array(gplHeaders.length).fill('')
+        const base = [...r]
+        base[statusColIdx] = statusStr
+        return [...base.slice(0, statusColIdx + 1), ...gplData, ...base.slice(statusColIdx + 1)]
       })
 
       setProcessingMsg('Writing to Google Sheets…')
       const date = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-      const sheetUrl = await createOutputSheet(`Processed Sites — ${date}`, headers, outputRows, allPriceLabels.length)
+      const sheetUrl = await createOutputSheet(`Processed Sites — ${date}`, finalHeaders, finalRows, allPriceLabels.length)
 
       setOutput({ sheetUrl, totalSites, tabsProcessed: enabledTabs.length, priceColumns: allPriceLabels.length })
       setStep('done')
