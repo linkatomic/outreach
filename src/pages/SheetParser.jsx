@@ -1,5 +1,6 @@
-import { useState } from 'react'
-import { Icon } from '../data.jsx'
+import { useState, useEffect, useCallback } from 'react'
+import { Icon, TEAM } from '../data.jsx'
+import { saveSheetParserHistory, loadSheetParserHistory } from '../lib/supabase.js'
 import {
   extractSheetId, getSheetTabs, getSheetRows,
   detectColumns, createOutputSheet,
@@ -9,14 +10,31 @@ import {
 
 const CONFIDENCE_COLOR = { high: 'var(--accent)', medium: '#f59e0b', low: '#fb7185' }
 
-export function SheetParser({ priceMap }) {
-  const [step, setStep]       = useState('idle')  // idle | analyzing | review | processing | done | error
+export function SheetParser({ priceMap, me }) {
+  const [activeTab, setActiveTab]  = useState('parse')  // 'parse' | 'history'
+  const [step, setStep]            = useState('idle')  // idle | analyzing | review | processing | done | error
   const [processingMsg, setProcessingMsg] = useState('')
   const [url, setUrl]         = useState('')
   const [sheetId, setSheetId] = useState('')
   const [tabs, setTabs]       = useState([])
   const [output, setOutput]   = useState(null)
   const [errMsg, setErrMsg]   = useState('')
+
+  // ── History ───────────────────────────────────────────
+  const [history, setHistory]         = useState([])
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [historyFilter, setHistoryFilter]   = useState('all')  // 'all' | 'mine' | member id
+
+  const fetchHistory = useCallback(async () => {
+    setHistoryLoading(true)
+    try {
+      const memberId = historyFilter === 'all' ? null : (historyFilter === 'mine' ? me?.id : historyFilter)
+      setHistory(await loadSheetParserHistory(memberId))
+    } catch { /* silent */ }
+    finally { setHistoryLoading(false) }
+  }, [historyFilter, me?.id])
+
+  useEffect(() => { if (activeTab === 'history') fetchHistory() }, [activeTab, fetchHistory])
 
   // ── Step 1: Analyze ────────────────────────────────────
   async function analyze() {
@@ -210,8 +228,23 @@ export function SheetParser({ priceMap }) {
       const date = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
       const sheetUrl = await createOutputSheet(`Processed Sites — ${date}`, finalHeaders, finalRows, allPriceLabels.length)
 
-      setOutput({ sheetUrl, totalSites, tabsProcessed: enabledTabs.length, priceColumns: allPriceLabels.length })
+      const outputData = { sheetUrl, totalSites, tabsProcessed: enabledTabs.length, priceColumns: allPriceLabels.length }
+      setOutput(outputData)
       setStep('done')
+
+      // Save to history (fire-and-forget)
+      if (me?.id) {
+        const title = `Processed Sites — ${date}`
+        saveSheetParserHistory({
+          memberId: me.id,
+          sourceUrl: url,
+          outputUrl: sheetUrl,
+          outputTitle: title,
+          tabsProcessed: outputData.tabsProcessed,
+          totalSites: outputData.totalSites,
+          priceColumns: outputData.priceColumns,
+        }).catch(() => {}) // silently fail — don't break the UX
+      }
     } catch (err) {
       setErrMsg(err.message)
       setStep('error')
@@ -241,8 +274,95 @@ export function SheetParser({ priceMap }) {
 
   // ── Render ─────────────────────────────────────────────
 
+  const members = TEAM.filter(m => !m.neelOnly)
+
+  if (activeTab === 'history') return (
+    <div style={{ maxWidth: 900 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 18 }}>
+        <span className="seg">
+          <button className={activeTab === 'parse' ? 'on' : ''} onClick={() => setActiveTab('parse')}>Parse</button>
+          <button className={activeTab === 'history' ? 'on' : ''} onClick={() => setActiveTab('history')}>History</button>
+        </span>
+        <span className="seg" style={{ marginLeft: 'auto' }}>
+          <button className={historyFilter === 'all' ? 'on' : ''} onClick={() => setHistoryFilter('all')}>Everyone</button>
+          <button className={historyFilter === 'mine' ? 'on' : ''} onClick={() => setHistoryFilter('mine')}>Mine</button>
+          {members.map(m => (
+            <button key={m.id} className={historyFilter === m.id ? 'on' : ''} onClick={() => setHistoryFilter(m.id)}>
+              {m.name.split(' ')[0]}
+            </button>
+          ))}
+        </span>
+      </div>
+
+      {historyLoading ? (
+        <div style={{ color: 'var(--text-faint)', fontSize: 13, padding: '24px 0' }}>Loading…</div>
+      ) : history.length === 0 ? (
+        <div style={{ color: 'var(--text-faint)', fontSize: 13, padding: '24px 0' }}>No history yet.</div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+          {/* Header */}
+          <div style={{
+            display: 'grid', gridTemplateColumns: '120px 80px 1fr 1fr 70px 55px',
+            gap: '0 12px', padding: '6px 12px',
+            fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em',
+            color: 'var(--text-faint)',
+          }}>
+            <div>Date</div><div>By</div><div>Source Sheet</div><div>Output Sheet</div><div style={{ textAlign: 'center' }}>Sites</div><div style={{ textAlign: 'center' }}>Tabs</div>
+          </div>
+          {history.map(h => {
+            const member = TEAM.find(m => m.id === h.member_id)
+            const ts = new Date(h.created_at)
+            const dateStr = ts.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+            const timeStr = ts.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+            const shortUrl = u => {
+              try { const m = u.match(/\/spreadsheets\/d\/([^/]+)/); return m ? `…${m[1].slice(0, 12)}…` : u.slice(0, 30) } catch { return u }
+            }
+            return (
+              <div key={h.id} style={{
+                display: 'grid', gridTemplateColumns: '120px 80px 1fr 1fr 70px 55px',
+                gap: '0 12px', padding: '10px 12px', borderRadius: 8,
+                background: 'var(--surface-2)', alignItems: 'center', fontSize: 13,
+              }}>
+                <div>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>{dateStr}</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-faint)' }}>{timeStr}</div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <div className={`avatar sm ${member?.color}`}>{member?.short}</div>
+                  <span style={{ fontSize: 12 }}>{member?.name.split(' ')[0] || h.member_id}</span>
+                </div>
+                <div>
+                  <a href={h.source_url} target="_blank" rel="noreferrer"
+                     style={{ color: 'var(--text-dim)', fontSize: 12, fontFamily: 'var(--font-mono)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4 }}
+                     title={h.source_url}>
+                    <Icon name="link" size={10} />{shortUrl(h.source_url)}
+                  </a>
+                </div>
+                <div>
+                  <a href={h.output_url} target="_blank" rel="noreferrer"
+                     style={{ color: 'var(--accent)', fontSize: 12, fontFamily: 'var(--font-mono)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4 }}
+                     title={h.output_title}>
+                    <Icon name="link" size={10} />{h.output_title || shortUrl(h.output_url)}
+                  </a>
+                </div>
+                <div style={{ textAlign: 'center', fontFamily: 'var(--font-mono)', fontSize: 12 }}>{h.total_sites?.toLocaleString()}</div>
+                <div style={{ textAlign: 'center', fontFamily: 'var(--font-mono)', fontSize: 12 }}>{h.tabs_processed}</div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+
   if (step === 'idle' || step === 'analyzing') return (
     <div style={{ maxWidth: 640 }}>
+      <div style={{ marginBottom: 16 }}>
+        <span className="seg">
+          <button className={activeTab === 'parse' ? 'on' : ''} onClick={() => setActiveTab('parse')}>Parse</button>
+          <button className={activeTab === 'history' ? 'on' : ''} onClick={() => setActiveTab('history')}>History</button>
+        </span>
+      </div>
       <p style={{ fontSize: 13, color: 'var(--text-dim)', marginBottom: 12, lineHeight: 1.6 }}>
         Paste a Google Sheet URL — AI detects website and pricing columns across all tabs, then you confirm before the output is created.
       </p>

@@ -382,6 +382,29 @@ export async function loadActivityFeed() {
   return { reports: reportsResult.data || [], emails: emailsResult.data || [] };
 }
 
+// ── Sheet Parser History ──────────────────────────────
+
+export async function saveSheetParserHistory({ memberId, sourceUrl, outputUrl, outputTitle, tabsProcessed, totalSites, priceColumns }) {
+  const { data, error } = await supabase
+    .from('sheet_parser_history')
+    .insert({ member_id: memberId, source_url: sourceUrl, output_url: outputUrl, output_title: outputTitle, tabs_processed: tabsProcessed, total_sites: totalSites, price_columns: priceColumns })
+    .select().single()
+  if (error) throw error
+  return data
+}
+
+export async function loadSheetParserHistory(memberId = null) {
+  let query = supabase
+    .from('sheet_parser_history')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(200)
+  if (memberId) query = query.eq('member_id', memberId)
+  const { data, error } = await query
+  if (error) throw error
+  return data || []
+}
+
 export async function loadAllReportsForDate(date) {
   const { data, error } = await supabase
     .from('daily_reports')

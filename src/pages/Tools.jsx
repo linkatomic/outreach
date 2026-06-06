@@ -999,7 +999,7 @@ const TOOLS = [
 
 // ─── Tools Page ────────────────────────────────────────────────────────────────
 
-export function ToolsPage() {
+export function ToolsPage({ me }) {
   const [activeTool, setActiveTool] = useState(null)
   const [priceMap, setPriceMap] = useState(new Map())
   const [loading, setLoading] = useState(true)
@@ -1080,7 +1080,7 @@ export function ToolsPage() {
             </div>
           </div>
           <div className="card-pad">
-            <SheetParser priceMap={priceMap} />
+            <SheetParser priceMap={priceMap} me={me} />
           </div>
         </div>
       ) : activeTool === 'price-calc' ? (
