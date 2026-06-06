@@ -21,6 +21,9 @@ export function SheetParser({ priceMap, me }) {
   const [errMsg, setErrMsg]   = useState('')
 
   // ── History ───────────────────────────────────────────
+  const [sheetName, setSheetName] = useState('')
+
+  // ── History ───────────────────────────────────────────
   const [history, setHistory]         = useState([])
   const [historyLoading, setHistoryLoading] = useState(false)
   const [historyFilter, setHistoryFilter]   = useState('all')  // 'all' | 'mine' | member id
@@ -226,20 +229,20 @@ export function SheetParser({ priceMap, me }) {
 
       setProcessingMsg('Writing to Google Sheets…')
       const date = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-      const sheetUrl = await createOutputSheet(`Processed Sites — ${date}`, finalHeaders, finalRows, allPriceLabels.length)
+      const title = sheetName.trim() || `Processed Sites — ${date}`
+      const sheetUrl = await createOutputSheet(title, finalHeaders, finalRows, allPriceLabels.length)
 
-      const outputData = { sheetUrl, totalSites, tabsProcessed: enabledTabs.length, priceColumns: allPriceLabels.length }
+      const outputData = { sheetUrl, totalSites, tabsProcessed: enabledTabs.length, priceColumns: allPriceLabels.length, title }
       setOutput(outputData)
       setStep('done')
 
       // Save to history (fire-and-forget)
       if (me?.id) {
-        const title = `Processed Sites — ${date}`
         saveSheetParserHistory({
           memberId: me.id,
           sourceUrl: url,
           outputUrl: sheetUrl,
-          outputTitle: title,
+          outputTitle: outputData.title,
           tabsProcessed: outputData.tabsProcessed,
           totalSites: outputData.totalSites,
           priceColumns: outputData.priceColumns,
@@ -392,17 +395,26 @@ export function SheetParser({ priceMap, me }) {
 
   if (step === 'review') return (
     <div style={{ maxWidth: 780 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
-        <span style={{ fontSize: 13, color: 'var(--text-dim)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+        <span style={{ fontSize: 13, color: 'var(--text-dim)', flexShrink: 0 }}>
           AI found <strong style={{ color: 'var(--text)' }}>{tabs.length}</strong> tab{tabs.length !== 1 ? 's' : ''}. Review the detected columns and confirm.
         </span>
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexShrink: 0 }}>
           <button className="btn ghost" onClick={() => setStep('idle')}>← Back</button>
-          <button className="btn primary" onClick={process} disabled={activeTabCount === 0}>
-            <Icon name="upload" size={12} /> Confirm & Create Sheet
-            {activeTabCount > 0 && <span style={{ opacity: 0.7, fontSize: 11, marginLeft: 4 }}>({activeTabCount} tab{activeTabCount !== 1 ? 's' : ''})</span>}
-          </button>
         </div>
+      </div>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+        <input
+          className="input"
+          placeholder={`Processed Sites — ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`}
+          value={sheetName}
+          onChange={e => setSheetName(e.target.value)}
+          style={{ flex: 1, fontSize: 13 }}
+        />
+        <button className="btn primary" onClick={process} disabled={activeTabCount === 0} style={{ flexShrink: 0 }}>
+          <Icon name="upload" size={12} /> Confirm & Create Sheet
+          {activeTabCount > 0 && <span style={{ opacity: 0.7, fontSize: 11, marginLeft: 4 }}>({activeTabCount} tab{activeTabCount !== 1 ? 's' : ''})</span>}
+        </button>
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -422,6 +434,7 @@ export function SheetParser({ priceMap, me }) {
         <button className="btn ghost" onClick={() => setStep('idle')}>← Back</button>
         <button className="btn primary" onClick={process} disabled={activeTabCount === 0}>
           <Icon name="upload" size={12} /> Confirm & Create Sheet
+          {activeTabCount > 0 && <span style={{ opacity: 0.7, fontSize: 11, marginLeft: 4 }}>({activeTabCount} tab{activeTabCount !== 1 ? 's' : ''})</span>}
         </button>
       </div>
     </div>
@@ -444,7 +457,8 @@ export function SheetParser({ priceMap, me }) {
         background: 'color-mix(in srgb, var(--accent) 8%, transparent)',
         border: '1px solid color-mix(in srgb, var(--accent) 30%, transparent)',
       }}>
-        <div style={{ fontSize: 18, fontWeight: 600, marginBottom: 10 }}>✓ Sheet created</div>
+        <div style={{ fontSize: 18, fontWeight: 600, marginBottom: 6 }}>✓ Sheet created</div>
+        <div style={{ fontSize: 13, color: 'var(--text-faint)', marginBottom: 10, fontStyle: 'italic' }}>{output.title}</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 13, color: 'var(--text-dim)' }}>
           <span><strong style={{ color: 'var(--text)', fontFamily: 'var(--font-mono)' }}>{output.totalSites}</strong> websites processed</span>
           <span><strong style={{ color: 'var(--text)', fontFamily: 'var(--font-mono)' }}>{output.tabsProcessed}</strong> tab{output.tabsProcessed !== 1 ? 's' : ''} merged</span>
@@ -456,7 +470,7 @@ export function SheetParser({ priceMap, me }) {
            style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
           <Icon name="link" size={12} /> Open Sheet
         </a>
-        <button className="btn ghost" onClick={() => { setStep('idle'); setUrl(''); setTabs([]); setOutput(null) }}>
+        <button className="btn ghost" onClick={() => { setStep('idle'); setUrl(''); setTabs([]); setOutput(null); setSheetName('') }}>
           Parse Another
         </button>
       </div>
