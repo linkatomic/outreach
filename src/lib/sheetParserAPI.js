@@ -142,16 +142,19 @@ DEFINITELY NOT price columns (skip these):
 - SL, Serial, No., # — row numbers
 - "Existing/New", "Status", "Notes", "Remarks"
 
-For the label field, use a SHORT canonical name:
-- "General" / "Price" / "Normal" / "GP" → label: "General Price"
-- "Link Insertion" / "LI" → label: "Link Insertion Price"
+For the label field, use a SHORT canonical name that reflects EXACTLY what types the column covers:
+- "General" / "Price" / "Normal" / "GP" alone → label: "General Price"
+- "Link Insertion" / "LI" alone → label: "LI Price"
+- "General Post" + "Link Insertion" in same column (e.g. "Gen Post / Link Insertion") → label: "General/LI Price"
+- "Other" + "Link Insertion" in same column (e.g. "Other Post / Link Insertion") → label: "Other/LI Price"
+- Any non-general type + "Link Insertion" combined → label: "[Type Abbr]/LI Price"
 - "Casino" alone → label: "Casino Price"
 - "CBD" alone → label: "CBD Price"
 - "Crypto" alone → label: "Crypto Price"
 - "Forex" / "Finance" → label: "Forex Price"
 - "Gray Niche" → label: "Gray Niche Price"
-- Combined (e.g. "Casino, CBD, Crypto"): use "Casino CBD Crypto Price"
-- Combined general+link (e.g. "Gen Post / Link Insertion"): use "General Price"
+- Combined niches without LI (e.g. "Casino, CBD, Crypto") → "Casino CBD Crypto Price"
+- IMPORTANT: DO NOT collapse combined-type columns — preserve all types in the label
 
 Return ONLY valid JSON, no explanation:
 {
@@ -199,16 +202,19 @@ ${allLabels.map((l, i) => `${i + 1}. "${l}"`).join('\n')}
 TASK: Group labels that mean the same price type. Return a canonical name for each.
 
 CANONICAL NAME RULES:
-- "General", "Price", "Normal", "Others", "GP", "General Post", "Gen Post", "Guest Post", "Gen Post / Link Insertion", "General / Link Insertion" → "General Price"
-- "Link Insertion", "LI" (when standalone) → "Link Insertion Price"
+- "General", "Price", "Normal", "Others", "GP", "General Post", "Gen Post", "Guest Post" alone → "General Price"
+- "Link Insertion", "LI" alone → "LI Price"
+- "General Post / Link Insertion", "General / Link Insertion", "Gen Post / LI" combined → "General/LI Price"
+- "Other Post / Link Insertion", "Other / LI" combined → "Other/LI Price"
+- Any [Type] + Link Insertion combined → "[TypeAbbr]/LI Price" — PRESERVE both type names
 - "Casino" only → "Casino Price"
 - "CBD" only → "CBD Price"
 - "Crypto" only → "Crypto Price"
 - "Forex", "Finance" only → "Forex Price"
 - "Gray Niche" → "Gray Niche Price"
-- Combined niches → combine with spaces: "Casino CBD Crypto Price", "Casino CBD Price", etc.
+- Combined niches without LI → combine with spaces: "Casino CBD Crypto Price", "Casino CBD Price", etc.
+- CRITICAL: DO NOT merge combined-type labels into a simpler single-type label. "Other/LI Price" must NOT become "General Price"
 - If two labels clearly mean the same thing, give them the SAME canonical name
-- If you're unsure, keep it descriptive but consistent
 
 Return ONLY valid JSON:
 { "mapping": { "<original label>": "<canonical name>", ... } }`
@@ -324,7 +330,7 @@ export async function createOutputSheet(title, headers, rows, numPriceCols) {
     body: JSON.stringify({ values: [headers, ...rows] }),
   })
 
-  // Buyer columns are at indices 3, 5, 7, … (3 + 2*i)
+  // Buyer columns at indices 3, 5, 7, … (3 + 2*i) — green highlight
   const buyerColRequests = Array.from({ length: numPriceCols }, (_, i) => ({
     repeatCell: {
       range: { sheetId, startColumnIndex: 3 + i * 2, endColumnIndex: 4 + i * 2 },
@@ -333,10 +339,14 @@ export async function createOutputSheet(title, headers, rows, numPriceCols) {
     },
   }))
 
+  // Status col = 2 + 2*n; Disable Reason = 3 + 2*n (always left-align Website=1 and Disable Reason)
+  const disableReasonColIdx = 3 + 2 * numPriceCols
+
   await gsheets(`/spreadsheets/${newId}:batchUpdate`, {
     method: 'POST',
     body: JSON.stringify({
       requests: [
+        // Bold header row
         {
           repeatCell: {
             range: { sheetId, startRowIndex: 0, endRowIndex: 1 },
@@ -344,10 +354,35 @@ export async function createOutputSheet(title, headers, rows, numPriceCols) {
             fields: 'userEnteredFormat.textFormat.bold',
           },
         },
+        // Freeze header row
         {
           updateSheetProperties: {
             properties: { sheetId, gridProperties: { frozenRowCount: 1 } },
             fields: 'gridProperties.frozenRowCount',
+          },
+        },
+        // Center-align entire sheet
+        {
+          repeatCell: {
+            range: { sheetId },
+            cell: { userEnteredFormat: { horizontalAlignment: 'CENTER' } },
+            fields: 'userEnteredFormat.horizontalAlignment',
+          },
+        },
+        // Left-align Website column (index 1)
+        {
+          repeatCell: {
+            range: { sheetId, startColumnIndex: 1, endColumnIndex: 2 },
+            cell: { userEnteredFormat: { horizontalAlignment: 'LEFT' } },
+            fields: 'userEnteredFormat.horizontalAlignment',
+          },
+        },
+        // Left-align Disable Reason column
+        {
+          repeatCell: {
+            range: { sheetId, startColumnIndex: disableReasonColIdx, endColumnIndex: disableReasonColIdx + 1 },
+            cell: { userEnteredFormat: { horizontalAlignment: 'LEFT' } },
+            fields: 'userEnteredFormat.horizontalAlignment',
           },
         },
         ...buyerColRequests,
