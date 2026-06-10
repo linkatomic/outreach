@@ -1,12 +1,12 @@
 // data.jsx — seed data + shared utilities
 
 export const TEAM = [
-  { id: 'dev',    name: 'Dev Pandya',  short: 'DP', role: 'lead',   color: 'a', email: 'dev@relay.io',    joined: '2024-04-01' },
-  { id: 'neha',   name: 'Neha M',      short: 'NM', role: 'member', color: 'b', email: 'neha@relay.io',   joined: '2024-08-12' },
-  { id: 'preeti', name: 'Preeti S',    short: 'PS', role: 'member', color: 'c', email: 'preeti@relay.io', joined: '2025-01-06' },
-  { id: 'keyur',  name: 'Keyur D',     short: 'KD', role: 'member', color: 'd', email: 'keyur@relay.io',  joined: '2024-11-18' },
-  { id: 'arjun',  name: 'Arjun M',     short: 'AM', role: 'member', color: 'e', email: 'arjun@relay.io',  joined: '2025-03-02' },
-  { id: 'neel',   name: 'Neel P',      short: 'NP', role: 'member', color: 'f', email: 'neel@relay.io',   joined: '2025-05-19', neelOnly: true },
+  { id: 'dev',    name: 'Dev Pandya',  short: 'DP', role: 'lead',   color: 'a', email: 'dev.p@amrytt.com',    joined: '2024-04-01' },
+  { id: 'neha',   name: 'Neha M',      short: 'NM', role: 'member', color: 'b', email: 'neha.m@amrytt.com',   joined: '2024-08-12' },
+  { id: 'preeti', name: 'Preeti S',    short: 'PS', role: 'member', color: 'c', email: 'preeti.s@amrytt.com', joined: '2025-01-06' },
+  { id: 'keyur',  name: 'Keyur D',     short: 'KD', role: 'member', color: 'd', email: 'keyur.d@amrytt.com',  joined: '2024-11-18' },
+  { id: 'arjun',  name: 'Arjun M',     short: 'AM', role: 'member', color: 'e', email: 'arjun.m@amrytt.com',  joined: '2025-03-02' },
+  { id: 'neel',   name: 'Neel P',      short: 'NP', role: 'member', color: 'f', email: 'neel.p@amrytt.com',   joined: '2025-05-19', neelOnly: true },
 ];
 
 export const METRICS = [

@@ -19,13 +19,13 @@ oauth2Client.setCredentials({ refresh_token: process.env.GOOGLE_REFRESH_TOKEN })
 // ── Team config ─────────────────────────────────────────────
 // Keep emails in sync with src/data.jsx
 const MEMBERS = [
-  { id: 'neha',   name: 'Neha M',    email: 'neha@relay.io' },
-  { id: 'preeti', name: 'Preeti S',  email: 'preeti@relay.io' },
-  { id: 'keyur',  name: 'Keyur D',   email: 'keyur@relay.io' },
-  { id: 'arjun',  name: 'Arjun M',   email: 'arjun@relay.io' },
-  { id: 'neel',   name: 'Neel P',    email: 'neel@relay.io' },
+  { id: 'neha',   name: 'Neha M',    email: 'neha.m@amrytt.com' },
+  { id: 'preeti', name: 'Preeti S',  email: 'preeti.s@amrytt.com' },
+  { id: 'keyur',  name: 'Keyur D',   email: 'keyur.d@amrytt.com' },
+  { id: 'arjun',  name: 'Arjun M',   email: 'arjun.m@amrytt.com' },
+  { id: 'neel',   name: 'Neel P',    email: 'neel.p@amrytt.com' },
 ]
-const LEAD_EMAIL = 'dev@relay.io'
+const LEAD_EMAIL = 'dev.p@amrytt.com'
 const APP_URL = process.env.APP_URL || 'https://relay.vercel.app'
 
 // ── Helpers ──────────────────────────────────────────────────

@@ -790,7 +790,7 @@ export function DailyReportPage({ me, setRoute, showToast }) {
 
 // ── Send report summary email (fire-and-forget) ──────────────
 async function sendReportEmail({ me, metrics, note, total, metricsDef }) {
-  const LEAD_EMAIL = 'dev@relay.io'
+  const LEAD_EMAIL = 'dev.p@amrytt.com'
   const dateLabel  = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
 
   const metricRows = (metricsDef || [])
