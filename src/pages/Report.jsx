@@ -398,6 +398,8 @@ export function DailyReportPage({ me, setRoute, showToast }) {
       await saveReport({ memberId: me.id, date: todayISO(), metrics: final, note, total: numericTotal });
       setDone(true);
       showToast(`Report saved · ${numericTotal} total`);
+      // Send summary email to lead (fire-and-forget — never block the UI)
+      sendReportEmail({ me, metrics: final, note, total: numericTotal, metricsDef: metricsFor(me.id) }).catch(() => {})
     } catch {
       showToast('Save failed — check your connection');
       setSaving(false);
@@ -784,4 +786,53 @@ export function DailyReportPage({ me, setRoute, showToast }) {
       )}
     </div>
   );
+}
+
+// ── Send report summary email (fire-and-forget) ──────────────
+async function sendReportEmail({ me, metrics, note, total, metricsDef }) {
+  const LEAD_EMAIL = 'dev@relay.io'
+  const dateLabel  = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
+
+  const metricRows = (metricsDef || [])
+    .filter(m => {
+      const v = metrics[m.key]
+      return v !== undefined && v !== null && v !== 0 && v !== false
+    })
+    .map(m => {
+      const v = metrics[m.key]
+      const display = typeof v === 'boolean' ? (v ? 'Done' : 'Not done') : `${v} ${m.unit || ''}`
+      return `<tr style="border-top:1px solid #f4f4f5;">
+        <td style="padding:8px 14px;font-size:13px;color:#52525b;">${m.label}</td>
+        <td style="padding:8px 14px;font-size:13px;font-weight:600;text-align:right;">${display.trim()}</td>
+      </tr>`
+    }).join('')
+
+  const html = `<!DOCTYPE html>
+<html>
+<body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:520px;margin:40px auto;color:#111;padding:0 20px;">
+  <div style="background:#18181b;border-radius:12px;padding:24px;margin-bottom:28px;">
+    <div style="font-size:22px;font-weight:800;letter-spacing:-0.5px;color:#a3e635;">Relay</div>
+    <div style="font-size:12px;color:#a1a1aa;margin-top:4px;">${dateLabel}</div>
+  </div>
+  <h2 style="font-size:18px;font-weight:600;margin:0 0 4px;">${me.name} submitted their report</h2>
+  <div style="font-size:28px;font-weight:800;color:#a3e635;margin:16px 0;">${total} <span style="font-size:14px;font-weight:400;color:#71717a;">total</span></div>
+  <table style="width:100%;border-collapse:collapse;background:#fff;border:1px solid #e4e4e7;border-radius:10px;overflow:hidden;margin-bottom:20px;">
+    <thead>
+      <tr style="background:#f9fafb;">
+        <th style="padding:9px 14px;text-align:left;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:#6b7280;">Metric</th>
+        <th style="padding:9px 14px;text-align:right;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:#6b7280;">Value</th>
+      </tr>
+    </thead>
+    <tbody>${metricRows || '<tr><td colspan="2" style="padding:12px 14px;color:#a1a1aa;font-size:13px;">No numeric metrics logged.</td></tr>'}</tbody>
+  </table>
+  ${note ? `<div style="background:#f9fafb;border-radius:8px;padding:14px;font-size:13px;color:#52525b;border-left:3px solid #a3e635;"><strong>Note:</strong> ${note}</div>` : ''}
+  <p style="color:#a1a1aa;font-size:11px;margin-top:32px;border-top:1px solid #e4e4e7;padding-top:16px;">Sent by Relay · internal team tool</p>
+</body>
+</html>`
+
+  await fetch('/api/send-email', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ to: LEAD_EMAIL, subject: `${me.name} filed report — ${total} total · ${dateLabel}`, html }),
+  })
 }

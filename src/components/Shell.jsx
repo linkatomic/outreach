@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { TEAM, Icon, fmtDateShort, fmtRel } from '../data.jsx'
+import { loadAllReportsForDate } from '../lib/supabase.js'
 
 // ────────────────────── Sidebar ──────────────────────
 export function Sidebar({ route, setRoute, role, me, impersonatedId, openCmdK, todayDone, onLogout }) {
@@ -173,38 +174,105 @@ export function Topbar({ route, role, theme, toggleTheme, openCmdK, notifOpen, s
         <Icon name="arrow" size={15} style={{ transform: 'rotate(180deg)' }} />
       </button>
 
-      {notifOpen && <NotificationsPanel onClose={() => setNotifOpen(false)} />}
+      {notifOpen && <NotificationsPanel onClose={() => setNotifOpen(false)} me={me} role={role} />}
     </div>
   );
 }
 
-function NotificationsPanel({ onClose }) {
-  const items = [
-    { who: 'Neha M', what: 'submitted daily report', t: '12m', neu: true, meta: '60 emails, 12 sites' },
-    { who: 'Preeti S', what: 'pending report for today', t: '2h', neu: true },
-    { who: 'System', what: 'Weekly summary ready for May 18–24', t: '4h', neu: true },
-    { who: 'Keyur D', what: 'flagged a duplicate vendor entry', t: '1d', neu: false, meta: 'Acme Imports · 3 matches' },
-    { who: 'Arjun M', what: 'hit weekly target (210 emails)', t: '1d', neu: false },
-  ];
+function NotificationsPanel({ onClose, me, role }) {
+  const [reports, setReports] = useState(null) // null = loading
+
+  useEffect(() => {
+    const today = new Date()
+    const dateStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`
+    loadAllReportsForDate(dateStr)
+      .then(data => setReports(data || []))
+      .catch(() => setReports([]))
+  }, [])
+
+  const isLead = ['lead', 'super'].includes(role)
+  const members = TEAM.filter(m => !m.neelOnly || m.id === 'neel')
+
+  const submittedMap = new Map((reports || []).map(r => [r.member_id, r]))
+
+  // For members: only show their own status
+  // For leads: show everyone — submitted + pending
+  const items = isLead
+    ? members.map(m => {
+        const rep = submittedMap.get(m.id)
+        return rep
+          ? { member: m, submitted: true,  total: rep.total, createdAt: rep.created_at }
+          : { member: m, submitted: false }
+      })
+    : me
+      ? (() => {
+          const rep = submittedMap.get(me.id)
+          return [rep
+            ? { member: me, submitted: true, total: rep.total, createdAt: rep.created_at }
+            : { member: me, submitted: false }]
+        })()
+      : []
+
+  // Sort: submitted first (most recent first), then pending
+  const sorted = [...items].sort((a, b) => {
+    if (a.submitted !== b.submitted) return a.submitted ? -1 : 1
+    if (a.createdAt && b.createdAt) return new Date(b.createdAt) - new Date(a.createdAt)
+    return 0
+  })
+
+  function relTime(ts) {
+    if (!ts) return ''
+    const diff = Date.now() - new Date(ts).getTime()
+    const m = Math.floor(diff / 60000)
+    if (m < 1)  return 'just now'
+    if (m < 60) return `${m}m ago`
+    const h = Math.floor(m / 60)
+    if (h < 24) return `${h}h ago`
+    return `${Math.floor(h / 24)}d ago`
+  }
+
+  const submittedCount = sorted.filter(x => x.submitted).length
+  const todayLabel = new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+
   return (
-    <div className="notif-panel" onClick={(e) => e.stopPropagation()}>
+    <div className="notif-panel" onClick={e => e.stopPropagation()}>
       <div className="notif-head">
-        <h4>Notifications</h4>
+        <div>
+          <h4 style={{ margin: 0 }}>Today's Reports</h4>
+          <div style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 2 }}>{todayLabel}</div>
+        </div>
         <button className="btn ghost" onClick={onClose}><Icon name="x" size={12} /></button>
       </div>
       <div className="notif-list">
-        {items.map((it, i) => (
-          <div className="notif-row" key={i}>
+        {reports === null ? (
+          <div style={{ padding: '16px 14px', fontSize: 13, color: 'var(--text-faint)' }}>Loading…</div>
+        ) : sorted.length === 0 ? (
+          <div style={{ padding: '16px 14px', fontSize: 13, color: 'var(--text-faint)' }}>No data yet for today.</div>
+        ) : sorted.map(({ member: m, submitted, total, createdAt }) => (
+          <div className="notif-row" key={m.id} style={{ alignItems: 'center' }}>
+            <div className={`avatar sm ${m.color}`} style={{ flexShrink: 0 }}>{m.short}</div>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div className={it.neu ? 'new' : ''}><b style={{ fontWeight: 500 }}>{it.who}</b> <span className="muted">{it.what}</span></div>
-              {it.meta && <div className="faint mono" style={{ fontSize: 11, marginTop: 2 }}>{it.meta}</div>}
+              <div style={{ fontWeight: 500, fontSize: 13 }}>{m.name}</div>
+              <div style={{ fontSize: 11, color: submitted ? 'var(--accent)' : '#f59e0b', marginTop: 1 }}>
+                {submitted ? `Submitted · ${total} total` : 'Pending — not submitted yet'}
+              </div>
             </div>
-            <span className="t">{it.t}</span>
+            <div style={{ textAlign: 'right', flexShrink: 0 }}>
+              {submitted
+                ? <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>{relTime(createdAt)}</span>
+                : <span style={{ fontSize: 18 }}>⏳</span>
+              }
+            </div>
           </div>
         ))}
       </div>
+      {isLead && reports !== null && (
+        <div style={{ padding: '10px 14px', borderTop: '1px solid var(--border)', fontSize: 12, color: 'var(--text-faint)' }}>
+          {submittedCount} of {sorted.length} submitted today
+        </div>
+      )}
     </div>
-  );
+  )
 }
 
 // ────────────────────── Command Palette ──────────────────────
