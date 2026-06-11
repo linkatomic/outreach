@@ -917,7 +917,7 @@ export function SettingsPage({ theme, toggleTheme, role, accent, setAccent }) {
       </div>
 
       {/* Reminders */}
-      <div className="card">
+      <div className="card" style={{ marginBottom: 16 }}>
         <div className="card-head"><h3>Reminders</h3></div>
         <div className="card-pad">
           <div className="row-flex" style={{ padding: '8px 0' }}>
@@ -937,6 +937,108 @@ export function SettingsPage({ theme, toggleTheme, role, accent, setAccent }) {
           </div>
         </div>
       </div>
+
+      {/* Email Notifications — lead only */}
+      {['lead','super'].includes(role) && <EmailNotificationsCard />}
     </div>
   );
+}
+
+function EmailNotificationsCard() {
+  const TABS = [
+    { id: 'reminder', label: 'Midnight reminder',     desc: 'Sent to members who haven\'t submitted by end of day' },
+    { id: 'summary',  label: 'End-of-day summary',    desc: 'Sent to you at midnight with the full team status' },
+    { id: 'report',   label: 'Report submission',     desc: 'Sent to you instantly when any member submits' },
+  ]
+  const [active, setActive]   = useState('reminder')
+  const [sending, setSending] = useState(false)
+  const [result, setResult]   = useState(null)  // { ok, error }
+  const [html, setHtml]       = useState({})
+
+  useEffect(() => {
+    // Fetch preview HTML for each template
+    TABS.forEach(({ id }) => {
+      fetch(`/api/test-email?type=${id}&preview=1`)
+        .then(r => r.text())
+        .then(text => setHtml(prev => ({ ...prev, [id]: text })))
+        .catch(() => setHtml(prev => ({ ...prev, [id]: '<p style="padding:20px;color:#888">Preview unavailable — deploy to Vercel to see it.</p>' })))
+    })
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function sendTest() {
+    setSending(true)
+    setResult(null)
+    try {
+      const r = await fetch(`/api/test-email?type=${active}`, { method: 'POST' })
+      const data = await r.json()
+      if (!r.ok) throw new Error(data.error)
+      setResult({ ok: true, msg: `Test email sent to ${data.sentTo}` })
+    } catch (err) {
+      setResult({ ok: false, msg: err.message })
+    } finally {
+      setSending(false)
+    }
+  }
+
+  const current = TABS.find(t => t.id === active)
+
+  return (
+    <div className="card">
+      <div className="card-head">
+        <div>
+          <h3>Email Notifications</h3>
+          <div className="faint" style={{ fontSize: 11, marginTop: 2 }}>Gmail · via Vercel cron + API routes</div>
+        </div>
+      </div>
+      <div className="card-pad">
+        {/* Tab switcher */}
+        <div style={{ display: 'flex', gap: 6, marginBottom: 14, flexWrap: 'wrap' }}>
+          {TABS.map(t => (
+            <button key={t.id}
+              onClick={() => { setActive(t.id); setResult(null) }}
+              className={`btn${active === t.id ? ' primary' : ' ghost'}`}
+              style={{ fontSize: 12 }}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        <div style={{ fontSize: 12, color: 'var(--text-faint)', marginBottom: 12 }}>{current?.desc}</div>
+
+        {/* Preview iframe */}
+        <div style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden', marginBottom: 14 }}>
+          <div style={{ padding: '8px 14px', background: 'var(--surface-2)', borderBottom: '1px solid var(--border)', fontSize: 11, color: 'var(--text-faint)', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#f87171', display: 'inline-block' }} />
+            <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#fbbf24', display: 'inline-block' }} />
+            <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#4ade80', display: 'inline-block' }} />
+            <span style={{ marginLeft: 8 }}>Email preview · {active}</span>
+          </div>
+          {html[active] ? (
+            <iframe
+              srcDoc={html[active]}
+              style={{ width: '100%', height: 520, border: 'none', background: '#fff', display: 'block' }}
+              title={`${active} email preview`}
+              sandbox="allow-same-origin"
+            />
+          ) : (
+            <div style={{ height: 200, display: 'grid', placeItems: 'center', color: 'var(--text-faint)', fontSize: 13 }}>
+              Loading preview…
+            </div>
+          )}
+        </div>
+
+        {/* Send test button */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <button className="btn primary" onClick={sendTest} disabled={sending}>
+            {sending ? 'Sending…' : `Send test to dev.p@amrytt.com`}
+          </button>
+          {result && (
+            <span style={{ fontSize: 12, color: result.ok ? '#4ade80' : '#f87171' }}>
+              {result.ok ? '✓ ' : '✕ '}{result.msg}
+            </span>
+          )}
+        </div>
+      </div>
+    </div>
+  )
 }
