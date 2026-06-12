@@ -230,7 +230,7 @@ export default function App() {
       case 'brief':      return ['lead','super'].includes(me?.role) ? <BriefPage /> : <MemberHome me={m} setRoute={setRoute} />;
       case 'ideas':      return <IdeasPage me={m} showToast={showToast} />;
       case 'tasks':      return <TasksPage me={m} showToast={showToast} />;
-      case 'tools':      return <ToolsPage me={m} />;
+      case 'tools':      return <ToolsPage me={m} role={role} />;
       default:           return <MemberHome me={m} setRoute={setRoute} />;
     }
   }

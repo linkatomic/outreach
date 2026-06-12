@@ -413,3 +413,38 @@ export async function loadAllReportsForDate(date) {
   if (error) throw error
   return data || []
 }
+
+// ── Live Chat Clients ─────────────────────────────────────
+
+export async function loadLivechatClients() {
+  const { data, error } = await supabase
+    .from('livechat_clients')
+    .select('*')
+    .order('created_at', { ascending: false })
+  if (error) throw error
+  return data || []
+}
+
+export async function createLivechatClient(fields) {
+  const { data, error } = await supabase
+    .from('livechat_clients')
+    .insert(fields)
+    .select().single()
+  if (error) throw error
+  return data
+}
+
+export async function updateLivechatClient(id, fields) {
+  const { data, error } = await supabase
+    .from('livechat_clients')
+    .update({ ...fields, updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .select().single()
+  if (error) throw error
+  return data
+}
+
+export async function deleteLivechatClient(id) {
+  const { error } = await supabase.from('livechat_clients').delete().eq('id', id)
+  if (error) throw error
+}

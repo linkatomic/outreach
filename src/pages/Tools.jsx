@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import { Icon } from '../data.jsx'
 import { loadPriceTable } from '../lib/supabase.js'
 import { SheetParser } from './SheetParser.jsx'
+import { LiveChatClients } from './LiveChat.jsx'
 
 // ─── shared helpers ────────────────────────────────────────────────────────────
 
@@ -992,14 +993,15 @@ function PriceCalc({ priceMap, loading, error }) {
 // ─── Tool registry ─────────────────────────────────────────────────────────────
 
 const TOOLS = [
-  { id: 'sheet-parser',  title: 'Sheet Parser',            desc: 'Paste a reseller Google Sheet URL — AI detects columns and creates a clean output sheet with buyer prices', icon: 'download', tag: 'Sheets'  },
-  { id: 'combined-calc', title: 'Currency & % Calculator', desc: 'Apply % discount/markup, convert currency, get post price with buyer/reseller lookup',                       icon: 'globe',    tag: 'Pricing' },
-  { id: 'price-calc',    title: 'Price Calculator',        desc: 'Convert admin price to buyer & reseller price instantly',                                                     icon: 'tool',     tag: 'Pricing' },
+  { id: 'sheet-parser',   title: 'Sheet Parser',            desc: 'Paste a reseller Google Sheet URL — AI detects columns and creates a clean output sheet with buyer prices', icon: 'download', tag: 'Sheets'   },
+  { id: 'combined-calc',  title: 'Currency & % Calculator', desc: 'Apply % discount/markup, convert currency, get post price with buyer/reseller lookup',                       icon: 'globe',    tag: 'Pricing'  },
+  { id: 'price-calc',     title: 'Price Calculator',        desc: 'Convert admin price to buyer & reseller price instantly',                                                     icon: 'tool',     tag: 'Pricing'  },
+  { id: 'livechat-clients', title: 'Live Chat Clients',     desc: 'Manage live chat team clients — order sheets, article costs, discounts, buyer/reseller types',               icon: 'users',    tag: 'LiveChat', roles: ['livechat', 'lead', 'super'] },
 ]
 
 // ─── Tools Page ────────────────────────────────────────────────────────────────
 
-export function ToolsPage({ me }) {
+export function ToolsPage({ me, role }) {
   const [activeTool, setActiveTool] = useState(null)
   const [priceMap, setPriceMap] = useState(new Map())
   const [loading, setLoading] = useState(true)
@@ -1047,7 +1049,7 @@ export function ToolsPage({ me }) {
 
       {!activeTool ? (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 16 }}>
-          {TOOLS.map(tool => (
+          {TOOLS.filter(t => !t.roles || t.roles.includes(role)).map(tool => (
             <div key={tool.id} className="card" onClick={() => setActiveTool(tool.id)} style={{ cursor: 'pointer' }}>
               <div className="card-pad" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                 <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
@@ -1111,6 +1113,8 @@ export function ToolsPage({ me }) {
             <CombinedCalc priceMap={priceMap} fxRates={fxRates} fxLoading={fxLoading} fxError={fxError} fxUpdatedAt={fxUpdatedAt} onRefreshRates={fetchRates} />
           </div>
         </div>
+      ) : activeTool === 'livechat-clients' ? (
+        <LiveChatClients me={me} />
       ) : null}
     </div>
   )
