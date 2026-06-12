@@ -14,7 +14,7 @@ import { TasksPage } from './pages/Tasks.jsx'
 import { ToolsPage } from './pages/Tools.jsx'
 import { LiveChatHome } from './pages/LiveChatHome.jsx'
 import { LiveChatTeam } from './pages/LiveChatTeam.jsx'
-import { LiveChatToolsPage } from './pages/LiveChat.jsx'
+import { LiveChatToolsPage, LiveChatClients } from './pages/LiveChat.jsx'
 
 const TWEAK_DEFAULTS = { dark: true };
 
@@ -235,9 +235,9 @@ export default function App() {
       case 'ideas':      return <IdeasPage me={m} showToast={showToast} />;
       case 'tasks':      return <TasksPage me={m} showToast={showToast} />;
       case 'tools':      return <ToolsPage me={m} role={role} />;
-      case 'lc-home':   return <LiveChatHome me={m} />;
-      case 'lc-team':   return <LiveChatTeam />;
-      case 'lc-tools':  return <LiveChatToolsPage me={m} />;
+      case 'lc-home':    return <LiveChatHome me={m} />;
+      case 'lc-clients': return <LiveChatClients me={m} />;
+      case 'lc-team':    return <LiveChatTeam />;
       default:           return <MemberHome me={m} setRoute={setRoute} />;
     }
   }

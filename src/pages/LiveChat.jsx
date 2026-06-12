@@ -241,7 +241,13 @@ export function LiveChatClients({ me }) {
   const active    = clients.filter(c => c.status === 'active').length
 
   return (
-    <div>
+    <div className="page" style={{ maxWidth: 900 }}>
+      <div className="page-head">
+        <div>
+          <h1>Clients</h1>
+          <div className="sub">{clients.length} client{clients.length !== 1 ? 's' : ''} · {active} active</div>
+        </div>
+      </div>
       {/* Toolbar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
         <input className="input" placeholder="Search clients…" value={search}
