@@ -3,7 +3,7 @@ import { TEAM, Icon, fmtDateShort, fmtRel } from '../data.jsx'
 import { loadAllReportsForDate } from '../lib/supabase.js'
 
 // ────────────────────── Sidebar ──────────────────────
-export function Sidebar({ route, setRoute, role, me, impersonatedId, openCmdK, todayDone, onLogout }) {
+export function Sidebar({ route, setRoute, role, me, impersonatedId, openCmdK, todayDone, onLogout, dept, setDept }) {
   const navItems = [
     { id: 'home',      label: 'Home',         icon: 'home',   kbd: 'G H' },
     { id: 'report',    label: 'Daily Report', icon: 'report', kbd: 'G R', badge: todayDone ? 'done' : 'todo' },
@@ -19,11 +19,19 @@ export function Sidebar({ route, setRoute, role, me, impersonatedId, openCmdK, t
     { id: 'leaderboard', label: 'Leaderboard',  icon: 'trophy' },
     { id: 'brief',       label: 'Design Brief', icon: 'layers' },
   ];
+  const lcNavItems = [
+    { id: 'lc-home',  label: 'Home',  icon: 'home' },
+    { id: 'lc-team',  label: 'Team',  icon: 'users' },
+    { id: 'lc-tools', label: 'Tools', icon: 'tool' },
+  ];
+
+  // Who can switch departments
+  const canSwitchDept = ['lead', 'super'].includes(me.role) && !impersonatedId;
 
   // Show manage section for: lead, super (when not impersonating), or impersonating a lead
-  const showManageItems = me.role === 'lead'
+  const showManageItems = (me.role === 'lead'
     || (me.role === 'super' && !impersonatedId)
-    || role === 'lead';
+    || role === 'lead') && dept === 'outreach';
 
   // Identity shown in footer: impersonated user or real user
   const displayUser = impersonatedId
@@ -43,6 +51,20 @@ export function Sidebar({ route, setRoute, role, me, impersonatedId, openCmdK, t
         <span className="brand-meta">v0.4</span>
       </div>
 
+      {/* Department switcher — only for lead/super */}
+      {canSwitchDept && (
+        <div className="nav-section">
+          <div style={{ display: 'flex', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 7, padding: 3, gap: 3 }}>
+            {[{ id: 'outreach', label: 'Outreach' }, { id: 'livechat', label: 'Live Chat' }].map(d => (
+              <button key={d.id} onClick={() => { setDept(d.id); setRoute(d.id === 'livechat' ? 'lc-home' : 'home') }}
+                style={{ flex: 1, height: 26, borderRadius: 5, border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: dept === d.id ? 700 : 400, background: dept === d.id ? 'var(--accent)' : 'transparent', color: dept === d.id ? 'var(--accent-ink)' : 'var(--text-faint)', transition: 'background .15s, color .15s' }}>
+                {d.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="nav-section">
         <button className="btn" style={{ justifyContent: 'flex-start', padding: '6px 10px', height: 30, gap: 8 }}
                 onClick={openCmdK}>
@@ -52,29 +74,43 @@ export function Sidebar({ route, setRoute, role, me, impersonatedId, openCmdK, t
         </button>
       </div>
 
-      <div className="nav-section">
-        <div className="nav-section-title">Workspace</div>
-        {navItems.map(it => (
-          <div key={it.id} className={`nav-item ${route === it.id ? 'active' : ''}`} onClick={() => setRoute(it.id)}>
-            <Icon name={it.icon} size={15} />
-            <span>{it.label}</span>
-            {it.badge === 'done' && <span className="badge" style={{ background: 'transparent', color: 'var(--accent)' }}>✓</span>}
-            {it.badge === 'todo' && <span className="badge accent">!</span>}
-          </div>
-        ))}
-      </div>
-
-      {showManageItems && (
+      {dept === 'livechat' ? (
         <div className="nav-section">
-          <div className="nav-section-title">Manage</div>
-          {leadItems.map(it => (
+          <div className="nav-section-title">Live Chat</div>
+          {lcNavItems.map(it => (
             <div key={it.id} className={`nav-item ${route === it.id ? 'active' : ''}`} onClick={() => setRoute(it.id)}>
               <Icon name={it.icon} size={15} />
               <span>{it.label}</span>
-              {typeof it.badge === 'number' && <span className="badge">{it.badge}</span>}
             </div>
           ))}
         </div>
+      ) : (
+        <>
+          <div className="nav-section">
+            <div className="nav-section-title">Workspace</div>
+            {navItems.map(it => (
+              <div key={it.id} className={`nav-item ${route === it.id ? 'active' : ''}`} onClick={() => setRoute(it.id)}>
+                <Icon name={it.icon} size={15} />
+                <span>{it.label}</span>
+                {it.badge === 'done' && <span className="badge" style={{ background: 'transparent', color: 'var(--accent)' }}>✓</span>}
+                {it.badge === 'todo' && <span className="badge accent">!</span>}
+              </div>
+            ))}
+          </div>
+
+          {showManageItems && (
+            <div className="nav-section">
+              <div className="nav-section-title">Manage</div>
+              {leadItems.map(it => (
+                <div key={it.id} className={`nav-item ${route === it.id ? 'active' : ''}`} onClick={() => setRoute(it.id)}>
+                  <Icon name={it.icon} size={15} />
+                  <span>{it.label}</span>
+                  {typeof it.badge === 'number' && <span className="badge">{it.badge}</span>}
+                </div>
+              ))}
+            </div>
+          )}
+        </>
       )}
 
       <div className="nav-section">
@@ -116,6 +152,7 @@ export function Topbar({ route, role, theme, toggleTheme, openCmdK, notifOpen, s
     analytics: ['Analytics'], team: ['Team'], review: ['Manage', 'Review Queue'],
     leaderboard: ['Manage', 'Leaderboard'], settings: ['Settings'],
     shortcuts: ['Shortcuts'], brief: ['Design Brief'],
+    'lc-home': ['Live Chat', 'Home'], 'lc-team': ['Live Chat', 'Team'], 'lc-tools': ['Live Chat', 'Tools'],
   }[route] || ['Home'];
 
   return (

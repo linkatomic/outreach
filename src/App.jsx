@@ -12,6 +12,9 @@ import { LoginPage } from './pages/Login.jsx'
 import { IdeasPage } from './pages/Ideas.jsx'
 import { TasksPage } from './pages/Tasks.jsx'
 import { ToolsPage } from './pages/Tools.jsx'
+import { LiveChatHome } from './pages/LiveChatHome.jsx'
+import { LiveChatTeam } from './pages/LiveChatTeam.jsx'
+import { LiveChatToolsPage } from './pages/LiveChat.jsx'
 
 const TWEAK_DEFAULTS = { dark: true };
 
@@ -44,6 +47,7 @@ export default function App() {
 
   // App state
   const [route, setRoute]           = useState('home');
+  const [dept, setDept]             = useState('outreach');
   const [cmdOpen, setCmdOpen]       = useState(false);
   const [toast, setToast]           = useState(null);
   const [loginError, setLoginError] = useState(null);
@@ -231,6 +235,9 @@ export default function App() {
       case 'ideas':      return <IdeasPage me={m} showToast={showToast} />;
       case 'tasks':      return <TasksPage me={m} showToast={showToast} />;
       case 'tools':      return <ToolsPage me={m} role={role} />;
+      case 'lc-home':   return <LiveChatHome me={m} />;
+      case 'lc-team':   return <LiveChatTeam />;
+      case 'lc-tools':  return <LiveChatToolsPage me={m} />;
       default:           return <MemberHome me={m} setRoute={setRoute} />;
     }
   }
@@ -267,7 +274,8 @@ export default function App() {
       <Sidebar route={route} setRoute={setRoute} role={role} me={me}
                impersonatedId={impersonatedId}
                openCmdK={() => setCmdOpen(true)} todayDone={todayDone}
-               onLogout={() => { setImpersonatedId(null); supabase.auth.signOut(); }} />
+               onLogout={() => { setImpersonatedId(null); supabase.auth.signOut(); }}
+               dept={dept} setDept={setDept} />
       <div className="main">
         <Topbar route={route} role={role}
                 theme={theme} toggleTheme={() => setTweak('dark', !t.dark)}

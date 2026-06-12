@@ -1,5 +1,56 @@
 import { useState, useEffect } from 'react'
 import { Icon } from '../data.jsx'
+
+// ── Tools page wrapper ─────────────────────────────────────
+const LC_TOOLS = [
+  { id: 'clients', title: 'Client Manager', desc: 'Add and manage live chat clients — order sheets, article costs, discounts, buyer/reseller types', icon: 'users', tag: 'CRM' },
+]
+
+export function LiveChatToolsPage({ me }) {
+  const [activeTool, setActiveTool] = useState(null)
+
+  return (
+    <div className="page" style={{ maxWidth: 900 }}>
+      <div className="page-head">
+        <div>
+          <h1>Tools</h1>
+          <div className="sub">Live Chat team tools</div>
+        </div>
+        {activeTool && (
+          <button className="btn ghost" onClick={() => setActiveTool(null)} style={{ fontSize: 12 }}>← All Tools</button>
+        )}
+      </div>
+
+      {!activeTool ? (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 16 }}>
+          {LC_TOOLS.map(tool => (
+            <div key={tool.id} className="card" onClick={() => setActiveTool(tool.id)} style={{ cursor: 'pointer' }}>
+              <div className="card-pad" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+                  <div style={{ width: 40, height: 40, borderRadius: 10, background: 'color-mix(in srgb, var(--accent) 15%, transparent)', display: 'grid', placeItems: 'center', color: 'var(--accent)' }}>
+                    <Icon name={tool.icon} size={20} />
+                  </div>
+                  {tool.tag && (
+                    <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase', color: 'var(--text-faint)', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 4, padding: '2px 6px' }}>{tool.tag}</span>
+                  )}
+                </div>
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 4 }}>{tool.title}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-faint)', lineHeight: 1.5 }}>{tool.desc}</div>
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                  Open <Icon name="arrow" size={11} />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : activeTool === 'clients' ? (
+        <LiveChatClients me={me} />
+      ) : null}
+    </div>
+  )
+}
 import {
   loadLivechatClients, createLivechatClient,
   updateLivechatClient, deleteLivechatClient,
