@@ -20,9 +20,10 @@ export function Sidebar({ route, setRoute, role, me, impersonatedId, openCmdK, t
     { id: 'brief',       label: 'Design Brief', icon: 'layers' },
   ];
   const lcNavItems = [
-    { id: 'lc-home',    label: 'Home',    icon: 'home' },
-    { id: 'lc-clients', label: 'Clients', icon: 'users' },
-    { id: 'lc-team',    label: 'Team',    icon: 'users' },
+    { id: 'lc-home',    label: 'Home',         icon: 'home' },
+    { id: 'lc-clients', label: 'Clients',       icon: 'users' },
+    { id: 'lc-orders',  label: 'Order Sheet',   icon: 'download' },
+    { id: 'lc-team',    label: 'Team',          icon: 'users' },
   ];
 
   // Who can switch departments
@@ -152,7 +153,8 @@ export function Topbar({ route, role, theme, toggleTheme, openCmdK, notifOpen, s
     analytics: ['Analytics'], team: ['Team'], review: ['Manage', 'Review Queue'],
     leaderboard: ['Manage', 'Leaderboard'], settings: ['Settings'],
     shortcuts: ['Shortcuts'], brief: ['Design Brief'],
-    'lc-home': ['Live Chat', 'Home'], 'lc-team': ['Live Chat', 'Team'], 'lc-clients': ['Live Chat', 'Clients'],
+    'lc-home': ['Live Chat', 'Home'], 'lc-team': ['Live Chat', 'Team'],
+    'lc-clients': ['Live Chat', 'Clients'], 'lc-orders': ['Live Chat', 'Order Sheet'],
   }[route] || ['Home'];
 
   return (

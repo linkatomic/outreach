@@ -15,6 +15,7 @@ import { ToolsPage } from './pages/Tools.jsx'
 import { LiveChatHome } from './pages/LiveChatHome.jsx'
 import { LiveChatTeam } from './pages/LiveChatTeam.jsx'
 import { LiveChatToolsPage, LiveChatClients } from './pages/LiveChat.jsx'
+import { LiveChatOrderSheet } from './pages/LiveChatOrderSheet.jsx'
 
 const TWEAK_DEFAULTS = { dark: true };
 
@@ -237,6 +238,7 @@ export default function App() {
       case 'tools':      return <ToolsPage me={m} role={role} />;
       case 'lc-home':    return <LiveChatHome me={m} />;
       case 'lc-clients': return <LiveChatClients me={m} />;
+      case 'lc-orders':  return <LiveChatOrderSheet me={m} />;
       case 'lc-team':    return <LiveChatTeam />;
       default:           return <MemberHome me={m} setRoute={setRoute} />;
     }

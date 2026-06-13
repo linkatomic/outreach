@@ -508,3 +508,27 @@ export function parsePrice(raw) {
   const num = parseFloat(s.replace(/[^0-9.]/g, ''))
   return isNaN(num) ? null : num
 }
+
+// ── Sheet mutation helpers ────────────────────────────────
+
+export async function addSheetTab(spreadsheetId, title) {
+  const res = await gsheets(`/spreadsheets/${spreadsheetId}:batchUpdate`, {
+    method: 'POST',
+    body: JSON.stringify({ requests: [{ addSheet: { properties: { title } } }] }),
+  })
+  return res.replies?.[0]?.addSheet?.properties?.sheetId
+}
+
+export async function writeRangeValues(spreadsheetId, range, values) {
+  return gsheets(
+    `/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`,
+    { method: 'PUT', body: JSON.stringify({ values }) }
+  )
+}
+
+export async function batchWriteRangeValues(spreadsheetId, data) {
+  return gsheets(`/spreadsheets/${spreadsheetId}/values:batchUpdate`, {
+    method: 'POST',
+    body: JSON.stringify({ valueInputOption: 'USER_ENTERED', data }),
+  })
+}
