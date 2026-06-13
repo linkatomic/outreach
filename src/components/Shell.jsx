@@ -3,7 +3,7 @@ import { TEAM, Icon, fmtDateShort, fmtRel } from '../data.jsx'
 import { loadAllReportsForDate } from '../lib/supabase.js'
 
 // ────────────────────── Sidebar ──────────────────────
-export function Sidebar({ route, setRoute, role, me, impersonatedId, openCmdK, todayDone, onLogout, dept, setDept }) {
+export function Sidebar({ route, setRoute, role, me, allUsers = [], impersonatedId, openCmdK, todayDone, onLogout, dept, setDept }) {
   const navItems = [
     { id: 'home',      label: 'Home',         icon: 'home',   kbd: 'G H' },
     { id: 'report',    label: 'Daily Report', icon: 'report', kbd: 'G R', badge: todayDone ? 'done' : 'todo' },
@@ -40,7 +40,7 @@ export function Sidebar({ route, setRoute, role, me, impersonatedId, openCmdK, t
 
   // Identity shown in footer: impersonated user or real user
   const displayUser = impersonatedId
-    ? TEAM.find(m => m.id === impersonatedId) || me
+    ? allUsers.find(m => m.id === impersonatedId) || me
     : me;
   const displayRoleLabel = impersonatedId
     ? (displayUser.role === 'lead' ? 'Team Lead' : 'Member')
@@ -151,7 +151,7 @@ export function Sidebar({ route, setRoute, role, me, impersonatedId, openCmdK, t
 }
 
 // ────────────────────── Topbar ──────────────────────
-export function Topbar({ route, role, theme, toggleTheme, openCmdK, notifOpen, setNotifOpen, onLogout, me, impersonatedId, setImpersonatedId }) {
+export function Topbar({ route, role, theme, toggleTheme, openCmdK, notifOpen, setNotifOpen, onLogout, me, allUsers = [], impersonatedId, setImpersonatedId }) {
   const crumbs = {
     home: ['Home'], report: ['Daily Report'], emails: ['Email Log'],
     analytics: ['Analytics'], team: ['Team'], review: ['Manage', 'Review Queue'],
@@ -183,7 +183,7 @@ export function Topbar({ route, role, theme, toggleTheme, openCmdK, notifOpen, s
           {impersonatedId ? (
             <>
               <span style={{ fontSize: 11, color: 'var(--accent)' }}>
-                👁 {TEAM.find(m => m.id === impersonatedId)?.name}
+                👁 {allUsers.find(m => m.id === impersonatedId)?.name}
               </span>
               <button className="btn ghost" style={{ height: 24, padding: '0 8px', fontSize: 11 }}
                       onClick={() => setImpersonatedId(null)}>Exit</button>
@@ -192,7 +192,7 @@ export function Topbar({ route, role, theme, toggleTheme, openCmdK, notifOpen, s
             <select className="input" style={{ height: 28, fontSize: 12, width: 150, cursor: 'pointer' }}
                     value="" onChange={e => e.target.value && setImpersonatedId(e.target.value)}>
               <option value="">Switch to user…</option>
-              {TEAM.filter(m => m.id !== me.id).map(m => (
+              {allUsers.filter(m => m.id !== me.id && m.role !== 'super').map(m => (
                 <option key={m.id} value={m.id}>{m.name} ({m.role})</option>
               ))}
             </select>

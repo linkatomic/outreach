@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { TEAM, ACCENT_PRESETS, reportToday } from './data.jsx'
+import { LC_TEAM } from './pages/LiveChatTeam.jsx'
 import { supabase, getProfile, getProfileByMemberId, saveUserAccent } from './lib/supabase.js'
 import { useTweaks, TweaksPanel, TweakSection, TweakToggle } from './components/TweaksPanel.jsx'
 import { Sidebar, Topbar, CommandPalette, Toast, ShortcutsPage } from './components/Shell.jsx'
@@ -57,9 +58,12 @@ export default function App() {
   const [emailFocus, setEmailFocus] = useState(0);
   const [bulkPaste, setBulkPaste]   = useState(0);
 
+  // All users across both departments (deduped by id) — used for super impersonation
+  const ALL_USERS = [...TEAM, ...LC_TEAM].filter((m, i, a) => a.findIndex(x => x.id === m.id) === i);
+
   // Effective user: when super is impersonating, pages see the impersonated member
   const effectiveMe = (me?.role === 'super' && impersonatedId)
-    ? { ...TEAM.find(m => m.id === impersonatedId) }
+    ? { ...ALL_USERS.find(m => m.id === impersonatedId) }
     : me;
 
   // Role used for nav guards (reflects effectiveMe when impersonating)
@@ -286,7 +290,7 @@ export default function App() {
   // ── Full app ─────────────────────────────────────────
   return (
     <div className="app">
-      <Sidebar route={route} setRoute={setRoute} role={role} me={me}
+      <Sidebar route={route} setRoute={setRoute} role={role} me={me} allUsers={ALL_USERS}
                impersonatedId={impersonatedId}
                openCmdK={() => setCmdOpen(true)} todayDone={todayDone}
                onLogout={() => { setImpersonatedId(null); supabase.auth.signOut(); }}
@@ -297,7 +301,7 @@ export default function App() {
                 openCmdK={() => setCmdOpen(true)}
                 notifOpen={notifOpen} setNotifOpen={setNotifOpen}
                 onLogout={() => { setImpersonatedId(null); supabase.auth.signOut(); }}
-                me={me}
+                me={me} allUsers={ALL_USERS}
                 impersonatedId={impersonatedId} setImpersonatedId={setImpersonatedId} />
         <div className="canvas" onClick={() => { if (notifOpen) setNotifOpen(false); }}>
           {renderPage()}
