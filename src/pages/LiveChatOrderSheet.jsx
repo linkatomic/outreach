@@ -136,12 +136,19 @@ function WritingToggle({ value, onChange }) {
 
 // ── Main wizard ───────────────────────────────────────────
 
+function todayLabel() {
+  const d = new Date()
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+  return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`
+}
+
 export function LiveChatOrderSheet() {
   const [step, setStep]         = useState('client')  // client | config | input | processing | done
   const [client, setClient]     = useState(null)
-  const [niche, setNiche]       = useState('casino')
+  const [niche, setNiche]       = useState('general')
   const [mode, setMode]         = useState('a')        // a=new tab, b=existing sheet
   const [input, setInput]       = useState('')
+  const [sheetName, setSheetName] = useState(todayLabel)
   const [includeWriting, setIncludeWriting] = useState(true)
   const [progress, setProgress] = useState('')
   const [result, setResult]     = useState(null)
@@ -176,7 +183,7 @@ export function LiveChatOrderSheet() {
     try {
       let res
       if (mode === 'a') {
-        res = await createOrderSheet(client, niche, domains, includeWriting, setProgress)
+        res = await createOrderSheet(client, niche, domains, includeWriting, sheetName.trim() || null, setProgress)
       } else {
         res = await fillOrderSheet(client, niche, input.trim(), includeWriting, setProgress)
       }
@@ -282,6 +289,16 @@ export function LiveChatOrderSheet() {
                 <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>{mode === 'a' ? 'New sub-sheet' : 'Fill existing'}</span>
               </div>
 
+              {mode === 'a' && (
+                <div>
+                  <Label>Sheet tab name</Label>
+                  <input className="input" style={{ width: '100%' }}
+                         value={sheetName} onChange={e => setSheetName(e.target.value)}
+                         placeholder={todayLabel()} />
+                  <div style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 5 }}>If a tab with this name already exists, a suffix like (2) will be added automatically.</div>
+                </div>
+              )}
+
               {mode === 'a' ? (
                 <div>
                   <Label>Domains</Label>
@@ -376,7 +393,7 @@ export function LiveChatOrderSheet() {
                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '10px 18px', borderRadius: 8, background: 'var(--accent)', color: 'var(--accent-ink)', textDecoration: 'none', fontWeight: 700, fontSize: 13 }}>
                   <Icon name="arrow" size={13} /> Open Sheet
                 </a>
-                <button className="btn ghost" onClick={() => { setStep('input'); setResult(null); setInput('') }}>
+                <button className="btn ghost" onClick={() => { setStep('input'); setResult(null); setInput(''); setSheetName(todayLabel()) }}>
                   New sheet
                 </button>
               </div>

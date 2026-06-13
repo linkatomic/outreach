@@ -288,9 +288,25 @@ async function formatOrderSheet(spreadsheetId, sheetId, dataRowCount, { hasWriti
   return batchFormatSheet(spreadsheetId, requests)
 }
 
+// ── Unique tab name ───────────────────────────────────────
+
+async function addSheetTabUnique(spreadsheetId, baseName) {
+  let name = baseName
+  for (let attempt = 2; attempt <= 20; attempt++) {
+    try {
+      const sheetId = await addSheetTab(spreadsheetId, name)
+      return { sheetId, sheetTitle: name }
+    } catch (err) {
+      if (!err.message.includes('already exists')) throw err
+      name = `${baseName} (${attempt})`
+    }
+  }
+  throw new Error(`All tab names from "${baseName}" to "${baseName} (20)" already exist. Please rename or delete existing tabs.`)
+}
+
 // ── Mode A: create new sub-sheet tab ─────────────────────
 
-export async function createOrderSheet(client, niche, domains, includeWriting = true, onProgress) {
+export async function createOrderSheet(client, niche, domains, includeWriting = true, customName = null, onProgress) {
   const spreadsheetId = extractSheetId(client.order_sheet_url)
   if (!spreadsheetId) throw new Error('Client record has no valid order sheet URL')
 
@@ -300,10 +316,10 @@ export async function createOrderSheet(client, niche, domains, includeWriting = 
   })
 
   const d = new Date()
-  const sheetTitle = `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`
+  const baseName = customName?.trim() || `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`
 
   onProgress?.('Creating sheet tab…')
-  const sheetId = await addSheetTab(spreadsheetId, sheetTitle)
+  const { sheetId, sheetTitle } = await addSheetTabUnique(spreadsheetId, baseName)
 
   const dataRows    = domains.map(dom => buildDataRow(dom, gplMap.get(dom), niche, client.client_type))
   const summaryRows = buildSummaryRows(dataRows, client, includeWriting)
