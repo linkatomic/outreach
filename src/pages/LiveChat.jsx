@@ -63,7 +63,7 @@ const EMPTY_FORM = {
 }
 
 // ── Client form modal ──────────────────────────────────────
-function ClientModal({ initial, onSave, onClose, saving }) {
+function ClientModal({ initial, onSave, onClose, saving, saveError }) {
   const [form, setForm] = useState(initial || EMPTY_FORM)
   function set(k, v) { setForm(f => ({ ...f, [k]: v })) }
 
@@ -153,6 +153,11 @@ function ClientModal({ initial, onSave, onClose, saving }) {
                       style={{ width: '100%', resize: 'vertical', lineHeight: 1.5 }} />
           </div>
 
+          {saveError && (
+            <div style={{ padding: '10px 14px', borderRadius: 8, background: 'rgba(248,113,113,.1)', border: '1px solid rgba(248,113,113,.3)', fontSize: 13, color: '#f87171' }}>
+              {saveError}
+            </div>
+          )}
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', paddingTop: 4 }}>
             <button type="button" className="btn ghost" onClick={onClose}>Cancel</button>
             <button type="submit" className="btn primary" disabled={saving || !form.client_name.trim()}>
@@ -188,6 +193,7 @@ export function LiveChatClients({ me }) {
   const [filter, setFilter]       = useState('all') // 'all' | 'buyer' | 'reseller' | 'active' | 'inactive'
   const [search, setSearch]       = useState('')
   const [expanded, setExpanded]   = useState(null)  // client id
+  const [saveError, setSaveError] = useState('')
 
   async function load() {
     setLoading(true)
@@ -200,6 +206,7 @@ export function LiveChatClients({ me }) {
 
   async function handleSave(form) {
     setSaving(true)
+    setSaveError('')
     try {
       const payload = {
         client_name: form.client_name.trim(),
@@ -218,9 +225,11 @@ export function LiveChatClients({ me }) {
         await createLivechatClient({ ...payload, created_by: me.id })
       }
       setModal(null)
+      setSaveError('')
       await load()
-    } catch { /* silent */ }
-    finally { setSaving(false) }
+    } catch (err) {
+      setSaveError(err?.message || 'Save failed — please try again')
+    } finally { setSaving(false) }
   }
 
   async function handleDelete(id) {
@@ -405,8 +414,9 @@ export function LiveChatClients({ me }) {
         <ClientModal
           initial={modal === 'add' ? null : modal}
           onSave={handleSave}
-          onClose={() => setModal(null)}
+          onClose={() => { setModal(null); setSaveError('') }}
           saving={saving}
+          saveError={saveError}
         />
       )}
 

@@ -437,7 +437,7 @@ export async function createLivechatClient(fields) {
 export async function updateLivechatClient(id, fields) {
   const { data, error } = await supabase
     .from('livechat_clients')
-    .update({ ...fields, updated_at: new Date().toISOString() })
+    .update(fields)
     .eq('id', id)
     .select().single()
   if (error) throw error
