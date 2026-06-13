@@ -143,16 +143,26 @@ function todayLabel() {
 }
 
 export function LiveChatOrderSheet() {
-  const [step, setStep]         = useState('client')  // client | config | input | processing | done
-  const [client, setClient]     = useState(null)
-  const [niche, setNiche]       = useState('general')
-  const [mode, setMode]         = useState('a')        // a=new tab, b=existing sheet
-  const [input, setInput]       = useState('')
+  const [step, setStep]           = useState('client')  // client | config | input | processing | done
+  const [client, setClient]       = useState(null)
+  const [niche, setNiche]         = useState('general')
+  const [mode, setMode]           = useState('a')        // a=new tab, b=existing sheet
+  const [input, setInput]         = useState('')
   const [sheetName, setSheetName] = useState(todayLabel)
   const [includeWriting, setIncludeWriting] = useState(true)
-  const [progress, setProgress] = useState('')
-  const [result, setResult]     = useState(null)
-  const [error, setError]       = useState('')
+  const [discountEnabled, setDiscountEnabled] = useState(false)
+  const [customDiscount, setCustomDiscount]   = useState('')
+  const [progress, setProgress]   = useState('')
+  const [result, setResult]       = useState(null)
+  const [error, setError]         = useState('')
+
+  // Init discount from client whenever client changes
+  useEffect(() => {
+    if (!client) return
+    const pd = parseFloat(client.permanent_discount) || 0
+    setDiscountEnabled(pd > 0)
+    setCustomDiscount(pd > 0 ? String(pd) : '')
+  }, [client])
 
   function selectClient(c) {
     setClient(c)
@@ -180,12 +190,14 @@ export function LiveChatOrderSheet() {
     setStep('processing')
     setProgress('Starting…')
 
+    const discountPct = discountEnabled ? (parseFloat(customDiscount) || 0) : 0
+
     try {
       let res
       if (mode === 'a') {
-        res = await createOrderSheet(client, niche, domains, includeWriting, sheetName.trim() || null, setProgress)
+        res = await createOrderSheet(client, niche, domains, includeWriting, sheetName.trim() || null, discountPct, setProgress)
       } else {
-        res = await fillOrderSheet(client, niche, input.trim(), includeWriting, setProgress)
+        res = await fillOrderSheet(client, niche, input.trim(), includeWriting, discountPct, setProgress)
       }
       setResult(res)
       setStep('done')
@@ -335,6 +347,35 @@ export function LiveChatOrderSheet() {
               )}
 
               <WritingToggle value={includeWriting} onChange={setIncludeWriting} />
+
+              {/* Discount toggle */}
+              <div
+                style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderRadius: 8, border: `1.5px solid ${discountEnabled ? 'var(--accent)' : 'var(--border)'}`, background: discountEnabled ? 'color-mix(in srgb, var(--accent) 6%, transparent)' : 'var(--surface)', userSelect: 'none' }}
+              >
+                <div onClick={() => setDiscountEnabled(v => !v)} style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1, cursor: 'pointer' }}>
+                  <div style={{ width: 36, height: 20, borderRadius: 10, background: discountEnabled ? 'var(--accent)' : 'var(--border)', position: 'relative', flexShrink: 0, transition: 'background .15s' }}>
+                    <div style={{ position: 'absolute', top: 3, left: discountEnabled ? 19 : 3, width: 14, height: 14, borderRadius: '50%', background: discountEnabled ? 'var(--accent-ink)' : 'var(--bg)', transition: 'left .15s' }} />
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: 13 }}>Apply discount</div>
+                    <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 1 }}>
+                      {discountEnabled ? 'Overrides permanent discount — enter any % below' : 'No discount row in sheet (permanent discount ignored)'}
+                    </div>
+                  </div>
+                </div>
+                {discountEnabled && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
+                    <input
+                      type="number" min="0" max="100" step="0.1"
+                      value={customDiscount}
+                      onChange={e => setCustomDiscount(e.target.value)}
+                      placeholder="0"
+                      style={{ width: 64, padding: '5px 8px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13, fontFamily: 'var(--font-mono)', textAlign: 'right', outline: 'none' }}
+                    />
+                    <span style={{ fontSize: 13, color: 'var(--text-faint)' }}>%</span>
+                  </div>
+                )}
+              </div>
 
               {error && (
                 <div style={{ padding: '10px 14px', borderRadius: 8, background: 'rgba(248,113,113,.1)', border: '1px solid rgba(248,113,113,.25)', fontSize: 13, color: '#f87171' }}>

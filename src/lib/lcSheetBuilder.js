@@ -102,13 +102,13 @@ function buildDataRow(domain, siteData, niche, clientType) {
   return row
 }
 
-export function buildSummaryRows(dataRows, client, includeWriting = true) {
+export function buildSummaryRows(dataRows, client, includeWriting = true, discountPct = null) {
   const prices       = dataRows.map(r => Number(r[C.PRICE])).filter(p => !isNaN(p) && p > 0)
   const articlePub   = Math.round(prices.reduce((s, p) => s + p, 0) * 100) / 100
   const domainCount  = dataRows.filter(r => r[C.DOMAIN]).length
   const articleCost  = parseFloat(client.article_cost) || 0
   const writingCost  = Math.round(domainCount * articleCost * 100) / 100
-  const discount     = parseFloat(client.permanent_discount) || 0
+  const discount     = discountPct !== null ? discountPct : (parseFloat(client.permanent_discount) || 0)
   const total        = Math.round((articlePub + (includeWriting ? writingCost : 0)) * 100) / 100
 
   const blank = () => Array(NUM_COLS).fill('')
@@ -306,7 +306,7 @@ async function addSheetTabUnique(spreadsheetId, baseName) {
 
 // ── Mode A: create new sub-sheet tab ─────────────────────
 
-export async function createOrderSheet(client, niche, domains, includeWriting = true, customName = null, onProgress) {
+export async function createOrderSheet(client, niche, domains, includeWriting = true, customName = null, discountPct = null, onProgress) {
   const spreadsheetId = extractSheetId(client.order_sheet_url)
   if (!spreadsheetId) throw new Error('Client record has no valid order sheet URL')
 
@@ -322,17 +322,17 @@ export async function createOrderSheet(client, niche, domains, includeWriting = 
   const { sheetId, sheetTitle } = await addSheetTabUnique(spreadsheetId, baseName)
 
   const dataRows    = domains.map(dom => buildDataRow(dom, gplMap.get(dom), niche, client.client_type))
-  const summaryRows = buildSummaryRows(dataRows, client, includeWriting)
+  const effectiveDiscount = discountPct !== null ? discountPct : (parseFloat(client.permanent_discount) || 0)
+  const summaryRows = buildSummaryRows(dataRows, client, includeWriting, discountPct)
   const allRows     = [HEADERS, ...dataRows, ...summaryRows]
 
   onProgress?.('Writing data…')
   await writeRangeValues(spreadsheetId, `'${sheetTitle}'!A1:T${allRows.length}`, allRows)
 
   onProgress?.('Applying formatting…')
-  const discount = parseFloat(client.permanent_discount) || 0
   await formatOrderSheet(spreadsheetId, sheetId, domains.length, {
     hasWriting: includeWriting,
-    hasDiscount: discount > 0,
+    hasDiscount: effectiveDiscount > 0,
   })
 
   return {
@@ -355,7 +355,7 @@ const API_COLS = [
   { header: 'Rules',              idx: C.RULES },
 ]
 
-export async function fillOrderSheet(client, niche, subSheetUrl, includeWriting = true, onProgress) {
+export async function fillOrderSheet(client, niche, subSheetUrl, includeWriting = true, discountPct = null, onProgress) {
   const spreadsheetId = extractSheetId(subSheetUrl)
   if (!spreadsheetId) throw new Error('Invalid sheet URL')
 
@@ -408,7 +408,7 @@ export async function fillOrderSheet(client, niche, subSheetUrl, includeWriting 
 
   // Summary section
   const freshDataRows  = dataRowsRaw.map(r => buildDataRow(cleanDomain(String(r[domainColIdx] || '')), gplMap.get(cleanDomain(String(r[domainColIdx] || ''))), niche, client.client_type))
-  const summaryRows    = buildSummaryRows(freshDataRows, client, includeWriting)
+  const summaryRows    = buildSummaryRows(freshDataRows, client, includeWriting, discountPct)
   const lastDataRow    = headerRowIdx + 1 + dataRowsRaw.length // 1-indexed
   const domCol   = String.fromCharCode(65 + (colMap['Domain'] ?? C.DOMAIN))
   const priceCol = String.fromCharCode(65 + (colMap['Price']  ?? C.PRICE))
@@ -424,11 +424,11 @@ export async function fillOrderSheet(client, niche, subSheetUrl, includeWriting 
 
   // Format summary section only
   onProgress?.('Applying formatting…')
-  const discount    = parseFloat(client.permanent_discount) || 0
+  const effectiveDiscount = discountPct !== null ? discountPct : (parseFloat(client.permanent_discount) || 0)
   const artPubRow   = lastDataRow + 3  // 0-indexed (lastDataRow is 1-indexed, +3 blank rows)
   const writSvcRow  = includeWriting ? artPubRow + 1 : -1
   const totalRow    = artPubRow + (includeWriting ? 2 : 1)
-  const discountRow = discount > 0 ? totalRow + 1 : -1
+  const discountRow = effectiveDiscount > 0 ? totalRow + 1 : -1
 
   const AMBER     = { red: 1.0,  green: 0.937, blue: 0.835 }
   const LIME      = { red: 0.851, green: 0.918, blue: 0.827 }
