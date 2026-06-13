@@ -51,10 +51,154 @@ export function LiveChatToolsPage({ me }) {
     </div>
   )
 }
+import { useRef } from 'react'
 import {
   loadLivechatClients, createLivechatClient,
-  updateLivechatClient, deleteLivechatClient,
+  updateLivechatClient, deleteLivechatClient, bulkCreateLivechatClients,
 } from '../lib/supabase.js'
+
+// ── CSV helpers ────────────────────────────────────────────
+
+const CSV_HEADERS = ['client_name','client_type','status','article_cost','permanent_discount','order_sheet_url','contact_name','contact_email','notes']
+const CSV_TEMPLATE = [
+  CSV_HEADERS.join(','),
+  'Acme Corp,buyer,active,25,10,https://docs.google.com/spreadsheets/d/YOUR_ID,Jane Smith,jane@acme.com,VIP client',
+  'Beta LLC,reseller,active,15,,,,, ',
+].join('\n')
+
+function downloadTemplate() {
+  const blob = new Blob([CSV_TEMPLATE], { type: 'text/csv' })
+  const url  = URL.createObjectURL(blob)
+  const a    = Object.assign(document.createElement('a'), { href: url, download: 'clients_template.csv' })
+  a.click(); URL.revokeObjectURL(url)
+}
+
+function parseCSVRow(line) {
+  const result = []; let cur = ''; let inQ = false
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i]
+    if (c === '"') { if (inQ && line[i+1] === '"') { cur += '"'; i++ } else inQ = !inQ }
+    else if (c === ',' && !inQ) { result.push(cur); cur = '' }
+    else cur += c
+  }
+  result.push(cur); return result
+}
+
+function parseCSV(text) {
+  const lines = text.replace(/\r/g, '').trim().split('\n').filter(l => l.trim())
+  if (lines.length < 2) return { rows: [], errors: ['File appears empty or has no data rows'] }
+  const headers = parseCSVRow(lines[0]).map(h => h.trim().toLowerCase().replace(/\s+/g, '_'))
+  const rows = []; const errors = []
+  lines.slice(1).forEach((line, i) => {
+    const vals = parseCSVRow(line)
+    const obj  = {}
+    headers.forEach((h, j) => { obj[h] = (vals[j] || '').trim() })
+    if (!obj.client_name) { errors.push(`Row ${i + 2}: missing client_name — skipped`); return }
+    rows.push({
+      client_name:       obj.client_name,
+      client_type:       ['buyer','reseller'].includes(obj.client_type) ? obj.client_type : 'buyer',
+      status:            ['active','paused','inactive'].includes(obj.status) ? obj.status : 'active',
+      article_cost:      obj.article_cost      ? parseFloat(obj.article_cost)      : null,
+      permanent_discount:obj.permanent_discount ? parseFloat(obj.permanent_discount): null,
+      order_sheet_url:   obj.order_sheet_url   || null,
+      contact_name:      obj.contact_name       || null,
+      contact_email:     obj.contact_email      || null,
+      notes:             obj.notes              || null,
+    })
+  })
+  return { rows, errors }
+}
+
+// ── Import preview modal ───────────────────────────────────
+function ImportModal({ parsed, createdBy, onDone, onClose }) {
+  const [importing, setImporting] = useState(false)
+  const [result, setResult]       = useState(null)
+  const [err, setErr]             = useState('')
+
+  async function doImport() {
+    setImporting(true); setErr('')
+    try {
+      const payload = parsed.rows.map(r => ({ ...r, created_by: createdBy }))
+      await bulkCreateLivechatClients(payload)
+      setResult(parsed.rows.length)
+    } catch (e) { setErr(e?.message || 'Import failed') }
+    finally { setImporting(false) }
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.6)', zIndex: 300, display: 'grid', placeItems: 'center', padding: 20 }}
+         onClick={result ? onDone : onClose}>
+      <div style={{ background: 'var(--surface)', borderRadius: 14, width: '100%', maxWidth: 620, boxShadow: '0 24px 64px rgba(0,0,0,.5)', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}
+           onClick={e => e.stopPropagation()}>
+
+        <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+          <h3 style={{ margin: 0, fontSize: 16 }}>{result != null ? 'Import complete' : 'Import preview'}</h3>
+          <button className="btn ghost" onClick={result ? onDone : onClose}><Icon name="x" size={14} /></button>
+        </div>
+
+        <div style={{ padding: 24, overflowY: 'auto', flex: 1 }}>
+          {result != null ? (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, padding: '24px 0' }}>
+              <div style={{ width: 48, height: 48, borderRadius: 12, background: 'rgba(74,222,128,.12)', display: 'grid', placeItems: 'center', color: '#4ade80' }}>
+                <Icon name="check" size={24} />
+              </div>
+              <div style={{ fontWeight: 700, fontSize: 18 }}>{result} client{result !== 1 ? 's' : ''} imported</div>
+              <button className="btn primary" onClick={onDone}>Done</button>
+            </div>
+          ) : (
+            <>
+              <div style={{ display: 'flex', gap: 16, marginBottom: 16 }}>
+                <div style={{ padding: '10px 16px', borderRadius: 8, background: 'color-mix(in srgb, var(--accent) 10%, transparent)', border: '1px solid color-mix(in srgb, var(--accent) 25%, transparent)', fontSize: 13 }}>
+                  <strong>{parsed.rows.length}</strong> client{parsed.rows.length !== 1 ? 's' : ''} ready to import
+                </div>
+                {parsed.errors.length > 0 && (
+                  <div style={{ padding: '10px 16px', borderRadius: 8, background: 'rgba(248,113,113,.08)', border: '1px solid rgba(248,113,113,.2)', fontSize: 13, color: '#f87171' }}>
+                    <strong>{parsed.errors.length}</strong> row{parsed.errors.length !== 1 ? 's' : ''} skipped
+                  </div>
+                )}
+              </div>
+
+              {parsed.errors.length > 0 && (
+                <div style={{ marginBottom: 16 }}>
+                  {parsed.errors.map((e, i) => (
+                    <div key={i} style={{ fontSize: 12, color: '#f87171', padding: '2px 0' }}>{e}</div>
+                  ))}
+                </div>
+              )}
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {parsed.rows.map((r, i) => (
+                  <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 70px 60px', gap: 12, padding: '8px 12px', borderRadius: 6, background: 'var(--bg)', border: '1px solid var(--border)', fontSize: 13, alignItems: 'center' }}>
+                    <div>
+                      <div style={{ fontWeight: 500 }}>{r.client_name}</div>
+                      {r.contact_email && <div style={{ fontSize: 11, color: 'var(--text-faint)' }}>{r.contact_email}</div>}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--text-faint)', textTransform: 'capitalize' }}>{r.client_type}</div>
+                    <div style={{ fontSize: 11 }}>
+                      {r.article_cost != null ? <span style={{ color: 'var(--text-faint)' }}>${r.article_cost}</span> : null}
+                      {r.permanent_discount != null ? <span style={{ color: '#f59e0b', marginLeft: 4 }}>{r.permanent_discount}%</span> : null}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {err && <div style={{ marginTop: 12, padding: '10px 14px', borderRadius: 8, background: 'rgba(248,113,113,.1)', border: '1px solid rgba(248,113,113,.25)', fontSize: 13, color: '#f87171' }}>{err}</div>}
+            </>
+          )}
+        </div>
+
+        {result == null && (
+          <div style={{ padding: '16px 24px', borderTop: '1px solid var(--border)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
+            <button className="btn ghost" onClick={onClose}>Cancel</button>
+            <button className="btn primary" onClick={doImport} disabled={importing || parsed.rows.length === 0}>
+              {importing ? 'Importing…' : `Import ${parsed.rows.length} client${parsed.rows.length !== 1 ? 's' : ''}`}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
 
 const EMPTY_FORM = {
   client_name: '', client_type: 'buyer', order_sheet_url: '',
@@ -194,6 +338,17 @@ export function LiveChatClients({ me }) {
   const [search, setSearch]       = useState('')
   const [expanded, setExpanded]   = useState(null)  // client id
   const [saveError, setSaveError] = useState('')
+  const [importParsed, setImportParsed] = useState(null)
+  const fileInputRef = useRef(null)
+
+  function handleFileChange(e) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    e.target.value = ''
+    const reader = new FileReader()
+    reader.onload = ev => setImportParsed(parseCSV(ev.target.result))
+    reader.readAsText(file)
+  }
 
   async function load() {
     setLoading(true)
@@ -270,9 +425,18 @@ export function LiveChatClients({ me }) {
           <button className={filter === 'active'   ? 'on' : ''} onClick={() => setFilter('active')}>Active {active}</button>
           <button className={filter === 'inactive' ? 'on' : ''} onClick={() => setFilter('inactive')}>Inactive</button>
         </span>
-        <button className="btn primary" style={{ marginLeft: 'auto', flexShrink: 0 }} onClick={() => setModal('add')}>
-          <Icon name="plus" size={13} /> Add Client
-        </button>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexShrink: 0 }}>
+          <button className="btn ghost" style={{ fontSize: 12 }} onClick={downloadTemplate}>
+            <Icon name="download" size={13} /> Template
+          </button>
+          <button className="btn ghost" style={{ fontSize: 12 }} onClick={() => fileInputRef.current?.click()}>
+            <Icon name="arrow" size={13} style={{ transform: 'rotate(-90deg)' }} /> Import CSV
+          </button>
+          <button className="btn primary" onClick={() => setModal('add')}>
+            <Icon name="plus" size={13} /> Add Client
+          </button>
+        </div>
+        <input ref={fileInputRef} type="file" accept=".csv,text/csv" style={{ display: 'none' }} onChange={handleFileChange} />
       </div>
 
       {/* Table */}
@@ -435,6 +599,16 @@ export function LiveChatClients({ me }) {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Bulk import modal */}
+      {importParsed && (
+        <ImportModal
+          parsed={importParsed}
+          createdBy={me.id}
+          onDone={() => { setImportParsed(null); load() }}
+          onClose={() => setImportParsed(null)}
+        />
       )}
     </div>
   )

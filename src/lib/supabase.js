@@ -448,3 +448,9 @@ export async function deleteLivechatClient(id) {
   const { error } = await supabase.from('livechat_clients').delete().eq('id', id)
   if (error) throw error
 }
+
+export async function bulkCreateLivechatClients(rows) {
+  const { data, error } = await supabase.from('livechat_clients').insert(rows).select()
+  if (error) throw error
+  return data
+}
