@@ -105,11 +105,24 @@ function buildDataRow(domain, siteData, niche, clientType) {
 export function buildSummaryRows(dataRows, client, includeWriting = true, discountPct = null) {
   const prices       = dataRows.map(r => Number(r[C.PRICE])).filter(p => !isNaN(p) && p > 0)
   const articlePub   = Math.round(prices.reduce((s, p) => s + p, 0) * 100) / 100
-  const domainCount  = dataRows.filter(r => r[C.DOMAIN]).length
   const articleCost  = parseFloat(client.article_cost) || 0
-  const writingCost  = Math.round(domainCount * articleCost * 100) / 100
-  const discount     = discountPct !== null ? discountPct : (parseFloat(client.permanent_discount) || 0)
-  const total        = Math.round((articlePub + (includeWriting ? writingCost : 0)) * 100) / 100
+
+  // Sites with article_min_length >= 1000 words are charged $15 regardless of client rate
+  const LONG_ARTICLE_THRESHOLD = 1000
+  const LONG_ARTICLE_COST      = 15
+  const writingCost = includeWriting
+    ? Math.round(
+        dataRows
+          .filter(r => r[C.DOMAIN])
+          .reduce((sum, r) => {
+            const minLen = parseInt(r[C.ARTICLE_LENGTH_MIN]) || 0
+            return sum + (minLen >= LONG_ARTICLE_THRESHOLD ? LONG_ARTICLE_COST : articleCost)
+          }, 0) * 100
+      ) / 100
+    : 0
+
+  const discount = discountPct !== null ? discountPct : (parseFloat(client.permanent_discount) || 0)
+  const total    = Math.round((articlePub + (includeWriting ? writingCost : 0)) * 100) / 100
 
   const blank = () => Array(NUM_COLS).fill('')
   const pub   = blank(); pub[C.DOMAIN] = 'Article Publication'; pub[C.PRICE] = articlePub

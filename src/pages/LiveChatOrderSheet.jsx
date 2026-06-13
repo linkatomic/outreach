@@ -329,7 +329,7 @@ export function LiveChatOrderSheet() {
                         <span>{count} domain{count !== 1 ? 's' : ''}</span>
                         {includeWriting && cost > 0 && (
                           <span style={{ color: 'var(--text)' }}>
-                            Writing: {count} × ${cost} = <strong>${(count * cost).toFixed(2)}</strong>
+                            Writing: ${cost}/article <span style={{ color: 'var(--text-faint)' }}>(sites ≥1000 words → $15)</span>
                           </span>
                         )}
                       </div>
