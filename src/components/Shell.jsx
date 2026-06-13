@@ -27,12 +27,16 @@ export function Sidebar({ route, setRoute, role, me, impersonatedId, openCmdK, t
   ];
 
   // Who can switch departments
-  const canSwitchDept = ['lead', 'super'].includes(me.role) && !impersonatedId;
+  const canSwitchDept = ['lead', 'super', 'hr'].includes(me.role) && !impersonatedId;
 
-  // Show manage section for: lead, super (when not impersonating), or impersonating a lead
+  // Show manage section for: lead, hr, super (when not impersonating), or impersonating a lead
   const showManageItems = (me.role === 'lead'
+    || me.role === 'hr'
     || (me.role === 'super' && !impersonatedId)
     || role === 'lead') && dept === 'outreach';
+
+  // livechat-role users always see LC nav regardless of dept state
+  const showLcNav = dept === 'livechat' || me.role === 'livechat';
 
   // Identity shown in footer: impersonated user or real user
   const displayUser = impersonatedId
@@ -75,7 +79,7 @@ export function Sidebar({ route, setRoute, role, me, impersonatedId, openCmdK, t
         </button>
       </div>
 
-      {dept === 'livechat' ? (
+      {showLcNav ? (
         <div className="nav-section">
           <div className="nav-section-title">Live Chat</div>
           {lcNavItems.map(it => (

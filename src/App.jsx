@@ -66,6 +66,11 @@ export default function App() {
   const role = effectiveMe?.role || 'member';
   const todayDone = effectiveMe ? !!reportToday(effectiveMe.id) : false;
 
+  // livechat-only users always land in the livechat department
+  useEffect(() => {
+    if (role === 'livechat') setDept('livechat');
+  }, [role]);
+
   // ── Accent ─────────────────────────────────────────
   function setAccent(id) {
     setAccentRaw(id);
@@ -222,8 +227,16 @@ export default function App() {
   function renderPage() {
     // Pages all receive effectiveMe so impersonation is transparent
     const m = effectiveMe;
+    const isLcOnly = m.role === 'livechat';
+    const isManager = ['lead', 'super', 'hr'].includes(m.role);
+
+    // livechat-only users can't access outreach routes
+    if (isLcOnly && !route.startsWith('lc-') && route !== 'settings' && route !== 'shortcuts') {
+      return <LiveChatHome me={m} />;
+    }
+
     switch (route) {
-      case 'home':       return ['lead','super'].includes(m.role) ? <LeadHome me={m} setRoute={setRoute} /> : <MemberHome me={m} setRoute={setRoute} />;
+      case 'home':       return isManager ? <LeadHome me={m} setRoute={setRoute} /> : <MemberHome me={m} setRoute={setRoute} />;
       case 'report':     return <DailyReportPage me={m} setRoute={setRoute} showToast={showToast} />;
       case 'emails':     return <EmailLogPage me={m} setRoute={setRoute} showToast={showToast} focusEmailOnMount={emailFocus} bulkPasteOnMount={bulkPaste} />;
       case 'analytics':  return <AnalyticsPage setRoute={setRoute} />;
@@ -232,7 +245,7 @@ export default function App() {
       case 'review':     return <ReviewPage setRoute={setRoute} showToast={showToast} />;
       case 'settings':   return <SettingsPage theme={theme} toggleTheme={() => setTweak('dark', !t.dark)} role={role} accent={accent} setAccent={setAccent} />;
       case 'shortcuts':  return <ShortcutsPage />;
-      case 'brief':      return ['lead','super'].includes(me?.role) ? <BriefPage /> : <MemberHome me={m} setRoute={setRoute} />;
+      case 'brief':      return isManager ? <BriefPage /> : <MemberHome me={m} setRoute={setRoute} />;
       case 'ideas':      return <IdeasPage me={m} showToast={showToast} />;
       case 'tasks':      return <TasksPage me={m} showToast={showToast} />;
       case 'tools':      return <ToolsPage me={m} role={role} />;
@@ -240,7 +253,7 @@ export default function App() {
       case 'lc-clients': return <LiveChatClients me={m} />;
       case 'lc-orders':  return <LiveChatOrderSheet me={m} />;
       case 'lc-team':    return <LiveChatTeam />;
-      default:           return <MemberHome me={m} setRoute={setRoute} />;
+      default:           return isLcOnly ? <LiveChatHome me={m} /> : <MemberHome me={m} setRoute={setRoute} />;
     }
   }
 
