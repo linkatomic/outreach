@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { TEAM, ACCENT_PRESETS, reportToday } from './data.jsx'
-import { LC_TEAM } from './pages/LiveChatTeam.jsx'
+import { LC_STAFF } from './pages/LiveChatTeam.jsx'
 import { supabase, getProfile, getProfileByMemberId, saveUserAccent } from './lib/supabase.js'
 import { useTweaks, TweaksPanel, TweakSection, TweakToggle } from './components/TweaksPanel.jsx'
 import { Sidebar, Topbar, CommandPalette, Toast, ShortcutsPage } from './components/Shell.jsx'
@@ -59,7 +59,7 @@ export default function App() {
   const [bulkPaste, setBulkPaste]   = useState(0);
 
   // All users across both departments (deduped by id) — used for super impersonation
-  const ALL_USERS = [...TEAM, ...LC_TEAM].filter((m, i, a) => a.findIndex(x => x.id === m.id) === i);
+  const ALL_USERS = [...TEAM, ...LC_STAFF].filter((m, i, a) => a.findIndex(x => x.id === m.id) === i);
 
   // Effective user: when super is impersonating, pages see the impersonated member
   const effectiveMe = (me?.role === 'super' && impersonatedId)

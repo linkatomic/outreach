@@ -1,11 +1,17 @@
 import { Icon } from '../data.jsx'
 
 // LC_TEAM is managed here — add members as the team grows
+// LC_TEAM: displayed on the Team page
 export const LC_TEAM = [
   { id: 'dev',    name: 'Dev Pandya', short: 'DP', role: 'livechat', color: 'a', email: 'dev.p@amrytt.com',    joined: '2026-06-01' },
   { id: 'bhavan', name: 'Bhavan C',   short: 'BC', role: 'livechat', color: 'b', email: 'bhavan.c@amrytt.com', joined: '2026-06-01' },
   { id: 'nagji',  name: 'Nagji R',    short: 'NR', role: 'livechat', color: 'e', email: 'nagji.r@amrytt.com',  joined: '2026-06-01' },
-  { id: 'kirti',  name: 'Kirti P',    short: 'KP', role: 'hr',       color: 'c', email: 'kirti.p@amrytt.com',  joined: '2026-06-01' },
+]
+
+// LC_STAFF: all LC-side users including non-team roles (HR etc.) — used for super admin impersonation
+export const LC_STAFF = [
+  ...LC_TEAM,
+  { id: 'kirti', name: 'Kirti P', short: 'KP', role: 'hr', color: 'c', email: 'kirti.p@amrytt.com', joined: '2026-06-01' },
 ]
 
 const ROLE_LABEL = { lead: 'Team Lead', member: 'Member', livechat: 'Agent', hr: 'HR' }
