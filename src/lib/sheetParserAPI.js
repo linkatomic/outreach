@@ -532,3 +532,10 @@ export async function batchWriteRangeValues(spreadsheetId, data) {
     body: JSON.stringify({ valueInputOption: 'USER_ENTERED', data }),
   })
 }
+
+export async function batchFormatSheet(spreadsheetId, requests) {
+  return gsheets(`/spreadsheets/${spreadsheetId}:batchUpdate`, {
+    method: 'POST',
+    body: JSON.stringify({ requests }),
+  })
+}

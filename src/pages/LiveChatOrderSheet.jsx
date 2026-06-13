@@ -111,17 +111,40 @@ function Label({ children }) {
   )
 }
 
+// ── Writing service toggle ────────────────────────────────
+
+function WritingToggle({ value, onChange }) {
+  return (
+    <div
+      onClick={() => onChange(!value)}
+      style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderRadius: 8, border: `1.5px solid ${value ? 'var(--accent)' : 'var(--border)'}`, cursor: 'pointer', background: value ? 'color-mix(in srgb, var(--accent) 6%, transparent)' : 'var(--surface)', userSelect: 'none' }}
+    >
+      {/* pill toggle */}
+      <div style={{ width: 36, height: 20, borderRadius: 10, background: value ? 'var(--accent)' : 'var(--border)', position: 'relative', flexShrink: 0, transition: 'background .15s' }}>
+        <div style={{ position: 'absolute', top: 3, left: value ? 19 : 3, width: 14, height: 14, borderRadius: '50%', background: value ? 'var(--accent-ink)' : 'var(--bg)', transition: 'left .15s' }} />
+      </div>
+      <div>
+        <div style={{ fontWeight: 600, fontSize: 13 }}>Include writing service</div>
+        <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 1 }}>
+          {value ? 'Writing service charge will appear in the summary section' : 'Client writes their own content — writing row omitted'}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Main wizard ───────────────────────────────────────────
 
 export function LiveChatOrderSheet() {
-  const [step, setStep]       = useState('client')  // client | config | input | processing | done
-  const [client, setClient]   = useState(null)
-  const [niche, setNiche]     = useState('casino')
-  const [mode, setMode]       = useState('a')        // a=new tab, b=existing sheet
-  const [input, setInput]     = useState('')
+  const [step, setStep]         = useState('client')  // client | config | input | processing | done
+  const [client, setClient]     = useState(null)
+  const [niche, setNiche]       = useState('casino')
+  const [mode, setMode]         = useState('a')        // a=new tab, b=existing sheet
+  const [input, setInput]       = useState('')
+  const [includeWriting, setIncludeWriting] = useState(true)
   const [progress, setProgress] = useState('')
-  const [result, setResult]   = useState(null)
-  const [error, setError]     = useState('')
+  const [result, setResult]     = useState(null)
+  const [error, setError]       = useState('')
 
   function selectClient(c) {
     setClient(c)
@@ -152,9 +175,9 @@ export function LiveChatOrderSheet() {
     try {
       let res
       if (mode === 'a') {
-        res = await createOrderSheet(client, niche, domains, setProgress)
+        res = await createOrderSheet(client, niche, domains, includeWriting, setProgress)
       } else {
-        res = await fillOrderSheet(client, niche, input.trim(), setProgress)
+        res = await fillOrderSheet(client, niche, input.trim(), includeWriting, setProgress)
       }
       setResult(res)
       setStep('done')
@@ -268,11 +291,20 @@ export function LiveChatOrderSheet() {
                     placeholder={'example.com\nanother.com\nthird.com'}
                     style={{ width: '100%', minHeight: 160, resize: 'vertical', fontFamily: 'var(--font-mono)', fontSize: 13, background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 8, padding: '10px 12px', color: 'var(--text)', outline: 'none', boxSizing: 'border-box', lineHeight: 1.7 }}
                   />
-                  {input.trim() && (
-                    <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 6 }}>
-                      {parseDomainText(input).length} domains
-                    </div>
-                  )}
+                  {input.trim() && (() => {
+                    const count = parseDomainText(input).length
+                    const cost  = client?.article_cost
+                    return (
+                      <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 6, display: 'flex', gap: 12 }}>
+                        <span>{count} domain{count !== 1 ? 's' : ''}</span>
+                        {includeWriting && cost > 0 && (
+                          <span style={{ color: 'var(--text)' }}>
+                            Writing: {count} × ${cost} = <strong>${(count * cost).toFixed(2)}</strong>
+                          </span>
+                        )}
+                      </div>
+                    )
+                  })()}
                 </div>
               ) : (
                 <div>
@@ -283,6 +315,8 @@ export function LiveChatOrderSheet() {
                          placeholder="https://docs.google.com/spreadsheets/d/…/edit#gid=123456" />
                 </div>
               )}
+
+              <WritingToggle value={includeWriting} onChange={setIncludeWriting} />
 
               {error && (
                 <div style={{ padding: '10px 14px', borderRadius: 8, background: 'rgba(248,113,113,.1)', border: '1px solid rgba(248,113,113,.25)', fontSize: 13, color: '#f87171' }}>
