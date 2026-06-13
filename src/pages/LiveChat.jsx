@@ -208,16 +208,17 @@ export function LiveChatClients({ me }) {
     setSaving(true)
     setSaveError('')
     try {
+      const t = v => (v || '').trim()
       const payload = {
-        client_name: form.client_name.trim(),
+        client_name: t(form.client_name),
         client_type: form.client_type,
-        order_sheet_url: form.order_sheet_url.trim() || null,
-        article_cost: form.article_cost !== '' ? parseFloat(form.article_cost) : null,
-        permanent_discount: form.permanent_discount !== '' ? parseFloat(form.permanent_discount) : null,
+        order_sheet_url: t(form.order_sheet_url) || null,
+        article_cost: form.article_cost !== '' && form.article_cost != null ? parseFloat(form.article_cost) : null,
+        permanent_discount: form.permanent_discount !== '' && form.permanent_discount != null ? parseFloat(form.permanent_discount) : null,
         status: form.status,
-        contact_name: form.contact_name.trim() || null,
-        contact_email: form.contact_email.trim() || null,
-        notes: form.notes.trim() || null,
+        contact_name: t(form.contact_name) || null,
+        contact_email: t(form.contact_email) || null,
+        notes: t(form.notes) || null,
       }
       if (modal?.id) {
         await updateLivechatClient(modal.id, payload)
