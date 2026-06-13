@@ -190,11 +190,11 @@ async function formatOrderSheet(spreadsheetId, sheetId, dataRowCount, { hasWriti
       },
     },
 
-    // Rules (col 16): left-align, wrap
+    // Rules (col 16): left-align, clip
     {
       repeatCell: {
         range: rc(1, N + 1, 16, 17),
-        cell: { userEnteredFormat: { horizontalAlignment: 'LEFT', wrapStrategy: 'WRAP' } },
+        cell: { userEnteredFormat: { horizontalAlignment: 'LEFT', wrapStrategy: 'CLIP' } },
         fields: 'userEnteredFormat(horizontalAlignment,wrapStrategy)',
       },
     },
@@ -219,6 +219,9 @@ async function formatOrderSheet(spreadsheetId, sheetId, dataRowCount, { hasWriti
 
     // Header row height
     { updateDimensionProperties: { range: { sheetId, dimension: 'ROWS', startIndex: 0, endIndex: 1 }, properties: { pixelSize: 42 }, fields: 'pixelSize' } },
+
+    // Data rows: fixed height so long Rules text doesn't bloat rows
+    { updateDimensionProperties: { range: { sheetId, dimension: 'ROWS', startIndex: 1, endIndex: N + 1 }, properties: { pixelSize: 21 }, fields: 'pixelSize' } },
 
     // Article Publication row: bold + currency
     {

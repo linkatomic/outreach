@@ -5,9 +5,10 @@ import { extractSheetId } from '../lib/sheetParserAPI.js'
 import { parseDomainText, createOrderSheet, fillOrderSheet } from '../lib/lcSheetBuilder.js'
 
 const NICHES = [
-  { id: 'casino', label: 'Casino' },
-  { id: 'cbd',    label: 'CBD' },
-  { id: 'crypto', label: 'Crypto' },
+  { id: 'general', label: 'General' },
+  { id: 'casino',  label: 'Casino' },
+  { id: 'cbd',     label: 'CBD' },
+  { id: 'crypto',  label: 'Crypto' },
 ]
 
 // ── Client search/select ──────────────────────────────────
