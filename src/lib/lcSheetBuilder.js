@@ -79,6 +79,11 @@ function getPrice(siteData, niche, clientType) {
   return clientType === 'buyer' ? (addon.buyer_price ?? '') : (addon.reseller_price ?? '')
 }
 
+function isSiteDisabled(siteData) {
+  if (!siteData?.vendors?.length) return false
+  return siteData.vendors.every(v => v.is_disable)
+}
+
 // ── Row builders ──────────────────────────────────────────
 
 export function parseDomainText(text) {
@@ -148,13 +153,14 @@ export function buildSummaryRows(dataRows, client, includeWriting = true, discou
 
 // ── Sheet formatting ──────────────────────────────────────
 
-async function formatOrderSheet(spreadsheetId, sheetId, dataRowCount, { hasWriting, hasDiscount, notFoundRows = [], nofollowRows = [] }) {
+async function formatOrderSheet(spreadsheetId, sheetId, dataRowCount, { hasWriting, hasDiscount, notFoundRows = [], nofollowRows = [], disabledRows = [] }) {
   const ORANGE   = { red: 0.953, green: 0.604, blue: 0.204 }
   const WHITE    = { red: 1, green: 1, blue: 1 }
   const AMBER    = { red: 1.0,  green: 0.937, blue: 0.835 }
   const LIME     = { red: 0.851, green: 0.918, blue: 0.827 }
   const NOT_FOUND_BG = { red: 0.99, green: 0.88, blue: 0.88 }  // light red — not in GPL
   const NOFOLLOW_BG  = { red: 1.0,  green: 0.95, blue: 0.80 }  // light amber — nofollow
+  const DISABLED_BG  = { red: 0.92, green: 0.88, blue: 0.99 }  // light lavender — disabled
   const LINE   = { style: 'SOLID', color: { red: 0.75, green: 0.75, blue: 0.75 } }
   const BOLD_LINE = { style: 'SOLID_MEDIUM', color: { red: 0.6, green: 0.6, blue: 0.6 } }
   const CURR   = { type: 'CURRENCY', pattern: '"$"#,##0.00' }
@@ -320,6 +326,15 @@ async function formatOrderSheet(spreadsheetId, sheetId, dataRowCount, { hasWriti
       },
     })
   }
+  for (const i of disabledRows) {
+    requests.push({
+      repeatCell: {
+        range: rc(i + 1, i + 2, 0, NUM_COLS),
+        cell: { userEnteredFormat: { backgroundColor: DISABLED_BG } },
+        fields: 'userEnteredFormat.backgroundColor',
+      },
+    })
+  }
 
   return batchFormatSheet(spreadsheetId, requests)
 }
@@ -363,8 +378,9 @@ export async function createOrderSheet(client, niche, domains, includeWriting = 
   const allRows     = [HEADERS, ...dataRows, ...summaryRows]
 
   // Determine highlight rows
-  const notFoundRows = domains.map((dom, i) => gplMap.has(dom) ? -1 : i).filter(i => i >= 0)
-  const nofollowRows = dataRows.map((r, i) => String(r[C.LINK_TYPE] || '').toLowerCase() === 'nofollow' ? i : -1).filter(i => i >= 0)
+  const notFoundRows  = domains.map((dom, i) => gplMap.has(dom) ? -1 : i).filter(i => i >= 0)
+  const nofollowRows  = dataRows.map((r, i) => String(r[C.LINK_TYPE] || '').toLowerCase() === 'nofollow' ? i : -1).filter(i => i >= 0)
+  const disabledRows  = domains.map((dom, i) => isSiteDisabled(gplMap.get(dom)) ? i : -1).filter(i => i >= 0)
 
   onProgress?.('Writing data…')
   await writeRangeValues(spreadsheetId, `'${sheetTitle}'!A1:T${allRows.length}`, allRows)
@@ -375,10 +391,11 @@ export async function createOrderSheet(client, niche, domains, includeWriting = 
     hasDiscount: effectiveDiscount > 0,
     notFoundRows,
     nofollowRows,
+    disabledRows,
   })
 
   return {
-    sheetUrl: `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`,
+    sheetUrl: `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit#gid=${sheetId}`,
     sheetTitle,
     total: domains.length,
     found: domains.filter(dom => gplMap.has(dom)).length,
@@ -453,11 +470,13 @@ export async function fillOrderSheet(client, niche, subSheetUrl, includeWriting 
   const summaryRows    = buildSummaryRows(freshDataRows, client, includeWriting, discountPct)
 
   // Determine highlight rows (relative to data start, 0-indexed)
-  const fillNotFound = domains.map((dom, i) => gplMap.has(dom) ? -1 : i).filter(i => i >= 0)
-  const fillNofollow = freshDataRows.map((r, i) => String(r[C.LINK_TYPE] || '').toLowerCase() === 'nofollow' ? i : -1).filter(i => i >= 0)
+  const fillNotFound  = domains.map((dom, i) => gplMap.has(dom) ? -1 : i).filter(i => i >= 0)
+  const fillNofollow  = freshDataRows.map((r, i) => String(r[C.LINK_TYPE] || '').toLowerCase() === 'nofollow' ? i : -1).filter(i => i >= 0)
+  const fillDisabled  = domains.map((dom, i) => isSiteDisabled(gplMap.get(dom)) ? i : -1).filter(i => i >= 0)
   // Convert to absolute sheet row indices (0-indexed, header = headerRowIdx)
-  const absNotFound  = fillNotFound.map(i => headerRowIdx + 1 + i)
-  const absNofollow  = fillNofollow.map(i => headerRowIdx + 1 + i)
+  const absNotFound   = fillNotFound.map(i => headerRowIdx + 1 + i)
+  const absNofollow   = fillNofollow.map(i => headerRowIdx + 1 + i)
+  const absDisabled   = fillDisabled.map(i => headerRowIdx + 1 + i)
   const lastDataRow    = headerRowIdx + 1 + dataRowsRaw.length // 1-indexed
   const domCol   = String.fromCharCode(65 + (colMap['Domain'] ?? C.DOMAIN))
   const priceCol = String.fromCharCode(65 + (colMap['Price']  ?? C.PRICE))
@@ -515,6 +534,9 @@ export async function fillOrderSheet(client, niche, subSheetUrl, includeWriting 
   }
   for (const rowIdx of absNofollow) {
     fmtRequests.push({ repeatCell: { range: rc(rowIdx, rowIdx + 1, 0, fillTotalCols), cell: { userEnteredFormat: { backgroundColor: NOFOLLOW_BG } }, fields: 'userEnteredFormat.backgroundColor' } })
+  }
+  for (const rowIdx of absDisabled) {
+    fmtRequests.push({ repeatCell: { range: rc(rowIdx, rowIdx + 1, 0, fillTotalCols), cell: { userEnteredFormat: { backgroundColor: DISABLED_BG } }, fields: 'userEnteredFormat.backgroundColor' } })
   }
 
   await batchFormatSheet(spreadsheetId, fmtRequests)
