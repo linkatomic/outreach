@@ -39,6 +39,25 @@ const COL_WIDTHS = [
 
 // ── GPL API ───────────────────────────────────────────────
 
+export async function checkGplApiStatus() {
+  if (!GPL_TOKEN) return { ok: false, message: 'VITE_GPL_API_TOKEN not set' }
+  try {
+    const res = await fetch('https://api.records.guestpostlinks.net/v2/publisher/website/gpl/search-publishers', {
+      method: 'POST',
+      headers: { Authorization: GPL_TOKEN, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ websites: ['google.com'] }),
+    })
+    if (res.status === 401) return { ok: false, message: 'Invalid API token (401 Unauthorized)' }
+    if (res.status === 429) return { ok: false, message: 'Rate limited — too many requests (429)' }
+    if (!res.ok)            return { ok: false, message: `API returned HTTP ${res.status}` }
+    const data = await res.json()
+    if (data.success === false) return { ok: false, message: data.message || 'API returned error' }
+    return { ok: true, message: 'Connected' }
+  } catch {
+    return { ok: false, message: 'Cannot reach API — check network or VPN' }
+  }
+}
+
 async function fetchGplData(domains, onProgress) {
   const map = new Map()
   if (!domains.length || !GPL_TOKEN) return map

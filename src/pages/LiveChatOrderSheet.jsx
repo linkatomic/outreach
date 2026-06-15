@@ -1,8 +1,60 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Icon } from '../data.jsx'
 import { loadLivechatClients } from '../lib/supabase.js'
 import { extractSheetId } from '../lib/sheetParserAPI.js'
-import { parseDomainText, createOrderSheet, fillOrderSheet } from '../lib/lcSheetBuilder.js'
+import { parseDomainText, createOrderSheet, fillOrderSheet, checkGplApiStatus } from '../lib/lcSheetBuilder.js'
+
+// ── GPL API status indicator ──────────────────────────────
+
+function ApiStatusBadge() {
+  const [status, setStatus] = useState('checking') // 'checking' | 'ok' | 'error'
+  const [message, setMessage] = useState('')
+
+  const check = useCallback(async () => {
+    setStatus('checking')
+    const result = await checkGplApiStatus()
+    setStatus(result.ok ? 'ok' : 'error')
+    setMessage(result.message)
+  }, [])
+
+  useEffect(() => {
+    check()
+    const id = setInterval(check, 60_000)
+    return () => clearInterval(id)
+  }, [check])
+
+  const dot = status === 'ok' ? '#4ade80' : status === 'error' ? '#f87171' : 'var(--text-faint)'
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 6,
+                    background: status === 'error' ? 'rgba(248,113,113,.1)' : status === 'ok' ? 'rgba(74,222,128,.08)' : 'var(--surface)',
+                    border: `1px solid ${status === 'error' ? 'rgba(248,113,113,.3)' : status === 'ok' ? 'rgba(74,222,128,.2)' : 'var(--border)'}`,
+                    cursor: 'pointer' }}
+           title="Click to recheck" onClick={check}>
+        <span style={{ width: 7, height: 7, borderRadius: '50%', background: dot,
+                       boxShadow: status === 'ok' ? '0 0 5px #4ade80' : status === 'error' ? '0 0 5px #f87171' : 'none',
+                       flexShrink: 0 }} />
+        <span style={{ fontSize: 11, fontWeight: 600, color: dot }}>GPL API</span>
+        <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>
+          {status === 'checking' ? 'Checking…' : message}
+        </span>
+      </div>
+      {status === 'error' && (
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '10px 14px', borderRadius: 8,
+                      background: 'rgba(248,113,113,.08)', border: '1px solid rgba(248,113,113,.25)' }}>
+          <span style={{ fontSize: 15, flexShrink: 0 }}>⚠️</span>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#f87171', marginBottom: 2 }}>GPL API unreachable</div>
+            <div style={{ fontSize: 12, color: 'var(--text-faint)', lineHeight: 1.5 }}>
+              {message} — publisher data cannot be fetched. Sheets can still be created but all data fields will be blank.
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
 
 const NICHES = [
   { id: 'general', label: 'General' },
@@ -218,6 +270,8 @@ export function LiveChatOrderSheet() {
           <button className="btn ghost" onClick={goBack} style={{ fontSize: 12 }}>← Back</button>
         )}
       </div>
+
+      <ApiStatusBadge />
 
       {/* Step indicator */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 28 }}>
