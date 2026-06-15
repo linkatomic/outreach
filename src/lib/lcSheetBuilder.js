@@ -100,7 +100,9 @@ function getPrice(siteData, niche, clientType) {
 
 function isSiteDisabled(siteData) {
   if (!siteData?.vendors?.length) return false
-  return siteData.vendors.every(v => v.is_disable)
+  if (siteData.vendors.every(v => v.is_disable)) return true
+  const primary = siteData.vendors.find(v => v.is_primary)
+  return primary?.is_disable === true
 }
 
 // ── Row builders ──────────────────────────────────────────
