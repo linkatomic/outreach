@@ -99,7 +99,11 @@ function getPrice(siteData, niche, clientType) {
 }
 
 function isSiteDisabled(siteData) {
-  if (!siteData?.vendors?.length) return false
+  if (!siteData) return false
+  // Top-level status field is the authoritative source ("disable", "draft", "trash" = not available)
+  if (siteData.status && siteData.status !== 'publish') return true
+  // Belt-and-suspenders: check vendor-level disable flags too
+  if (!siteData.vendors?.length) return false
   if (siteData.vendors.every(v => v.is_disable)) return true
   const primary = siteData.vendors.find(v => v.is_primary)
   return primary?.is_disable === true
