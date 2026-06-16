@@ -3,9 +3,11 @@ import { Icon } from '../data.jsx'
 // LC_TEAM is managed here — add members as the team grows
 // LC_TEAM: displayed on the Team page
 export const LC_TEAM = [
-  { id: 'dev',    name: 'Dev Pandya', short: 'DP', role: 'livechat', color: 'a', email: 'dev.p@amrytt.com',    joined: '2026-06-01' },
-  { id: 'bhavan', name: 'Bhavan C',   short: 'BC', role: 'livechat', color: 'b', email: 'bhavan.c@amrytt.com', joined: '2026-06-01' },
-  { id: 'nagji',  name: 'Nagji R',    short: 'NR', role: 'livechat', color: 'e', email: 'nagji.r@amrytt.com',  joined: '2026-06-01' },
+  { id: 'dev',     name: 'Dev Pandya', short: 'DP', role: 'livechat', color: 'a', email: 'dev.p@amrytt.com',     joined: '2026-06-01' },
+  { id: 'bhavan',  name: 'Bhavan C',   short: 'BC', role: 'livechat', color: 'b', email: 'bhavan.c@amrytt.com',  joined: '2026-06-01' },
+  { id: 'nagji',   name: 'Nagji R',    short: 'NR', role: 'livechat', color: 'e', email: 'nagji.r@amrytt.com',   joined: '2026-06-01' },
+  { id: 'kanaiya', name: 'Kanaiya K',  short: 'KK', role: 'livechat', color: 'd', email: 'kanaiya.k@amrytt.com', joined: '2026-06-16' },
+  { id: 'nilesh',  name: 'Nilesh P',   short: 'NP', role: 'livechat', color: 'f', email: 'nilesh.p@amrytt.com',  joined: '2026-06-16' },
 ]
 
 // LC_STAFF: all LC-side users including non-team roles (HR etc.) — used for super admin impersonation
