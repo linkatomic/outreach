@@ -17,6 +17,7 @@ import { LiveChatHome } from './pages/LiveChatHome.jsx'
 import { LiveChatTeam } from './pages/LiveChatTeam.jsx'
 import { LiveChatToolsPage, LiveChatClients } from './pages/LiveChat.jsx'
 import { LiveChatOrderSheet } from './pages/LiveChatOrderSheet.jsx'
+import { OnlinePage } from './pages/OnlinePage.jsx'
 
 const TWEAK_DEFAULTS = { dark: true };
 
@@ -47,6 +48,12 @@ export default function App() {
   }
   const superAccentRef = useRef('lime'); // remembers super's own accent for restoration
 
+  // ── Presence (who's online) ─────────────────────────
+  const presenceChanRef  = useRef(null)
+  const routeRef         = useRef('home')
+  const [onlineIds,     setOnlineIds]     = useState(new Set())
+  const [presenceData,  setPresenceData]  = useState({})
+
   // App state
   const [route, setRoute]           = useState('home');
   const [dept, setDept]             = useState('outreach');
@@ -74,6 +81,41 @@ export default function App() {
   useEffect(() => {
     if (role === 'livechat') setDept('livechat');
   }, [role]);
+
+  // Keep routeRef current so presence can always read the latest route
+  useEffect(() => { routeRef.current = route; }, [route]);
+
+  // Set up Supabase Realtime presence channel when logged in
+  useEffect(() => {
+    if (!me) {
+      if (presenceChanRef.current) { supabase.removeChannel(presenceChanRef.current); presenceChanRef.current = null; }
+      setOnlineIds(new Set()); setPresenceData({});
+      return;
+    }
+    const channel = supabase.channel('relay-presence');
+    channel.on('presence', { event: 'sync' }, () => {
+      const state = channel.presenceState();
+      const ids = new Set(); const data = {};
+      Object.values(state).forEach(arr => arr.forEach(p => {
+        if (p.user_id) { ids.add(p.user_id); data[p.user_id] = p; }
+      }));
+      setOnlineIds(new Set(ids)); setPresenceData({ ...data });
+    });
+    channel.subscribe(async (status) => {
+      if (status === 'SUBSCRIBED') {
+        await channel.track({ user_id: me.id, name: me.name, role: me.role, route: routeRef.current });
+      }
+    });
+    presenceChanRef.current = channel;
+    return () => { supabase.removeChannel(channel); presenceChanRef.current = null; };
+  }, [me?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Broadcast route changes so the Active Users page shows what each person is doing
+  useEffect(() => {
+    const ch = presenceChanRef.current;
+    if (!ch || !me) return;
+    ch.track({ user_id: me.id, name: me.name, role: me.role, route }).catch(() => {});
+  }, [route]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Accent ─────────────────────────────────────────
   function setAccent(id) {
@@ -257,6 +299,9 @@ export default function App() {
       case 'lc-clients': return <LiveChatClients me={m} />;
       case 'lc-orders':  return <LiveChatOrderSheet me={m} />;
       case 'lc-team':    return <LiveChatTeam />;
+      case 'online':     return ['lead', 'super'].includes(me.role)
+                           ? <OnlinePage allUsers={ALL_USERS} onlineIds={onlineIds} presenceData={presenceData} />
+                           : <MemberHome me={m} setRoute={setRoute} />;
       default:           return isLcOnly ? <LiveChatHome me={m} /> : <MemberHome me={m} setRoute={setRoute} />;
     }
   }
@@ -294,7 +339,7 @@ export default function App() {
                impersonatedId={impersonatedId}
                openCmdK={() => setCmdOpen(true)} todayDone={todayDone}
                onLogout={() => { setImpersonatedId(null); supabase.auth.signOut(); }}
-               dept={dept} setDept={setDept} />
+               dept={dept} setDept={setDept} onlineIds={onlineIds} />
       <div className="main">
         <Topbar route={route} role={role}
                 theme={theme} toggleTheme={() => setTweak('dark', !t.dark)}

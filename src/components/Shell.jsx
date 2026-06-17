@@ -3,7 +3,7 @@ import { TEAM, Icon, fmtDateShort, fmtRel } from '../data.jsx'
 import { loadAllReportsForDate } from '../lib/supabase.js'
 
 // ────────────────────── Sidebar ──────────────────────
-export function Sidebar({ route, setRoute, role, me, allUsers = [], impersonatedId, openCmdK, todayDone, onLogout, dept, setDept }) {
+export function Sidebar({ route, setRoute, role, me, allUsers = [], impersonatedId, openCmdK, todayDone, onLogout, dept, setDept, onlineIds = new Set() }) {
   const navItems = [
     { id: 'home',      label: 'Home',         icon: 'home',   kbd: 'G H' },
     { id: 'report',    label: 'Daily Report', icon: 'report', kbd: 'G R', badge: todayDone ? 'done' : 'todo' },
@@ -25,6 +25,9 @@ export function Sidebar({ route, setRoute, role, me, allUsers = [], impersonated
     { id: 'lc-orders',  label: 'Order Sheet',   icon: 'download' },
     { id: 'lc-team',    label: 'Team',          icon: 'users' },
   ];
+
+  // Only lead/super (the two specific admin roles) can see Active Users
+  const showActiveUsers = (me.role === 'lead' || me.role === 'super') && !impersonatedId;
 
   // Who can switch departments
   const canSwitchDept = ['lead', 'super', 'hr'].includes(me.role) && !impersonatedId;
@@ -118,6 +121,21 @@ export function Sidebar({ route, setRoute, role, me, allUsers = [], impersonated
         </>
       )}
 
+      {showActiveUsers && (
+        <div className="nav-section">
+          <div className="nav-section-title">Admin</div>
+          <div className={`nav-item ${route === 'online' ? 'active' : ''}`} onClick={() => setRoute('online')}>
+            <Icon name="activity" size={15} />
+            <span>Active Users</span>
+            {onlineIds.size > 0 && (
+              <span style={{ marginLeft: 'auto', fontSize: 10, fontWeight: 700, color: '#22c55e', background: 'rgba(34,197,94,.1)', border: '1px solid rgba(34,197,94,.2)', borderRadius: 8, padding: '1px 6px' }}>
+                {onlineIds.size}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="nav-section">
         <div className="nav-section-title">More</div>
         <div className={`nav-item ${route === 'shortcuts' ? 'active' : ''}`} onClick={() => setRoute('shortcuts')}>
@@ -159,6 +177,7 @@ export function Topbar({ route, role, theme, toggleTheme, openCmdK, notifOpen, s
     shortcuts: ['Shortcuts'], brief: ['Design Brief'],
     'lc-home': ['Live Chat', 'Home'], 'lc-team': ['Live Chat', 'Team'],
     'lc-clients': ['Live Chat', 'Clients'], 'lc-orders': ['Live Chat', 'Order Sheet'],
+    online: ['Admin', 'Active Users'],
   }[route] || ['Home'];
 
   return (
