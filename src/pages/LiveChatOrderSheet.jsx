@@ -252,10 +252,19 @@ function ToggleRow({ label, desc, value, onChange, extra }) {
 
 // ── Input step ────────────────────────────────────────────
 
+function parseDuplicates(text) {
+  const raw = text.split(/[\n,]+/).map(s => s.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0]).filter(Boolean)
+  const seen = new Set(); const dupes = new Set()
+  for (const d of raw) { if (seen.has(d)) dupes.add(d); else seen.add(d) }
+  return [...dupes]
+}
+
 function InputStep({ client, niche, mode, input, setInput, sheetName, setSheetName,
                      includeWriting, setIncludeWriting, discountEnabled, setDiscountEnabled,
                      customDiscount, setCustomDiscount, error, onRun }) {
-  const count = mode === 'a' && input.trim() ? parseDomainText(input).length : 0
+  const uniqueDomains = mode === 'a' && input.trim() ? parseDomainText(input) : []
+  const count = uniqueDomains.length
+  const duplicates = mode === 'a' && input.trim() ? parseDuplicates(input) : []
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -284,14 +293,29 @@ function InputStep({ client, niche, mode, input, setInput, sheetName, setSheetNa
         <div>
           <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 8 }}>
             <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-faint)' }}>Domains</div>
-            {count > 0 && <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>{count} domain{count !== 1 ? 's' : ''}</span>}
+            {count > 0 && (
+              <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>
+                {count} domain{count !== 1 ? 's' : ''}
+                {duplicates.length > 0 && <span style={{ color: '#f59e0b', marginLeft: 6, fontWeight: 600 }}>· {duplicates.length} duplicate{duplicates.length !== 1 ? 's' : ''}</span>}
+              </span>
+            )}
           </div>
           <textarea
             value={input} onChange={e => { setInput(e.target.value) }}
             placeholder={'example.com\nanother.com\nthird.com'}
-            style={{ width: '100%', minHeight: 160, resize: 'vertical', fontFamily: 'var(--font-mono)', fontSize: 13, background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 8, padding: '10px 12px', color: 'var(--text)', outline: 'none', boxSizing: 'border-box', lineHeight: 1.7 }}
+            style={{ width: '100%', minHeight: 160, resize: 'vertical', fontFamily: 'var(--font-mono)', fontSize: 13, background: 'var(--bg)', border: `1px solid ${duplicates.length > 0 ? 'rgba(245,158,11,.4)' : 'var(--border)'}`, borderRadius: 8, padding: '10px 12px', color: 'var(--text)', outline: 'none', boxSizing: 'border-box', lineHeight: 1.7 }}
           />
-          <div style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 5 }}>One per line or comma-separated. https:// and www are stripped automatically.</div>
+          {duplicates.length > 0 ? (
+            <div style={{ marginTop: 7, padding: '8px 12px', borderRadius: 7, background: 'rgba(245,158,11,.08)', border: '1px solid rgba(245,158,11,.25)', display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+              <span style={{ fontSize: 13, flexShrink: 0 }}>⚠</span>
+              <div>
+                <span style={{ fontSize: 12, color: '#f59e0b', fontWeight: 600 }}>Duplicate domains will be merged: </span>
+                <span style={{ fontSize: 12, color: '#f59e0b', fontFamily: 'var(--font-mono)' }}>{duplicates.join(', ')}</span>
+              </div>
+            </div>
+          ) : (
+            <div style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 5 }}>One per line or comma-separated. https:// and www are stripped automatically.</div>
+          )}
         </div>
       ) : (
         <div>

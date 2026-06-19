@@ -514,7 +514,7 @@ export function parsePrice(raw) {
 export async function addSheetTab(spreadsheetId, title) {
   const res = await gsheets(`/spreadsheets/${spreadsheetId}:batchUpdate`, {
     method: 'POST',
-    body: JSON.stringify({ requests: [{ addSheet: { properties: { title } } }] }),
+    body: JSON.stringify({ requests: [{ addSheet: { properties: { title, index: 0 } } }] }),
   })
   return res.replies?.[0]?.addSheet?.properties?.sheetId
 }
