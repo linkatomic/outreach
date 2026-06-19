@@ -17,6 +17,21 @@ const DEFAULTS = {
 }
 
 const sleep = ms => new Promise(r => setTimeout(r, ms))
+const CONCURRENCY = 3 // Notion rate limit is 3 req/sec
+
+async function createWithRetry(props) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      return await createNotionPage(props)
+    } catch (e) {
+      if (e.httpStatus === 429 && attempt < 2) {
+        await sleep(2000 * (attempt + 1)) // back off on rate limit
+        continue
+      }
+      throw e
+    }
+  }
+}
 
 function Label({ children, required }) {
   return (
@@ -137,15 +152,30 @@ export function LcNotion() {
     setProg({ done: 0, total: rows.length, errors: [] })
     const gplMap = await fetchGplBatch(rows.map(r => r.domain))
     const errors = []
-    for (let i = 0; i < rows.length; i++) {
-      const row = rows[i]
-      const gpl = extractGplInfo(gplMap.get(row.domain.toLowerCase()), common.postType)
-      try {
-        await createNotionPage(buildNotionProperties({ ...row, ...gpl, common }))
-      } catch (e) { errors.push(`${row.orderId}: ${e.message}`) }
-      setProg({ done: i + 1, total: rows.length, errors: [...errors] })
-      if (i < rows.length - 1) await sleep(400)
+
+    for (let i = 0; i < rows.length; i += CONCURRENCY) {
+      const batchStart = Date.now()
+      const batch = rows.slice(i, i + CONCURRENCY)
+
+      const results = await Promise.allSettled(
+        batch.map(row => {
+          const gpl = extractGplInfo(gplMap.get(row.domain.toLowerCase()), common.postType)
+          return createWithRetry(buildNotionProperties({ ...row, ...gpl, common }))
+        })
+      )
+
+      results.forEach((r, bi) => {
+        if (r.status === 'rejected') errors.push(`${batch[bi].orderId}: ${r.reason?.message || 'Failed'}`)
+      })
+
+      setProg({ done: Math.min(i + CONCURRENCY, rows.length), total: rows.length, errors: [...errors] })
+
+      // Keep average at 3 req/sec — wait out the remainder of 1 second if batch was faster
+      const elapsed = Date.now() - batchStart
+      const minBatch = 1050
+      if (elapsed < minBatch && i + CONCURRENCY < rows.length) await sleep(minBatch - elapsed)
     }
+
     setCreating(false); setFinished(true)
   }
 

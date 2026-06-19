@@ -18,7 +18,11 @@ export async function createNotionPage(properties) {
     body: JSON.stringify({ properties }),
   })
   const data = await res.json()
-  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
+  if (!res.ok) {
+    const err = new Error(data.error || `HTTP ${res.status}`)
+    err.httpStatus = res.status
+    throw err
+  }
   return data
 }
 
