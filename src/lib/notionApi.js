@@ -1,5 +1,14 @@
 const GPL_TOKEN = import.meta.env.VITE_GPL_API_TOKEN
 
+// ── Notion connection test ────────────────────────────────
+
+export async function testNotionConnection() {
+  const res = await fetch('/api/notion')
+  const data = await res.json()
+  if (!res.ok) return { ok: false, error: data.error, code: data.code }
+  return { ok: true, title: data.title, id: data.id }
+}
+
 // ── Notion page creation ──────────────────────────────────
 
 export async function createNotionPage(properties) {

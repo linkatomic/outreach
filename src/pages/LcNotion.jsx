@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { extractSheetId, getSheetTabs, getSheetRows } from '../lib/sheetParserAPI.js'
-import { fetchGplBatch, extractGplInfo, buildNotionProperties, createNotionPage } from '../lib/notionApi.js'
+import { fetchGplBatch, extractGplInfo, buildNotionProperties, createNotionPage, testNotionConnection } from '../lib/notionApi.js'
 
 const STATUS_OPTS     = ['Sent For Publication', 'In Progress', 'Completed', 'On Hold', 'Cancelled']
 const ORDER_FROM_OPTS = ['GUESTPOSTLINKS', 'DIRECT', 'FIVERR', 'OTHER']
@@ -83,9 +83,17 @@ export function LcNotion() {
   const [common, setCommon] = useState(DEFAULTS)
   const set = (k, v) => setCommon(p => ({ ...p, [k]: v }))
 
+  const [connStatus, setConnStatus] = useState(null) // null | 'testing' | {ok, title, error, code}
+
   const [creating, setCreating] = useState(false)
   const [prog,     setProg]     = useState({ done: 0, total: 0, errors: [] })
   const [finished, setFinished] = useState(false)
+
+  async function handleTestConn() {
+    setConnStatus('testing')
+    const result = await testNotionConnection()
+    setConnStatus(result)
+  }
 
   async function handleLoad() {
     setSheetErr(''); setTabs([]); setRows([]); setSelTab(''); setFinished(false)
@@ -159,6 +167,31 @@ export function LcNotion() {
           <h1>Notion Card Creator</h1>
           <div className="sub">Bulk-create Notion pages from an Order Sheet tab</div>
         </div>
+      </div>
+
+      {/* ── Connection test ──────────────────────────── */}
+      <div className="card" style={{ marginBottom: 16, padding: 16, display: 'flex', alignItems: 'center', gap: 14 }}>
+        <button className="btn" onClick={handleTestConn} disabled={connStatus === 'testing'}
+          style={{ fontSize: 12, whiteSpace: 'nowrap', flexShrink: 0 }}>
+          {connStatus === 'testing' ? 'Testing…' : 'Test Notion Connection'}
+        </button>
+
+        {connStatus && connStatus !== 'testing' && (
+          connStatus.ok
+            ? <span style={{ fontSize: 13, color: '#4ade80' }}>
+                ✓ Connected — <strong>{connStatus.title || connStatus.id}</strong>
+              </span>
+            : <span style={{ fontSize: 12, color: '#f87171', lineHeight: 1.5 }}>
+                ✗ {connStatus.error}
+                {connStatus.code && <span style={{ opacity: 0.6, marginLeft: 6 }}>({connStatus.code})</span>}
+              </span>
+        )}
+
+        {!connStatus && (
+          <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>
+            Click to verify your Notion token and database are correctly configured
+          </span>
+        )}
       </div>
 
       {/* ── Sheet loader ─────────────────────────────── */}
