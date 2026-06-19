@@ -452,7 +452,7 @@ export async function createBlankOrderSheet(client, onProgress) {
   if (!spreadsheetId) throw new Error('Client has no Order Sheet URL set')
 
   const d = new Date()
-  const baseName = `NEW & ${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`
+  const baseName = `NEW ${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`
 
   onProgress?.('Creating tab…')
   const { sheetId, sheetTitle } = await addSheetTabUnique(spreadsheetId, baseName)
