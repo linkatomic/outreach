@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { extractSheetId, getSheetTabs, getSheetRows } from '../lib/sheetParserAPI.js'
 import { fetchGplBatch, extractGplInfo, buildNotionProperties, createNotionPage, testNotionConnection } from '../lib/notionApi.js'
+import { saveNotionBatch } from '../lib/supabase.js'
 
 const STATUS_OPTS     = ['Sent For Publication', 'In Progress', 'Completed', 'On Hold', 'Cancelled']
 const ORDER_FROM_OPTS = ['GUESTPOSTLINKS', 'DIRECT', 'FIVERR', 'OTHER']
@@ -87,7 +88,7 @@ function summariseErrors(errors) {
 
 const MULTI_SOURCE_MSG = 'Databases with multiple data sources are not supported in this API version.'
 
-export function LcNotion() {
+export function LcNotion({ me }) {
   const [sheetUrl,  setSheetUrl]  = useState('')
   const [tabs,      setTabs]      = useState([])
   const [selTab,    setSelTab]    = useState('')
@@ -152,6 +153,7 @@ export function LcNotion() {
     setProg({ done: 0, total: rows.length, errors: [] })
     const gplMap = await fetchGplBatch(rows.map(r => r.domain))
     const errors = []
+    const successCards = []
 
     for (let i = 0; i < rows.length; i += CONCURRENCY) {
       const batchStart = Date.now()
@@ -161,11 +163,13 @@ export function LcNotion() {
         batch.map(row => {
           const gpl = extractGplInfo(gplMap.get(row.domain.toLowerCase()), common.postType)
           return createWithRetry(buildNotionProperties({ ...row, ...gpl, common }))
+            .then(res => ({ ...res, title: `${row.orderId} - ${row.domain}` }))
         })
       )
 
       results.forEach((r, bi) => {
-        if (r.status === 'rejected') errors.push(`${batch[bi].orderId}: ${r.reason?.message || 'Failed'}`)
+        if (r.status === 'fulfilled') successCards.push({ title: r.value.title, url: r.value.url })
+        else errors.push(`${batch[bi].orderId}: ${r.reason?.message || 'Failed'}`)
       })
 
       setProg({ done: Math.min(i + CONCURRENCY, rows.length), total: rows.length, errors: [...errors] })
@@ -174,6 +178,17 @@ export function LcNotion() {
       const elapsed = Date.now() - batchStart
       const minBatch = 1050
       if (elapsed < minBatch && i + CONCURRENCY < rows.length) await sleep(minBatch - elapsed)
+    }
+
+    if (successCards.length > 0) {
+      saveNotionBatch({
+        memberId: me?.id || 'unknown',
+        memberName: me?.name || 'Unknown',
+        clientName: common.clientName,
+        orderFrom: common.orderFrom,
+        postType: common.postType,
+        cards: successCards,
+      }).catch(() => {})
     }
 
     setCreating(false); setFinished(true)

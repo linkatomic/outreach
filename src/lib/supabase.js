@@ -473,3 +473,22 @@ export async function loadOrderHistory() {
   if (error) throw error
   return data || []
 }
+
+// ── Notion Card History ───────────────────────────────────
+
+export async function saveNotionBatch({ memberId, memberName, clientName, orderFrom, postType, cards }) {
+  const { error } = await supabase
+    .from('notion_history')
+    .insert({ member_id: memberId, member_name: memberName, client_name: clientName, order_from: orderFrom, post_type: postType, batch_size: cards.length, cards })
+  if (error) throw error
+}
+
+export async function loadNotionHistory() {
+  const { data, error } = await supabase
+    .from('notion_history')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(200)
+  if (error) throw error
+  return data || []
+}

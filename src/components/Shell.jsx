@@ -23,8 +23,9 @@ export function Sidebar({ route, setRoute, role, me, allUsers = [], impersonated
     { id: 'lc-home',    label: 'Home',         icon: 'home' },
     { id: 'lc-clients', label: 'Clients',       icon: 'users' },
     { id: 'lc-orders',  label: 'Order Sheet',   icon: 'download' },
-    { id: 'lc-notion',  label: 'Notion Cards',  icon: 'layers' },
-    { id: 'lc-history', label: 'History',       icon: 'clock' },
+    { id: 'lc-notion',         label: 'Notion Cards',    icon: 'layers' },
+    { id: 'lc-notion-history', label: 'Notion History',  icon: 'clock' },
+    { id: 'lc-history',        label: 'Sheet History',   icon: 'clock' },
     { id: 'lc-team',    label: 'Team',          icon: 'users' },
   ];
 
@@ -179,8 +180,9 @@ export function Topbar({ route, role, theme, toggleTheme, openCmdK, notifOpen, s
     shortcuts: ['Shortcuts'], brief: ['Design Brief'],
     'lc-home': ['Live Chat', 'Home'], 'lc-team': ['Live Chat', 'Team'],
     'lc-clients': ['Live Chat', 'Clients'], 'lc-orders': ['Live Chat', 'Order Sheet'],
-    'lc-notion':  ['Live Chat', 'Notion Cards'],
-    'lc-history': ['Live Chat', 'History'],
+    'lc-notion':         ['Live Chat', 'Notion Cards'],
+    'lc-notion-history': ['Live Chat', 'Notion History'],
+    'lc-history':        ['Live Chat', 'Sheet History'],
     online: ['Admin', 'Active Users'],
   }[route] || ['Home'];
 
