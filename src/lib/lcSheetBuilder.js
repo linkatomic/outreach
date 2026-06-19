@@ -445,7 +445,35 @@ export async function createOrderSheet(client, niche, domains, includeWriting = 
   }
 }
 
-// ── Mode B: fill existing sub-sheet ──────────────────────
+// ── Mode C: blank template sheet ─────────────────────────
+
+export async function createBlankOrderSheet(client, onProgress) {
+  const spreadsheetId = extractSheetId(client.order_sheet_url)
+  if (!spreadsheetId) throw new Error('Client has no Order Sheet URL set')
+
+  const d = new Date()
+  const baseName = `NEW & ${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`
+
+  onProgress?.('Creating tab…')
+  const { sheetId, sheetTitle } = await addSheetTabUnique(spreadsheetId, baseName)
+
+  const BLANK_ROWS = 25
+  const allRows = [HEADERS, ...Array(BLANK_ROWS).fill(null).map(() => Array(NUM_COLS).fill(''))]
+
+  onProgress?.('Writing template…')
+  await writeRangeValues(spreadsheetId, `'${sheetTitle}'!A1:T${allRows.length}`, allRows)
+
+  onProgress?.('Formatting…')
+  await formatOrderSheet(spreadsheetId, sheetId, BLANK_ROWS, {
+    hasWriting: false, hasDiscount: false,
+    notFoundRows: [], nofollowRows: [], disabledRows: [], noPriceRows: [],
+  })
+
+  return {
+    sheetUrl: `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit#gid=${sheetId}`,
+    sheetTitle,
+  }
+}
 
 const API_COLS = [
   { header: 'Price',              idx: C.PRICE },

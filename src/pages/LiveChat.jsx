@@ -1,7 +1,5 @@
 import { useState, useEffect } from 'react'
 import { Icon } from '../data.jsx'
-
-// ── Tools page wrapper ─────────────────────────────────────
 const LC_TOOLS = [
   { id: 'clients', title: 'Client Manager', desc: 'Add and manage live chat clients — order sheets, article costs, discounts, buyer/reseller types', icon: 'users', tag: 'CRM' },
 ]
@@ -52,6 +50,7 @@ export function LiveChatToolsPage({ me }) {
   )
 }
 import { useRef } from 'react'
+import { createBlankOrderSheet } from '../lib/lcSheetBuilder.js'
 import {
   loadLivechatClients, createLivechatClient,
   updateLivechatClient, deleteLivechatClient, bulkCreateLivechatClients,
@@ -340,6 +339,8 @@ export function LiveChatClients({ me }) {
   const [saveError, setSaveError] = useState('')
   const [importParsed, setImportParsed] = useState(null)
   const fileInputRef = useRef(null)
+  const [sheetCreating, setSheetCreating] = useState(null)  // client id being processed
+  const [sheetResults, setSheetResults]   = useState({})    // id → { url, title } after done
 
   function handleFileChange(e) {
     const file = e.target.files?.[0]
@@ -391,6 +392,19 @@ export function LiveChatClients({ me }) {
   async function handleDelete(id) {
     try { await deleteLivechatClient(id); setDeleteId(null); await load() }
     catch { /* silent */ }
+  }
+
+  async function handleNewSheet(client) {
+    if (!client.order_sheet_url) return
+    setSheetCreating(client.id)
+    try {
+      const res = await createBlankOrderSheet(client)
+      setSheetResults(prev => ({ ...prev, [client.id]: res }))
+    } catch (err) {
+      setSheetResults(prev => ({ ...prev, [client.id]: { error: err.message || 'Failed' } }))
+    } finally {
+      setSheetCreating(null)
+    }
   }
 
   const filtered = clients.filter(c => {
@@ -559,7 +573,32 @@ export function LiveChatClients({ me }) {
                       {c.notes}
                     </div>
                   )}
-                  <div style={{ display: 'flex', gap: 8 }}>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                    {/* New Order Sheet button */}
+                    {sheetResults[c.id]?.url ? (
+                      <a href={sheetResults[c.id].url} target="_blank" rel="noreferrer"
+                         style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 7, background: 'rgba(74,222,128,.12)', border: '1px solid rgba(74,222,128,.25)', color: '#4ade80', textDecoration: 'none', fontSize: 12, fontWeight: 600 }}>
+                        <Icon name="check" size={12} /> Open "{sheetResults[c.id].title}"
+                      </a>
+                    ) : sheetResults[c.id]?.error ? (
+                      <span style={{ fontSize: 12, color: '#f87171', padding: '6px 12px', borderRadius: 7, background: 'rgba(248,113,113,.1)', border: '1px solid rgba(248,113,113,.2)' }}>
+                        ⚠ {sheetResults[c.id].error}
+                      </span>
+                    ) : (
+                      <button
+                        className="btn ghost"
+                        style={{ fontSize: 12, opacity: (!c.order_sheet_url || sheetCreating === c.id) ? 0.5 : 1 }}
+                        disabled={!c.order_sheet_url || sheetCreating === c.id}
+                        title={!c.order_sheet_url ? 'Add an Order Sheet URL to this client first' : ''}
+                        onClick={() => handleNewSheet(c)}
+                      >
+                        {sheetCreating === c.id
+                          ? <><Icon name="refresh" size={12} /> Creating…</>
+                          : <><Icon name="plus" size={12} /> New Order Sheet</>
+                        }
+                      </button>
+                    )}
+                    <div style={{ flex: 1 }} />
                     <button className="btn ghost" style={{ fontSize: 12 }} onClick={() => setModal(c)}>
                       <Icon name="edit" size={12} /> Edit
                     </button>
