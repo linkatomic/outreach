@@ -94,8 +94,8 @@ export function buildNotionProperties({ orderId, domain, vendor, vendorPrice, ac
           postType, paymentStatus, note, publicationCost, orderUrl } = common
 
   if (orderStatus)     p['Order Status']         = { status: stat(orderStatus) }
-  if (clientName)      p['Client Name']           = { rich_text: txt(clientName) }
-  if (clientSheet)     p['Client Sheet']          = { rich_text: txt(clientSheet) }
+  if (clientName)      p['Customer Name']         = { rich_text: txt(clientName) }
+  if (clientSheet)     p['Client Sheet']          = { url: clientSheet }
   if (orderFrom)       p['Order From']            = { select: sel(orderFrom) }
   if (orderType)       p['Order Type']            = { select: sel(orderType) }
   if (orderIn)         p['Order In']              = { select: sel(orderIn) }

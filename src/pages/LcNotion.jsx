@@ -252,7 +252,7 @@ export function LcNotion() {
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px 20px' }}>
 
-          <Field label="Client Name" required span={2}>
+          <Field label="Customer Name" required span={2}>
             <Inp value={common.clientName} onChange={v => set('clientName', v)} placeholder="e.g. Sokchea Thea" />
           </Field>
 
