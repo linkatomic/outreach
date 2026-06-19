@@ -19,6 +19,7 @@ import { LiveChatToolsPage, LiveChatClients } from './pages/LiveChat.jsx'
 import { LiveChatOrderSheet } from './pages/LiveChatOrderSheet.jsx'
 import { OnlinePage } from './pages/OnlinePage.jsx'
 import { LcHistory } from './pages/LcHistory.jsx'
+import { LcNotion } from './pages/LcNotion.jsx'
 
 const TWEAK_DEFAULTS = { dark: true };
 
@@ -299,6 +300,7 @@ export default function App() {
       case 'lc-home':    return <LiveChatHome me={m} />;
       case 'lc-clients': return <LiveChatClients me={m} />;
       case 'lc-orders':  return <LiveChatOrderSheet me={m} />;
+      case 'lc-notion':  return <LcNotion />;
       case 'lc-history': return <LcHistory />;
       case 'lc-team':    return <LiveChatTeam />;
       case 'online':     return ['lead', 'super'].includes(me.role)

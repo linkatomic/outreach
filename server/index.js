@@ -2,6 +2,7 @@ import 'dotenv/config'
 import express from 'express'
 import cors from 'cors'
 import { sheetParserRouter } from './routes/sheetParser.js'
+import { notionRouter } from './routes/notion.js'
 
 const app = express()
 
@@ -9,6 +10,7 @@ app.use(cors({ origin: ['http://localhost:5173', 'http://localhost:4173'] }))
 app.use(express.json())
 
 app.use('/api/sheet-parser', sheetParserRouter)
+app.use('/api/notion', notionRouter)
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }))
 
