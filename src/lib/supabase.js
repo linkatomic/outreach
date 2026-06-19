@@ -454,3 +454,22 @@ export async function bulkCreateLivechatClients(rows) {
   if (error) throw error
   return data
 }
+
+// ── LC Order History ──────────────────────────────────────
+
+export async function saveOrderHistory({ memberId, memberName, clientName, sheetTitle, sheetUrl, type, niche = null, domainCount = null }) {
+  const { error } = await supabase
+    .from('lc_order_history')
+    .insert({ member_id: memberId, member_name: memberName, client_name: clientName, sheet_title: sheetTitle, sheet_url: sheetUrl, type, niche, domain_count: domainCount })
+  if (error) throw error
+}
+
+export async function loadOrderHistory() {
+  const { data, error } = await supabase
+    .from('lc_order_history')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(500)
+  if (error) throw error
+  return data || []
+}

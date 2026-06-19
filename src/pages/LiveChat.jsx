@@ -54,6 +54,7 @@ import { createBlankOrderSheet } from '../lib/lcSheetBuilder.js'
 import {
   loadLivechatClients, createLivechatClient,
   updateLivechatClient, deleteLivechatClient, bulkCreateLivechatClients,
+  saveOrderHistory,
 } from '../lib/supabase.js'
 
 // ── CSV helpers ────────────────────────────────────────────
@@ -400,6 +401,12 @@ export function LiveChatClients({ me }) {
     try {
       const res = await createBlankOrderSheet(client)
       setSheetResults(prev => ({ ...prev, [client.id]: res }))
+      saveOrderHistory({
+        memberId: me.id, memberName: me.name,
+        clientName: client.client_name,
+        sheetTitle: res.sheetTitle, sheetUrl: res.sheetUrl,
+        type: 'blank',
+      }).catch(() => {})
     } catch (err) {
       setSheetResults(prev => ({ ...prev, [client.id]: { error: err.message || 'Failed' } }))
     } finally {

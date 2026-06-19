@@ -3,6 +3,7 @@ import { Icon } from '../data.jsx'
 import { loadLivechatClients } from '../lib/supabase.js'
 import { extractSheetId } from '../lib/sheetParserAPI.js'
 import { parseDomainText, createOrderSheet, fillOrderSheet, checkGplApiStatus } from '../lib/lcSheetBuilder.js'
+import { saveOrderHistory } from '../lib/supabase.js'
 
 // ── Helpers ───────────────────────────────────────────────
 
@@ -371,7 +372,7 @@ function InputStep({ client, niche, mode, input, setInput, sheetName, setSheetNa
 
 // ── Main wizard ───────────────────────────────────────────
 
-export function LiveChatOrderSheet() {
+export function LiveChatOrderSheet({ me }) {
   const [step, setStep]           = useState('client')
   const [client, setClient]       = useState(null)
   const [niche, setNiche]         = useState('general')
@@ -416,6 +417,14 @@ export function LiveChatOrderSheet() {
         : await fillOrderSheet(client, niche, input.trim(), includeWriting, discountPct, setProgress)
       setResult(res)
       setStep('done')
+      saveOrderHistory({
+        memberId: me?.id, memberName: me?.name || 'Unknown',
+        clientName: client.client_name,
+        sheetTitle: res.sheetTitle, sheetUrl: res.sheetUrl,
+        type: mode === 'a' ? 'new' : 'fill',
+        niche,
+        domainCount: mode === 'a' ? domains.length : res.total,
+      }).catch(() => {})
     } catch (err) {
       setError(err.message || 'Something went wrong')
       setStep('input')
