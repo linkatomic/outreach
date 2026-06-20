@@ -177,7 +177,7 @@ export function LcNotion({ me }) {
       )
 
       results.forEach((r, bi) => {
-        if (r.status === 'fulfilled') successCards.push({ title: r.value.title, url: r.value.url })
+        if (r.status === 'fulfilled') successCards.push(r.value)
         else errors.push(`${batch[bi].orderId}: ${r.reason?.message || 'Failed'}`)
       })
 
