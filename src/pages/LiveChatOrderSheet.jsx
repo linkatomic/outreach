@@ -262,9 +262,11 @@ function parseDuplicates(text) {
 
 function InputStep({ client, niche, mode, input, setInput, sheetName, setSheetName,
                      includeWriting, setIncludeWriting, discountEnabled, setDiscountEnabled,
-                     customDiscount, setCustomDiscount, error, onRun }) {
-  const uniqueDomains = mode === 'a' && input.trim() ? parseDomainText(input) : []
-  const count = uniqueDomains.length
+                     customDiscount, setCustomDiscount,
+                     excludeWritingFromDiscount, setExcludeWritingFromDiscount,
+                     error, onRun }) {
+  const allDomains = mode === 'a' && input.trim() ? parseDomainText(input) : []
+  const count = allDomains.length
   const duplicates = mode === 'a' && input.trim() ? parseDuplicates(input) : []
 
   return (
@@ -304,14 +306,14 @@ function InputStep({ client, niche, mode, input, setInput, sheetName, setSheetNa
           <textarea
             value={input} onChange={e => { setInput(e.target.value) }}
             placeholder={'example.com\nanother.com\nthird.com'}
-            style={{ width: '100%', minHeight: 160, resize: 'vertical', fontFamily: 'var(--font-mono)', fontSize: 13, background: 'var(--bg)', border: `1px solid ${duplicates.length > 0 ? 'rgba(245,158,11,.4)' : 'var(--border)'}`, borderRadius: 8, padding: '10px 12px', color: 'var(--text)', outline: 'none', boxSizing: 'border-box', lineHeight: 1.7 }}
+            style={{ width: '100%', minHeight: 160, resize: 'vertical', fontFamily: 'var(--font-mono)', fontSize: 13, background: 'var(--bg)', border: `1px solid ${duplicates.length > 0 ? 'rgba(96,165,250,.4)' : 'var(--border)'}`, borderRadius: 8, padding: '10px 12px', color: 'var(--text)', outline: 'none', boxSizing: 'border-box', lineHeight: 1.7 }}
           />
           {duplicates.length > 0 ? (
-            <div style={{ marginTop: 7, padding: '8px 12px', borderRadius: 7, background: 'rgba(245,158,11,.08)', border: '1px solid rgba(245,158,11,.25)', display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-              <span style={{ fontSize: 13, flexShrink: 0 }}>⚠</span>
+            <div style={{ marginTop: 7, padding: '8px 12px', borderRadius: 7, background: 'rgba(96,165,250,.08)', border: '1px solid rgba(96,165,250,.25)', display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+              <span style={{ fontSize: 13, flexShrink: 0 }}>ℹ</span>
               <div>
-                <span style={{ fontSize: 12, color: '#f59e0b', fontWeight: 600 }}>Duplicate domains will be merged: </span>
-                <span style={{ fontSize: 12, color: '#f59e0b', fontFamily: 'var(--font-mono)' }}>{duplicates.join(', ')}</span>
+                <span style={{ fontSize: 12, color: '#60a5fa', fontWeight: 600 }}>Duplicate domains will be placed at the end and highlighted in blue: </span>
+                <span style={{ fontSize: 12, color: '#60a5fa', fontFamily: 'var(--font-mono)' }}>{duplicates.join(', ')}</span>
               </div>
             </div>
           ) : (
@@ -334,7 +336,7 @@ function InputStep({ client, niche, mode, input, setInput, sheetName, setSheetNa
           <ToggleRow
             label="Include writing service"
             desc={includeWriting
-              ? `$${client.article_cost || '?'}/article · sites ≥1000 words → $15`
+              ? `$${client.article_cost || '?'}/article · ≥1000 words → $15 · ≥2000 words → $20`
               : 'Client writes their own content — writing row omitted'}
             value={includeWriting}
             onChange={setIncludeWriting}
@@ -353,6 +355,14 @@ function InputStep({ client, niche, mode, input, setInput, sheetName, setSheetNa
               </div>
             )}
           />
+          {includeWriting && discountEnabled && (
+            <ToggleRow
+              label="Exclude writing from discount"
+              desc="Discount on publication only; writing cost added after at full price"
+              value={excludeWritingFromDiscount}
+              onChange={setExcludeWritingFromDiscount}
+            />
+          )}
         </div>
       </div>
 
@@ -382,6 +392,7 @@ export function LiveChatOrderSheet({ me }) {
   const [includeWriting, setIncludeWriting] = useState(true)
   const [discountEnabled, setDiscountEnabled] = useState(false)
   const [customDiscount, setCustomDiscount]   = useState('')
+  const [excludeWritingFromDiscount, setExcludeWritingFromDiscount] = useState(false)
   const [progress, setProgress]   = useState('')
   const [result, setResult]       = useState(null)
   const [error, setError]         = useState('')
@@ -413,8 +424,8 @@ export function LiveChatOrderSheet({ me }) {
 
     try {
       const res = mode === 'a'
-        ? await createOrderSheet(client, niche, domains, includeWriting, sheetName.trim() || null, discountPct, setProgress)
-        : await fillOrderSheet(client, niche, input.trim(), includeWriting, discountPct, setProgress)
+        ? await createOrderSheet(client, niche, domains, includeWriting, sheetName.trim() || null, discountPct, excludeWritingFromDiscount, setProgress)
+        : await fillOrderSheet(client, niche, input.trim(), includeWriting, discountPct, excludeWritingFromDiscount, setProgress)
       setResult(res)
       setStep('done')
       saveOrderHistory({
@@ -498,6 +509,7 @@ export function LiveChatOrderSheet({ me }) {
               includeWriting={includeWriting} setIncludeWriting={setIncludeWriting}
               discountEnabled={discountEnabled} setDiscountEnabled={setDiscountEnabled}
               customDiscount={customDiscount} setCustomDiscount={setCustomDiscount}
+              excludeWritingFromDiscount={excludeWritingFromDiscount} setExcludeWritingFromDiscount={setExcludeWritingFromDiscount}
               error={error} onRun={run}
             />
           )}

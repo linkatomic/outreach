@@ -112,9 +112,7 @@ function isSiteDisabled(siteData) {
 // ── Row builders ──────────────────────────────────────────
 
 export function parseDomainText(text) {
-  return [...new Set(
-    text.split(/[\n,]+/).map(d => cleanDomain(d.trim())).filter(Boolean)
-  )]
+  return text.split(/[\n,]+/).map(d => cleanDomain(d.trim())).filter(Boolean)
 }
 
 function buildDataRow(domain, siteData, niche, clientType) {
@@ -132,21 +130,19 @@ function buildDataRow(domain, siteData, niche, clientType) {
   return row
 }
 
-export function buildSummaryRows(dataRows, client, includeWriting = true, discountPct = null) {
-  const prices       = dataRows.map(r => Number(r[C.PRICE])).filter(p => !isNaN(p) && p > 0)
-  const articlePub   = Math.round(prices.reduce((s, p) => s + p, 0) * 100) / 100
-  const articleCost  = parseFloat(client.article_cost) || 10  // Default $10 per article
+export function buildSummaryRows(dataRows, client, includeWriting = true, discountPct = null, excludeWritingFromDiscount = false) {
+  const prices      = dataRows.map(r => Number(r[C.PRICE])).filter(p => !isNaN(p) && p > 0)
+  const articlePub  = Math.round(prices.reduce((s, p) => s + p, 0) * 100) / 100
+  const articleCost = parseFloat(client.article_cost) || 10
 
-  // Sites with article_min_length >= 1000 words are charged $15 regardless of client rate
-  const LONG_ARTICLE_THRESHOLD = 1000
-  const LONG_ARTICLE_COST      = 15
   const writingCost = includeWriting
     ? Math.round(
         dataRows
-          .filter(r => r[C.DOMAIN] && Number(r[C.PRICE]) > 0)  // skip disabled/not-found/no-niche-price
+          .filter(r => r[C.DOMAIN] && Number(r[C.PRICE]) > 0)
           .reduce((sum, r) => {
             const minLen = parseInt(r[C.ARTICLE_LENGTH_MIN]) || 0
-            return sum + (minLen >= LONG_ARTICLE_THRESHOLD ? LONG_ARTICLE_COST : articleCost)
+            const cost   = minLen >= 2000 ? 20 : minLen >= 1000 ? 15 : articleCost
+            return sum + cost
           }, 0) * 100
       ) / 100
     : 0
@@ -168,8 +164,15 @@ export function buildSummaryRows(dataRows, client, includeWriting = true, discou
   rows.push(tot)
 
   if (discount > 0) {
-    const discounted = Math.round(total * (1 - discount / 100) * 100) / 100
-    const disc = blank(); disc[C.DOMAIN] = `After ${discount}% discount`; disc[C.PRICE] = discounted
+    const disc = blank()
+    if (excludeWritingFromDiscount && includeWriting) {
+      const discountedPub = Math.round(articlePub * (1 - discount / 100) * 100) / 100
+      disc[C.DOMAIN] = `After ${discount}% discount (pub. only)`
+      disc[C.PRICE]  = Math.round((discountedPub + writingCost) * 100) / 100
+    } else {
+      disc[C.DOMAIN] = `After ${discount}% discount`
+      disc[C.PRICE]  = Math.round(total * (1 - discount / 100) * 100) / 100
+    }
     rows.push(disc)
   }
 
@@ -178,7 +181,7 @@ export function buildSummaryRows(dataRows, client, includeWriting = true, discou
 
 // ── Sheet formatting ──────────────────────────────────────
 
-async function formatOrderSheet(spreadsheetId, sheetId, dataRowCount, { hasWriting, hasDiscount, notFoundRows = [], nofollowRows = [], disabledRows = [], noPriceRows = [] }) {
+async function formatOrderSheet(spreadsheetId, sheetId, dataRowCount, { hasWriting, hasDiscount, notFoundRows = [], nofollowRows = [], disabledRows = [], noPriceRows = [], dupeRows = [] }) {
   const ORANGE   = { red: 0.953, green: 0.604, blue: 0.204 }
   const WHITE    = { red: 1, green: 1, blue: 1 }
   const AMBER    = { red: 1.0,  green: 0.937, blue: 0.835 }
@@ -187,6 +190,7 @@ async function formatOrderSheet(spreadsheetId, sheetId, dataRowCount, { hasWriti
   const NOFOLLOW_BG  = { red: 1.0,  green: 0.95, blue: 0.80 }  // light amber — nofollow
   const DISABLED_BG  = { red: 0.92, green: 0.88, blue: 0.99 }  // light lavender — disabled
   const NO_PRICE_BG  = { red: 1.0,  green: 0.87, blue: 0.65 }  // light orange — no niche price
+  const DUPE_BG      = { red: 0.79, green: 0.93, blue: 1.0  }  // light blue — duplicate domain
   const LINE   = { style: 'SOLID', color: { red: 0.75, green: 0.75, blue: 0.75 } }
   const BOLD_LINE = { style: 'SOLID_MEDIUM', color: { red: 0.6, green: 0.6, blue: 0.6 } }
   const CURR   = { type: 'CURRENCY', pattern: '"$"#,##0.00' }
@@ -332,6 +336,17 @@ async function formatOrderSheet(spreadsheetId, sheetId, dataRowCount, { hasWriti
     },
   })))
 
+  // Duplicate rows: entire row light blue (applied first so cell-level highlights can override)
+  for (const i of dupeRows) {
+    requests.push({
+      repeatCell: {
+        range: rc(i + 1, i + 2, 0, NUM_COLS),
+        cell: { userEnteredFormat: { backgroundColor: DUPE_BG } },
+        fields: 'userEnteredFormat.backgroundColor',
+      },
+    })
+  }
+
   // Cell-level highlights — only the relevant cell, not the entire row
   for (const i of notFoundRows) {
     requests.push({
@@ -391,12 +406,22 @@ async function addSheetTabUnique(spreadsheetId, baseName) {
 
 // ── Mode A: create new sub-sheet tab ─────────────────────
 
-export async function createOrderSheet(client, niche, domains, includeWriting = true, customName = null, discountPct = null, onProgress) {
+export async function createOrderSheet(client, niche, domains, includeWriting = true, customName = null, discountPct = null, excludeWritingFromDiscount = false, onProgress) {
   const spreadsheetId = extractSheetId(client.order_sheet_url)
   if (!spreadsheetId) throw new Error('Client record has no valid order sheet URL')
 
-  onProgress?.(`Fetching publisher data for ${domains.length} domains…`)
-  const gplMap = await fetchGplData(domains, (done, total) => {
+  // Separate first-occurrences from duplicate occurrences; duplicates go to the end
+  const seen = new Set()
+  const uniqueDomains = []
+  const dupeDomains   = []
+  for (const dom of domains) {
+    if (seen.has(dom)) dupeDomains.push(dom)
+    else { seen.add(dom); uniqueDomains.push(dom) }
+  }
+  const orderedDomains = [...uniqueDomains, ...dupeDomains]
+
+  onProgress?.(`Fetching publisher data for ${uniqueDomains.length} domain${uniqueDomains.length !== 1 ? 's' : ''}…`)
+  const gplMap = await fetchGplData(uniqueDomains, (done, total) => {
     onProgress?.(`Fetching publisher data… ${done}/${total}`)
   })
 
@@ -406,42 +431,44 @@ export async function createOrderSheet(client, niche, domains, includeWriting = 
   onProgress?.('Creating sheet tab…')
   const { sheetId, sheetTitle } = await addSheetTabUnique(spreadsheetId, baseName)
 
-  const dataRows    = domains.map(dom => buildDataRow(dom, gplMap.get(dom), niche, client.client_type))
+  const dataRows      = orderedDomains.map(dom => buildDataRow(dom, gplMap.get(dom), niche, client.client_type))
   const effectiveDiscount = discountPct !== null ? discountPct : (parseFloat(client.permanent_discount) || 0)
-  const summaryRows = buildSummaryRows(dataRows, client, includeWriting, discountPct)
-  const allRows     = [HEADERS, ...dataRows, ...summaryRows]
+  const summaryRows   = buildSummaryRows(dataRows, client, includeWriting, discountPct, excludeWritingFromDiscount)
+  const allRows       = [HEADERS, ...dataRows, ...summaryRows]
 
-  // Determine highlight rows
-  const notFoundRows  = domains.map((dom, i) => gplMap.has(dom) ? -1 : i).filter(i => i >= 0)
-  const nofollowRows  = dataRows.map((r, i) => String(r[C.LINK_TYPE] || '').toLowerCase() === 'nofollow' ? i : -1).filter(i => i >= 0)
-  const disabledRows  = domains.map((dom, i) => isSiteDisabled(gplMap.get(dom)) ? i : -1).filter(i => i >= 0)
-  // noPriceRows: site found + not disabled, but no niche/general price
-  const noPriceRows   = domains
+  // Highlight rows (indices relative to data start, 0-indexed)
+  const notFoundRows = orderedDomains.map((dom, i) => gplMap.has(dom) ? -1 : i).filter(i => i >= 0)
+  const nofollowRows = dataRows.map((r, i) => String(r[C.LINK_TYPE] || '').toLowerCase() === 'nofollow' ? i : -1).filter(i => i >= 0)
+  const disabledRows = orderedDomains.map((dom, i) => isSiteDisabled(gplMap.get(dom)) ? i : -1).filter(i => i >= 0)
+  const noPriceRows  = orderedDomains
     .map((dom, i) => {
       if (!gplMap.has(dom) || isSiteDisabled(gplMap.get(dom))) return -1
       const p = dataRows[i][C.PRICE]
       return (p === '' || p === null || p === undefined) ? i : -1
     })
     .filter(i => i >= 0)
+  // Duplicate rows start at uniqueDomains.length (entire row highlighted blue)
+  const dupeRows = orderedDomains.map((_, i) => i >= uniqueDomains.length ? i : -1).filter(i => i >= 0)
 
   onProgress?.('Writing data…')
   await writeRangeValues(spreadsheetId, `'${sheetTitle}'!A1:T${allRows.length}`, allRows)
 
   onProgress?.('Applying formatting…')
-  await formatOrderSheet(spreadsheetId, sheetId, domains.length, {
+  await formatOrderSheet(spreadsheetId, sheetId, orderedDomains.length, {
     hasWriting: includeWriting,
     hasDiscount: effectiveDiscount > 0,
     notFoundRows,
     nofollowRows,
     disabledRows,
     noPriceRows,
+    dupeRows,
   })
 
   return {
     sheetUrl: `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit#gid=${sheetId}`,
     sheetTitle,
-    total: domains.length,
-    found: domains.filter(dom => gplMap.has(dom)).length,
+    total: orderedDomains.length,
+    found: orderedDomains.filter(dom => gplMap.has(dom)).length,
   }
 }
 
@@ -485,7 +512,7 @@ const API_COLS = [
   { header: 'Rules',              idx: C.RULES },
 ]
 
-export async function fillOrderSheet(client, niche, subSheetUrl, includeWriting = true, discountPct = null, onProgress) {
+export async function fillOrderSheet(client, niche, subSheetUrl, includeWriting = true, discountPct = null, excludeWritingFromDiscount = false, onProgress) {
   const spreadsheetId = extractSheetId(subSheetUrl)
   if (!spreadsheetId) throw new Error('Invalid sheet URL')
 
@@ -538,7 +565,7 @@ export async function fillOrderSheet(client, niche, subSheetUrl, includeWriting 
 
   // Summary section
   const freshDataRows  = dataRowsRaw.map(r => buildDataRow(cleanDomain(String(r[domainColIdx] || '')), gplMap.get(cleanDomain(String(r[domainColIdx] || ''))), niche, client.client_type))
-  const summaryRows    = buildSummaryRows(freshDataRows, client, includeWriting, discountPct)
+  const summaryRows    = buildSummaryRows(freshDataRows, client, includeWriting, discountPct, excludeWritingFromDiscount)
 
   // Determine highlight rows (relative to data start, 0-indexed)
   const fillNotFound  = domains.map((dom, i) => gplMap.has(dom) ? -1 : i).filter(i => i >= 0)
