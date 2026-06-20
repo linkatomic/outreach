@@ -8,6 +8,7 @@ export const LC_TEAM = [
   { id: 'nagji',   name: 'Nagji R',    short: 'NR', role: 'livechat', color: 'e', email: 'nagji.r@amrytt.com',   joined: '2026-06-01' },
   { id: 'kanaiya', name: 'Kanaiya K',  short: 'KK', role: 'livechat', color: 'd', email: 'kanaiya.k@amrytt.com', joined: '2026-06-16' },
   { id: 'nilesh',  name: 'Nilesh P',   short: 'NP', role: 'livechat', color: 'f', email: 'nilesh.p@amrytt.com',  joined: '2026-06-16' },
+  { id: 'shailesh', name: 'Shailesh C', short: 'SC', role: 'livechat', color: 'g', email: 'shailesh.c@amrytt.com', joined: '2026-06-20' },
 ]
 
 // LC_STAFF: all LC-side users including non-team roles (HR etc.) — used for super admin impersonation
@@ -17,7 +18,7 @@ export const LC_STAFF = [
 ]
 
 const ROLE_LABEL = { lead: 'Team Lead', member: 'Member', livechat: 'Agent', hr: 'HR' }
-const COLOR_MAP  = { a: '#a3e635', b: '#60a5fa', c: '#f472b6', d: '#fb923c', e: '#a78bfa', f: '#34d399' }
+const COLOR_MAP  = { a: '#a3e635', b: '#60a5fa', c: '#f472b6', d: '#fb923c', e: '#a78bfa', f: '#34d399', g: '#fbbf24' }
 
 export function LiveChatTeam() {
   return (
