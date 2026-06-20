@@ -24,8 +24,13 @@ const ORDER_TYPE_OPTS   = [
   'Article Writing + Publication',
   'Foreign Language Article Publication',
 ]
-const ORDER_IN_OPTS     = ['Single', 'Bulk']
-const POST_TYPE_OPTS    = ['Casino', 'Finance', 'CBD', 'Crypto', 'Health', 'Tech', 'Dating', 'Adult', 'General', 'Gambling']
+const ORDER_IN_OPTS     = [
+  'Pro PR', 'Growth PR', 'Starter PR', 'Ent PR',
+  'Single', 'Bulk',
+  'DA-50 Package', 'DA-60 Package', 'DA-70 Package',
+  'Crypto Elite Pack', 'Crypto Pro Pack', 'Crypto Growth Pack', 'Crypto Starter Pack',
+]
+const POST_TYPE_OPTS    = ['CBD', 'Crypto', 'Adult', 'Casino', 'General']
 const PAY_OPTS          = ['Need to Check', 'Paid', 'Pending', 'Overdue']
 const SENT_FOR_PUB_OPTS = ['Bhavansinh Chauhan', 'Nilesh P', 'Kanaiya Kadiya', 'Dev P', 'Nagji Rajput']
 const ORDER_PROCESS_BY_OPTS = ['Dev P', 'Bhavansinh Chauhan', 'Nagji Rajput', 'Kanaiya Kadiya', 'Nilesh P']
