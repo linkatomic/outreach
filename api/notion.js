@@ -22,6 +22,24 @@ export default async function handler(req, res) {
     }
   }
 
+  // PATCH → update page properties
+  if (req.method === 'PATCH') {
+    const { pageId, properties } = req.body || {}
+    if (!pageId || !properties) return res.status(400).json({ error: 'pageId and properties required' })
+    try {
+      const r = await fetch(`https://api.notion.com/v1/pages/${pageId}`, {
+        method: 'PATCH',
+        headers: notionHeaders,
+        body: JSON.stringify({ properties }),
+      })
+      const data = await r.json()
+      if (!r.ok) return res.status(r.status).json({ error: data.message || 'Notion error', code: data.code })
+      return res.json({ id: data.id })
+    } catch (e) {
+      return res.status(500).json({ error: e.message })
+    }
+  }
+
   // POST → create page
   if (req.method === 'POST') {
     const { properties } = req.body || {}

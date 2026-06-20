@@ -22,6 +22,23 @@ notionRouter.get('/', async (req, res) => {
   }
 })
 
+notionRouter.patch('/', async (req, res) => {
+  const { pageId, properties } = req.body || {}
+  if (!pageId || !properties) return res.status(400).json({ error: 'pageId and properties required' })
+  try {
+    const r = await fetch(`https://api.notion.com/v1/pages/${pageId}`, {
+      method: 'PATCH',
+      headers: notionHeaders(),
+      body: JSON.stringify({ properties }),
+    })
+    const data = await r.json()
+    if (!r.ok) return res.status(r.status).json({ error: data.message || 'Notion error', code: data.code })
+    return res.json({ id: data.id })
+  } catch (e) {
+    return res.status(500).json({ error: e.message })
+  }
+})
+
 notionRouter.post('/', async (req, res) => {
   const { properties } = req.body || {}
   if (!properties) return res.status(400).json({ error: 'properties required' })

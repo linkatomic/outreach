@@ -172,7 +172,7 @@ export function LcNotion({ me }) {
         batch.map(row => {
           const gpl = extractGplInfo(gplMap.get(row.domain.toLowerCase()), common.postType)
           return createWithRetry(buildNotionProperties({ ...row, ...gpl, common }))
-            .then(res => ({ ...res, title: `${row.orderId} - ${row.domain}` }))
+            .then(res => ({ id: res.id, url: res.url, title: `${row.orderId} - ${row.domain}`, domain: row.domain }))
         })
       )
 
@@ -196,6 +196,8 @@ export function LcNotion({ me }) {
         clientName: common.clientName,
         orderFrom: common.orderFrom,
         postType: common.postType,
+        sheetUrl: sheetUrl.trim(),
+        sheetTab: selTab,
         cards: successCards,
       }).catch(() => {})
     }

@@ -26,6 +26,21 @@ export async function createNotionPage(properties) {
   return data
 }
 
+export async function updateNotionPage(pageId, properties) {
+  const res = await fetch('/api/notion', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pageId, properties }),
+  })
+  const data = await res.json()
+  if (!res.ok) {
+    const err = new Error(data.error || `HTTP ${res.status}`)
+    err.httpStatus = res.status
+    throw err
+  }
+  return data
+}
+
 // ── GPL API lookup ────────────────────────────────────────
 
 export async function fetchGplBatch(domains) {

@@ -476,10 +476,10 @@ export async function loadOrderHistory() {
 
 // ── Notion Card History ───────────────────────────────────
 
-export async function saveNotionBatch({ memberId, memberName, clientName, orderFrom, postType, cards }) {
+export async function saveNotionBatch({ memberId, memberName, clientName, orderFrom, postType, sheetUrl, sheetTab, cards }) {
   const { error } = await supabase
     .from('notion_history')
-    .insert({ member_id: memberId, member_name: memberName, client_name: clientName, order_from: orderFrom, post_type: postType, batch_size: cards.length, cards })
+    .insert({ member_id: memberId, member_name: memberName, client_name: clientName, order_from: orderFrom, post_type: postType, sheet_url: sheetUrl, sheet_tab: sheetTab, batch_size: cards.length, cards })
   if (error) throw error
 }
 
