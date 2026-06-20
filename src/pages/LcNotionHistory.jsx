@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { loadNotionHistory } from '../lib/supabase.js'
-import { updateNotionPage } from '../lib/notionApi.js'
-import { extractSheetId, getSheetRows } from '../lib/sheetParserAPI.js'
+import { updateNotionPage, getNotionPage } from '../lib/notionApi.js'
+import { extractSheetId, getSheetRows, batchWriteRangeValues } from '../lib/sheetParserAPI.js'
 
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 const CONCURRENCY = 3
@@ -24,6 +24,17 @@ function fmtRel(iso) {
 
 function fmtFull(iso) {
   return new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+
+function colLetter(idx) {
+  let s = '', n = idx
+  while (n >= 0) { s = String.fromCharCode(65 + (n % 26)) + s; n = Math.floor(n / 26) - 1 }
+  return s
+}
+
+function normDomain(raw) {
+  return String(raw ?? '').trim().toLowerCase()
+    .replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0].split('?')[0]
 }
 
 async function batchUpdate(cards, buildProps, setProgress, onDone) {
@@ -50,6 +61,7 @@ export function LcNotionHistory() {
   const [liveState,   setLiveState]   = useState({}) // batchId → live link batch state
   const [statusState, setStatusState] = useState({}) // batchId → { sel, phase, done, total, errors, lastStatus }
   const [cardState,   setCardState]   = useState({}) // `${batchId}:${idx}` → { url, editing, phase, error }
+  const [sheetState,  setSheetState]  = useState({}) // batchId → { phase, done, total, error, written }
 
   useEffect(() => {
     loadNotionHistory().then(setBatches).catch(() => setBatches([]))
@@ -66,6 +78,7 @@ export function LcNotionHistory() {
   function toggleExpand(id) {
     setExpanded(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
   }
+  const setSh  = (id, val) => setSheetState(p  => ({ ...p, [id]: val }))
   const setFs  = (id, val) => setFillState(p   => ({ ...p, [id]: val }))
   const setLs  = (id, val) => setLiveState(p   => ({ ...p, [id]: val }))
   const setSs  = (id, fn)  => setStatusState(p => ({ ...p, [id]: fn(p[id] || {}) }))
@@ -157,6 +170,71 @@ export function LcNotionHistory() {
     }
   }
 
+  // ── Sync Live Links → Sheet ───────────────────────────────
+  async function handleFillSheet(batch) {
+    const batchId = batch.id
+    const cards   = (batch.cards || []).filter(c => c.id && c.domain)
+    if (!cards.length || !batch.sheet_url) return
+
+    setSh(batchId, { phase: 'reading', done: 0, total: cards.length })
+
+    // Step 1: read live link from each Notion page
+    const liveLinks = new Map() // normDomain → url
+    const readErrors = []
+    for (let i = 0; i < cards.length; i += CONCURRENCY) {
+      const batchStart = Date.now()
+      const slice = cards.slice(i, i + CONCURRENCY)
+      const results = await Promise.allSettled(slice.map(c => getNotionPage(c.id)))
+      results.forEach((r, bi) => {
+        if (r.status === 'fulfilled') {
+          const url = r.value?.properties?.['Live link']?.url
+          if (url) liveLinks.set(normDomain(slice[bi].domain), url)
+        } else {
+          readErrors.push(`${slice[bi].domain}: ${r.reason?.message || 'read failed'}`)
+        }
+      })
+      setSh(batchId, { phase: 'reading', done: Math.min(i + CONCURRENCY, cards.length), total: cards.length })
+      const elapsed = Date.now() - batchStart
+      if (elapsed < 1050 && i + CONCURRENCY < cards.length) await sleep(1050 - elapsed)
+    }
+
+    if (!liveLinks.size) {
+      setSh(batchId, { phase: 'done', error: readErrors[0] || 'No Live links found in any Notion page' })
+      return
+    }
+
+    // Step 2: read sheet to find domain + live link column positions
+    setSh(batchId, { phase: 'writing', done: 0, total: liveLinks.size })
+    try {
+      const sheetId = extractSheetId(batch.sheet_url)
+      const rows    = await getSheetRows(sheetId, batch.sheet_tab)
+      if (!rows.length) throw new Error('Sheet is empty')
+
+      const header   = rows[0].map(h => String(h ?? '').trim().toLowerCase())
+      const domainIdx = Math.max(header.findIndex(h => h === 'domain'), 1)
+      const liveIdx   = header.findIndex(h => h.includes('live link') || h.includes('live url') || h === 'live')
+      if (liveIdx < 0) throw new Error('"Live Link" column not found in sheet header')
+
+      const liveCol = colLetter(liveIdx)
+      const updates = []
+      for (let r = 1; r < rows.length; r++) {
+        const domain = normDomain(rows[r][domainIdx])
+        const url    = liveLinks.get(domain)
+        if (url) updates.push({ range: `'${batch.sheet_tab}'!${liveCol}${r + 1}`, values: [[url]] })
+      }
+
+      if (!updates.length) {
+        setSh(batchId, { phase: 'done', error: 'No matching domains found in sheet' })
+        return
+      }
+
+      await batchWriteRangeValues(sheetId, updates)
+      setSh(batchId, { phase: 'done', written: updates.length, total: liveLinks.size, readErrors })
+    } catch (err) {
+      setSh(batchId, { phase: 'done', error: err.message })
+    }
+  }
+
   const totalCards = (batches || []).reduce((s, b) => s + (b.batch_size || 0), 0)
 
   return (
@@ -188,15 +266,17 @@ export function LcNotionHistory() {
             const fs    = fillState[b.id]
             const ls    = liveState[b.id]
             const ss    = statusState[b.id] || {}
+            const sh    = sheetState[b.id]
 
             const canSheet      = !!b.sheet_url && cards.some(c => c.id)
             const canStatus     = cards.some(c => c.id)
             const fillBusy      = fs?.phase === 'loading' || fs?.phase === 'updating'
             const liveBusy      = ls?.phase === 'loading' || ls?.phase === 'updating'
+            const sheetBusy     = sh?.phase === 'reading' || sh?.phase === 'writing'
             const statusBusy    = ss.phase === 'updating'
             const canUpdateNow  = canStatus && !!ss.sel && !statusBusy
 
-            const hasProgress = fs || ls || (ss.phase && ss.phase !== 'idle')
+            const hasProgress = fs || ls || sh || (ss.phase && ss.phase !== 'idle')
 
             function sheetBtnStyle(state, canAct) {
               const done = state?.phase === 'done' && !state?.error
@@ -220,6 +300,11 @@ export function LcNotionHistory() {
                             : ls?.phase === 'updating' ? `${ls.done}/${ls.total}…`
                             : ls?.phase === 'done' && !ls.error ? `✓ ${ls.done} Live Links`
                             : 'Fill Live Links'
+
+            const sheetLabel = sh?.phase === 'reading' ? `Reading Notion… ${sh.done}/${sh.total}`
+                             : sh?.phase === 'writing' ? 'Writing sheet…'
+                             : sh?.phase === 'done' && !sh.error ? `✓ ${sh.written} synced → Sheet`
+                             : 'Sync Live Links → Sheet'
 
             const statusLabel = ss.phase === 'updating' ? `${ss.done ?? 0}/${ss.total ?? 0}…`
                               : ss.phase === 'done'     ? `✓ ${ss.done} updated`
@@ -274,6 +359,13 @@ export function LcNotionHistory() {
                       title={!b.sheet_url ? 'No sheet URL saved' : !cards.some(c => c.id) ? 'No page IDs saved' : ''}
                       style={sheetBtnStyle(ls, canSheet && ls?.phase !== 'done')}
                     >{liveLabel}</button>
+
+                    <button
+                      onClick={() => { if (canSheet && !sheetBusy && sh?.phase !== 'done') handleFillSheet(b) }}
+                      disabled={sheetBusy}
+                      title={!b.sheet_url ? 'No sheet URL saved' : !cards.some(c => c.id) ? 'No page IDs saved' : ''}
+                      style={sheetBtnStyle(sh, canSheet && sh?.phase !== 'done')}
+                    >{sheetLabel}</button>
                   </div>
 
                   {/* Status updater */}
@@ -344,6 +436,22 @@ export function LcNotionHistory() {
                         {ls.errors?.length > 0 && (
                           <div style={{ marginTop: 4, color: '#f87171', opacity: 0.8 }}>{ls.errors[0]}</div>
                         )}
+                      </span>
+                    )}
+
+                    {sh?.phase === 'reading' && (
+                      <span style={{ color: 'var(--text-faint)' }}>Reading Notion pages… {sh.done}/{sh.total}</span>
+                    )}
+                    {sh?.phase === 'writing' && (
+                      <span style={{ color: 'var(--text-faint)' }}>Writing to sheet…</span>
+                    )}
+                    {sh?.phase === 'done' && sh.error && (
+                      <span style={{ color: '#f87171' }}>✗ Sheet sync: {sh.error}</span>
+                    )}
+                    {sh?.phase === 'done' && !sh.error && (
+                      <span>
+                        <span style={{ color: '#4ade80' }}>✓ {sh.written} Live links written to sheet</span>
+                        {sh.readErrors?.length > 0 && <span style={{ marginLeft: 10, color: '#f87171' }}>· {sh.readErrors.length} Notion read failed</span>}
                       </span>
                     )}
 

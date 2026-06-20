@@ -11,6 +11,17 @@ function notionHeaders() {
 }
 
 notionRouter.get('/', async (req, res) => {
+  const { pageId } = req.query || {}
+  if (pageId) {
+    try {
+      const r = await fetch(`https://api.notion.com/v1/pages/${pageId}`, { headers: notionHeaders() })
+      const data = await r.json()
+      if (!r.ok) return res.status(r.status).json({ error: data.message || 'Notion error', code: data.code })
+      return res.json(data)
+    } catch (e) {
+      return res.status(500).json({ error: e.message })
+    }
+  }
   const db_id = process.env.NOTION_DATABASE_ID
   try {
     const r = await fetch(`https://api.notion.com/v1/databases/${db_id}`, { headers: notionHeaders() })

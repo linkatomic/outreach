@@ -26,6 +26,17 @@ export async function createNotionPage(properties) {
   return data
 }
 
+export async function getNotionPage(pageId) {
+  const res = await fetch(`/api/notion?pageId=${encodeURIComponent(pageId)}`)
+  const data = await res.json()
+  if (!res.ok) {
+    const err = new Error(data.error || `HTTP ${res.status}`)
+    err.httpStatus = res.status
+    throw err
+  }
+  return data
+}
+
 export async function updateNotionPage(pageId, properties) {
   const res = await fetch('/api/notion', {
     method: 'PATCH',
