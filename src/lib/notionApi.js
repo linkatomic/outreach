@@ -9,6 +9,13 @@ export async function testNotionConnection() {
   return { ok: true, title: data.title, id: data.id }
 }
 
+export async function listNotionUsers() {
+  const res  = await fetch('/api/notion?users=true')
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
+  return data.users || []
+}
+
 // ── Notion page creation ──────────────────────────────────
 
 export async function createNotionPage(properties) {
@@ -136,8 +143,8 @@ export function buildNotionProperties({ orderId, domain, vendor, vendorPrice, ac
   const pc = toNum(publicationCost)
   if (pc != null)           p['Publication Cost']       = { number: pc }
   if (orderUrl)             p['Order URL']              = { url: orderUrl }
-  if (orderProcessBy)       p['Order Process By']       = { select: sel(orderProcessBy) }
-  if (sentForPublication)   p['Sent for Publication']   = { select: sel(sentForPublication) }
+  if (orderProcessBy)       p['Order Process By']       = { rich_text: txt(orderProcessBy) }
+  if (sentForPublication)   p['Sent for Publication']   = { people: [{ object: 'user', id: sentForPublication }] }
   if (dateOfPublication)    p['Date of Publication']    = { date: { start: dateOfPublication } }
 
   return p

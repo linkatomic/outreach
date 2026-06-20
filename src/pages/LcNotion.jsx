@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { extractSheetId, getSheetTabs, getSheetRows } from '../lib/sheetParserAPI.js'
-import { fetchGplBatch, extractGplInfo, buildNotionProperties, createNotionPage, testNotionConnection } from '../lib/notionApi.js'
+import { fetchGplBatch, extractGplInfo, buildNotionProperties, createNotionPage, testNotionConnection, listNotionUsers } from '../lib/notionApi.js'
 import { saveNotionBatch } from '../lib/supabase.js'
 
 const STATUS_OPTS     = [
@@ -122,6 +122,12 @@ export function LcNotion({ me }) {
     orderProcessBy: RELAY_TO_NOTION_NAME[me?.name] || me?.name || '',
   }))
   const set = (k, v) => setCommon(p => ({ ...p, [k]: v }))
+
+  const [notionUsers, setNotionUsers] = useState([]) // { id, name }[] from Notion workspace
+
+  useEffect(() => {
+    listNotionUsers().then(setNotionUsers).catch(() => {})
+  }, [])
 
   const [connStatus, setConnStatus] = useState(null) // null | 'testing' | {ok, title, error, code}
 
@@ -374,7 +380,11 @@ export function LcNotion({ me }) {
             <Sel value={common.orderProcessBy} onChange={v => set('orderProcessBy', v)} options={ORDER_PROCESS_BY_OPTS} placeholder="— select person —" />
           </Field>
           <Field label="Sent for Publication">
-            <Sel value={common.sentForPublication} onChange={v => set('sentForPublication', v)} options={SENT_FOR_PUB_OPTS} placeholder="— select person —" />
+            <select className="input" value={common.sentForPublication} onChange={e => set('sentForPublication', e.target.value)}
+              style={{ fontSize: 13, width: '100%' }}>
+              <option value="">{notionUsers.length ? '— select person —' : 'Loading…'}</option>
+              {notionUsers.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+            </select>
           </Field>
 
           <Field label="Date of Publication">

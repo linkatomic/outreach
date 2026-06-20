@@ -10,9 +10,20 @@ const notionHeaders = {
 export default async function handler(req, res) {
   if (!NOTION_TOKEN) return res.status(500).json({ error: 'NOTION_TOKEN not configured' })
 
-  // GET → fetch a specific page (pageId query param) OR test database connection
+  // GET → list workspace users (users=true) OR fetch a specific page (pageId) OR test DB connection
   if (req.method === 'GET') {
-    const { pageId } = req.query || {}
+    const { pageId, users } = req.query || {}
+    if (users) {
+      try {
+        const r = await fetch('https://api.notion.com/v1/users', { headers: notionHeaders })
+        const data = await r.json()
+        if (!r.ok) return res.status(r.status).json({ error: data.message || 'Notion error' })
+        const people = (data.results || []).filter(u => u.type === 'person').map(u => ({ id: u.id, name: u.name }))
+        return res.json({ users: people })
+      } catch (e) {
+        return res.status(500).json({ error: e.message })
+      }
+    }
     if (pageId) {
       try {
         const r = await fetch(`https://api.notion.com/v1/pages/${pageId}`, { headers: notionHeaders })

@@ -11,7 +11,18 @@ function notionHeaders() {
 }
 
 notionRouter.get('/', async (req, res) => {
-  const { pageId } = req.query || {}
+  const { pageId, users } = req.query || {}
+  if (users) {
+    try {
+      const r = await fetch('https://api.notion.com/v1/users', { headers: notionHeaders() })
+      const data = await r.json()
+      if (!r.ok) return res.status(r.status).json({ error: data.message || 'Notion error' })
+      const people = (data.results || []).filter(u => u.type === 'person').map(u => ({ id: u.id, name: u.name }))
+      return res.json({ users: people })
+    } catch (e) {
+      return res.status(500).json({ error: e.message })
+    }
+  }
   if (pageId) {
     try {
       const r = await fetch(`https://api.notion.com/v1/pages/${pageId}`, { headers: notionHeaders() })
