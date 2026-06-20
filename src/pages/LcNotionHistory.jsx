@@ -187,17 +187,19 @@ export function LcNotionHistory() {
 
                   {/* Fill Article Docs button */}
                   <button
-                    onClick={e => { e.stopPropagation(); handleFillDocs(b) }}
-                    disabled={!canFill || fillBusy || fs?.phase === 'done'}
-                    title={!b.sheet_url ? 'No sheet URL — batch created before this feature' : !cards.some(c => c.id) ? 'No page IDs — batch created before this feature' : ''}
+                    onClick={e => { e.stopPropagation(); if (canFill && !fillBusy && fs?.phase !== 'done') handleFillDocs(b) }}
+                    disabled={fillBusy}
+                    title={!b.sheet_url ? 'No sheet URL saved — create a new batch to use this feature' : !cards.some(c => c.id) ? 'No page IDs saved — create a new batch to use this feature' : ''}
                     style={{
                       fontSize: 11, padding: '5px 12px', borderRadius: 6, border: '1px solid',
-                      whiteSpace: 'nowrap', cursor: (canFill && !fillBusy && fs?.phase !== 'done') ? 'pointer' : 'not-allowed',
+                      whiteSpace: 'nowrap',
+                      cursor: (canFill && !fillBusy && fs?.phase !== 'done') ? 'pointer' : 'default',
                       background: fs?.phase === 'done' && !fs.error ? 'rgba(74,222,128,.1)' : 'transparent',
                       borderColor: fs?.phase === 'done' && !fs.error ? 'rgba(74,222,128,.3)'
-                                 : canFill ? 'var(--border)' : 'transparent',
+                                 : canFill ? 'rgba(96,165,250,.4)' : 'var(--border)',
                       color: fs?.phase === 'done' && !fs.error ? '#4ade80'
-                           : canFill ? 'var(--text-faint)' : 'transparent',
+                           : canFill ? '#60a5fa' : 'var(--text-faint)',
+                      opacity: (!canFill || fs?.phase === 'done') && !(fs?.phase === 'done' && !fs.error) ? 0.45 : 1,
                     }}
                   >
                     {fs?.phase === 'done' && !fs.error
