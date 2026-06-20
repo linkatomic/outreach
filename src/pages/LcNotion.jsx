@@ -14,7 +14,16 @@ const STATUS_OPTS     = [
   'Credit Used', 'Published', 'Testing Card',
 ]
 const ORDER_FROM_OPTS   = ['GUESTPOSTLINKS', 'DIRECT', 'FIVERR', 'OTHER']
-const ORDER_TYPE_OPTS   = ['Article Publication', 'Link Insertion', 'Press Release']
+const ORDER_TYPE_OPTS   = [
+  'Article Publication',
+  'Press Release Publication',
+  'Press Release W+P',
+  'Footer/Sidebar - Link Insertion',
+  'Link Replacement',
+  'Link Insertion',
+  'Article Writing + Publication',
+  'Foreign Language Article Publication',
+]
 const ORDER_IN_OPTS     = ['Single', 'Bulk']
 const POST_TYPE_OPTS    = ['Casino', 'Finance', 'CBD', 'Crypto', 'Health', 'Tech', 'Dating', 'Adult', 'General', 'Gambling']
 const PAY_OPTS          = ['Need to Check', 'Paid', 'Pending', 'Overdue']
