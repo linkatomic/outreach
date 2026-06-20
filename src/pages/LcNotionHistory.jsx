@@ -341,6 +341,9 @@ export function LcNotionHistory() {
                         {ls.skipped > 0 && <span style={{ marginLeft: 10, color: 'var(--text-faint)', opacity: 0.7 }}>· {ls.skipped} skipped</span>}
                         {ls.errors?.length > 0 && <span style={{ marginLeft: 10, color: '#f87171' }}>· {ls.errors.length} failed</span>}
                         {ls.msg && <span style={{ marginLeft: 6, color: 'var(--text-faint)', opacity: 0.7 }}>{ls.msg}</span>}
+                        {ls.errors?.length > 0 && (
+                          <div style={{ marginTop: 4, color: '#f87171', opacity: 0.8 }}>{ls.errors[0]}</div>
+                        )}
                       </span>
                     )}
 
