@@ -58,7 +58,6 @@ export function LcNotionHistory() {
   const [search,      setSearch]      = useState('')
   const [expanded,    setExpanded]    = useState(new Set())
   const [fillState,   setFillState]   = useState({}) // batchId → article doc state
-  const [liveState,   setLiveState]   = useState({}) // batchId → live link batch state
   const [statusState, setStatusState] = useState({}) // batchId → { sel, phase, done, total, errors, lastStatus }
   const [sheetState,  setSheetState]  = useState({}) // batchId → { phase, done, total, error, written }
 
@@ -79,7 +78,6 @@ export function LcNotionHistory() {
   }
   const setSh  = (id, val) => setSheetState(p  => ({ ...p, [id]: val }))
   const setFs  = (id, val) => setFillState(p   => ({ ...p, [id]: val }))
-  const setLs  = (id, val) => setLiveState(p   => ({ ...p, [id]: val }))
   const setSs  = (id, fn)  => setStatusState(p => ({ ...p, [id]: fn(p[id] || {}) }))
 
   // ── shared sheet reader ───────────────────────────────────────
@@ -118,25 +116,6 @@ export function LcNotionHistory() {
         errors => setFs(batchId, { phase: 'done', done: cards.length - errors.length, total: cards.length, skipped, errors })
       )
     } catch (err) { setFs(batchId, { phase: 'done', error: err.message }) }
-  }
-
-  // ── Fill Live Links (batch) ───────────────────────────────────
-  async function handleFillLiveLinks(batch) {
-    const batchId = batch.id
-    setLs(batchId, { phase: 'loading' })
-    try {
-      const liveMap = await readSheetMap(batch, h => h.includes('live link') || h.includes('live url') || h === 'live', 'Live Link')
-      const cards   = (batch.cards || []).filter(c => c.id && c.domain && liveMap.has(c.domain.toLowerCase()))
-      const skipped = (batch.cards?.length || 0) - cards.length
-      if (!cards.length) { setLs(batchId, { phase: 'done', done: 0, total: 0, skipped, errors: [], msg: 'No Live Links found in sheet.' }); return }
-      setLs(batchId, { phase: 'updating', done: 0, total: cards.length, skipped, errors: [] })
-      await batchUpdate(
-        cards,
-        card => ({ 'Live link': { url: liveMap.get(card.domain.toLowerCase()) } }),
-        (done, errors) => setLs(batchId, { phase: 'updating', done, total: cards.length, skipped, errors: [...errors] }),
-        errors => setLs(batchId, { phase: 'done', done: cards.length - errors.length, total: cards.length, skipped, errors })
-      )
-    } catch (err) { setLs(batchId, { phase: 'done', error: err.message }) }
   }
 
   // ── Update Order Status (batch) ───────────────────────────────
@@ -249,19 +228,17 @@ export function LcNotionHistory() {
             const open  = expanded.has(b.id)
             const cards = b.cards || []
             const fs    = fillState[b.id]
-            const ls    = liveState[b.id]
             const ss    = statusState[b.id] || {}
             const sh    = sheetState[b.id]
 
             const canSheet      = !!b.sheet_url && cards.some(c => c.id)
             const canStatus     = cards.some(c => c.id)
             const fillBusy      = fs?.phase === 'loading' || fs?.phase === 'updating'
-            const liveBusy      = ls?.phase === 'loading' || ls?.phase === 'updating'
             const sheetBusy     = sh?.phase === 'reading' || sh?.phase === 'writing'
             const statusBusy    = ss.phase === 'updating'
             const canUpdateNow  = canStatus && !!ss.sel && !statusBusy
 
-            const hasProgress = fs || ls || sh || (ss.phase && ss.phase !== 'idle')
+            const hasProgress = fs || sh || (ss.phase && ss.phase !== 'idle')
 
             function sheetBtnStyle(state, canAct) {
               const done = state?.phase === 'done' && !state?.error
@@ -280,11 +257,6 @@ export function LcNotionHistory() {
                             : fs?.phase === 'updating' ? `${fs.done}/${fs.total}…`
                             : fs?.phase === 'done' && !fs.error ? `✓ ${fs.done} Article Docs`
                             : 'Fill Article Docs'
-
-            const liveLabel = ls?.phase === 'loading'  ? 'Reading sheet…'
-                            : ls?.phase === 'updating' ? `${ls.done}/${ls.total}…`
-                            : ls?.phase === 'done' && !ls.error ? `✓ ${ls.done} Live Links`
-                            : 'Fill Live Links'
 
             const sheetLabel = sh?.phase === 'reading' ? `Reading Notion… ${sh.done}/${sh.total}`
                              : sh?.phase === 'writing' ? 'Writing sheet…'
@@ -337,13 +309,6 @@ export function LcNotionHistory() {
                       title={!b.sheet_url ? 'No sheet URL saved' : !cards.some(c => c.id) ? 'No page IDs saved' : ''}
                       style={sheetBtnStyle(fs, canSheet && fs?.phase !== 'done')}
                     >{fillLabel}</button>
-
-                    <button
-                      onClick={() => { if (canSheet && !liveBusy && ls?.phase !== 'done') handleFillLiveLinks(b) }}
-                      disabled={liveBusy}
-                      title={!b.sheet_url ? 'No sheet URL saved' : !cards.some(c => c.id) ? 'No page IDs saved' : ''}
-                      style={sheetBtnStyle(ls, canSheet && ls?.phase !== 'done')}
-                    >{liveLabel}</button>
 
                     <button
                       onClick={() => { if (canSheet && !sheetBusy && sh?.phase !== 'done') handleFillSheet(b) }}
@@ -399,28 +364,6 @@ export function LcNotionHistory() {
                         {fs.skipped > 0 && <span style={{ marginLeft: 10, color: 'var(--text-faint)', opacity: 0.7 }}>· {fs.skipped} skipped</span>}
                         {fs.errors?.length > 0 && <span style={{ marginLeft: 10, color: '#f87171' }}>· {fs.errors.length} failed</span>}
                         {fs.msg && <span style={{ marginLeft: 6, color: 'var(--text-faint)', opacity: 0.7 }}>{fs.msg}</span>}
-                      </span>
-                    )}
-
-                    {ls?.phase === 'loading' && <span style={{ color: 'var(--text-faint)' }}>Live Links: Reading sheet…</span>}
-                    {ls?.phase === 'updating' && (
-                      <div>
-                        <div style={{ height: 3, background: 'var(--border)', borderRadius: 2, overflow: 'hidden', marginBottom: 4 }}>
-                          <div style={{ height: '100%', background: '#a78bfa', borderRadius: 2, width: `${Math.round((ls.done / ls.total) * 100)}%`, transition: 'width .3s' }} />
-                        </div>
-                        <span style={{ color: 'var(--text-faint)' }}>Live Links: {ls.done}/{ls.total} updating…</span>
-                      </div>
-                    )}
-                    {ls?.phase === 'done' && ls.error  && <span style={{ color: '#f87171' }}>✗ Live Links: {ls.error}</span>}
-                    {ls?.phase === 'done' && !ls.error && (
-                      <span>
-                        <span style={{ color: '#4ade80' }}>✓ {ls.done} Live Links filled</span>
-                        {ls.skipped > 0 && <span style={{ marginLeft: 10, color: 'var(--text-faint)', opacity: 0.7 }}>· {ls.skipped} skipped</span>}
-                        {ls.errors?.length > 0 && <span style={{ marginLeft: 10, color: '#f87171' }}>· {ls.errors.length} failed</span>}
-                        {ls.msg && <span style={{ marginLeft: 6, color: 'var(--text-faint)', opacity: 0.7 }}>{ls.msg}</span>}
-                        {ls.errors?.length > 0 && (
-                          <div style={{ marginTop: 4, color: '#f87171', opacity: 0.8 }}>{ls.errors[0]}</div>
-                        )}
                       </span>
                     )}
 
