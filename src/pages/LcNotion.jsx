@@ -45,6 +45,7 @@ const RELAY_TO_NOTION_NAME = {
 }
 
 const DEFAULTS = {
+  batchName: '',
   orderStatus: 'Sent For Publication', clientName: '', clientSheet: '',
   orderFrom: 'GUESTPOSTLINKS', orderType: 'Article Publication', orderIn: 'Bulk',
   postType: '', paymentStatus: 'Need to Check', note: 'Master Sheet',
@@ -228,6 +229,7 @@ export function LcNotion({ me }) {
       saveNotionBatch({
         memberId: me?.id || 'unknown',
         memberName: me?.name || 'Unknown',
+        batchName: common.batchName.trim() || null,
         clientName: common.clientName,
         orderFrom: common.orderFrom,
         postType: common.postType,
@@ -343,6 +345,10 @@ export function LcNotion({ me }) {
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px 20px' }}>
+
+          <Field label="Batch Name" span={2}>
+            <Inp value={common.batchName} onChange={v => set('batchName', v)} placeholder="Order ID:12345678" />
+          </Field>
 
           <Field label="Customer Name" required span={2}>
             <Inp value={common.clientName} onChange={v => set('clientName', v)} placeholder="e.g. Sokchea Thea" />

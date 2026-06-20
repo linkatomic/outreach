@@ -71,6 +71,7 @@ export function LcNotionHistory() {
     return b.client_name?.toLowerCase().includes(q)
         || b.member_name?.toLowerCase().includes(q)
         || b.post_type?.toLowerCase().includes(q)
+        || b.batch_name?.toLowerCase().includes(q)
   })
 
   function toggleExpand(id) {
@@ -211,7 +212,7 @@ export function LcNotionHistory() {
       </div>
 
       <div style={{ marginBottom: 16 }}>
-        <input className="input" placeholder="Search client, member, or post type…"
+        <input className="input" placeholder="Search batch name, client, member, or post type…"
           value={search} onChange={e => setSearch(e.target.value)}
           style={{ fontSize: 13, maxWidth: 320 }} />
       </div>
@@ -273,7 +274,10 @@ export function LcNotionHistory() {
                 {/* ── Header ── */}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr auto auto auto', gap: '0 12px', padding: '13px 16px', alignItems: 'center' }}>
                   <div style={{ minWidth: 0, cursor: 'pointer' }} onClick={() => toggleExpand(b.id)}>
-                    <div style={{ fontWeight: 600, fontSize: 13, display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{ fontWeight: 600, fontSize: 13, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      {b.batch_name && (
+                        <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--accent)', fontSize: 12 }}>{b.batch_name}</span>
+                      )}
                       {b.client_name}
                       {b.post_type && (
                         <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', padding: '2px 7px', borderRadius: 4, background: 'rgba(167,139,250,.15)', color: '#a78bfa', border: '1px solid rgba(167,139,250,.3)' }}>
@@ -281,9 +285,16 @@ export function LcNotionHistory() {
                         </span>
                       )}
                     </div>
-                    <div style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 3 }}>
+                    <div style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 3, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                       {b.member_name}
-                      {b.order_from && <span style={{ marginLeft: 8, opacity: 0.7 }}>{b.order_from}</span>}
+                      {b.order_from && <span style={{ opacity: 0.7 }}>{b.order_from}</span>}
+                      {b.sheet_url && (
+                        <a href={b.sheet_url} target="_blank" rel="noreferrer"
+                           onClick={e => e.stopPropagation()}
+                           style={{ color: '#4ade80', textDecoration: 'none', opacity: 0.8 }}>
+                          {b.sheet_tab ? `Sheet: ${b.sheet_tab}` : 'Sheet ↗'}
+                        </a>
+                      )}
                     </div>
                   </div>
                   <div style={{ fontSize: 12, fontFamily: 'var(--font-mono)', color: 'var(--accent)', fontWeight: 600, whiteSpace: 'nowrap' }}>
