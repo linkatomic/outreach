@@ -13,17 +13,29 @@ const STATUS_OPTS     = [
   // Complete
   'Credit Used', 'Published', 'Testing Card',
 ]
-const ORDER_FROM_OPTS = ['GUESTPOSTLINKS', 'DIRECT', 'FIVERR', 'OTHER']
-const ORDER_TYPE_OPTS = ['Article Publication', 'Link Insertion', 'Press Release']
-const ORDER_IN_OPTS   = ['Single', 'Bulk']
-const POST_TYPE_OPTS  = ['Casino', 'Finance', 'CBD', 'Crypto', 'Health', 'Tech', 'Dating', 'Adult', 'General', 'Gambling']
-const PAY_OPTS        = ['Need to Check', 'Paid', 'Pending', 'Overdue']
+const ORDER_FROM_OPTS   = ['GUESTPOSTLINKS', 'DIRECT', 'FIVERR', 'OTHER']
+const ORDER_TYPE_OPTS   = ['Article Publication', 'Link Insertion', 'Press Release']
+const ORDER_IN_OPTS     = ['Single', 'Bulk']
+const POST_TYPE_OPTS    = ['Casino', 'Finance', 'CBD', 'Crypto', 'Health', 'Tech', 'Dating', 'Adult', 'General', 'Gambling']
+const PAY_OPTS          = ['Need to Check', 'Paid', 'Pending', 'Overdue']
+const SENT_FOR_PUB_OPTS = ['Bhavansinh Chauhan', 'Nilesh P', 'Kanaiya Kadiya', 'Dev P', 'Nagji Rajput']
+const ORDER_PROCESS_BY_OPTS = ['Dev P', 'Bhavansinh Chauhan', 'Nagji Rajput', 'Kanaiya Kadiya', 'Nilesh P']
+
+// Map Relay display name → Notion select option name
+const RELAY_TO_NOTION_NAME = {
+  'Dev Pandya': 'Dev P',
+  'Bhavan C':   'Bhavansinh Chauhan',
+  'Nagji R':    'Nagji Rajput',
+  'Kanaiya K':  'Kanaiya Kadiya',
+  'Nilesh P':   'Nilesh P',
+}
 
 const DEFAULTS = {
   orderStatus: 'Sent For Publication', clientName: '', clientSheet: '',
   orderFrom: 'GUESTPOSTLINKS', orderType: 'Article Publication', orderIn: 'Bulk',
   postType: '', paymentStatus: 'Need to Check', note: 'Master Sheet',
   publicationCost: '', orderUrl: '',
+  orderProcessBy: '', sentForPublication: '', dateOfPublication: '',
 }
 
 const sleep = ms => new Promise(r => setTimeout(r, ms))
@@ -105,7 +117,10 @@ export function LcNotion({ me }) {
   const [sheetBusy, setSheetBusy] = useState(false)
   const [sheetErr,  setSheetErr]  = useState('')
 
-  const [common, setCommon] = useState(DEFAULTS)
+  const [common, setCommon] = useState(() => ({
+    ...DEFAULTS,
+    orderProcessBy: RELAY_TO_NOTION_NAME[me?.name] || me?.name || '',
+  }))
   const set = (k, v) => setCommon(p => ({ ...p, [k]: v }))
 
   const [connStatus, setConnStatus] = useState(null) // null | 'testing' | {ok, title, error, code}
@@ -207,7 +222,8 @@ export function LcNotion({ me }) {
 
   function reset() {
     setFinished(false); setCreating(false); setRows([]); setTabs([])
-    setSelTab(''); setSheetUrl(''); setSheetErr(''); setCommon(DEFAULTS)
+    setSelTab(''); setSheetUrl(''); setSheetErr('')
+    setCommon({ ...DEFAULTS, orderProcessBy: RELAY_TO_NOTION_NAME[me?.name] || me?.name || '' })
     setProg({ done: 0, total: 0, errors: [] })
   }
 
@@ -350,6 +366,25 @@ export function LcNotion({ me }) {
 
           <Field label="Publication Cost">
             <Inp type="number" value={common.publicationCost} onChange={v => set('publicationCost', v)} placeholder="0.00" />
+          </Field>
+
+          <Divider />
+
+          <Field label="Order Process By">
+            <Sel value={common.orderProcessBy} onChange={v => set('orderProcessBy', v)} options={ORDER_PROCESS_BY_OPTS} placeholder="— select person —" />
+          </Field>
+          <Field label="Sent for Publication">
+            <Sel value={common.sentForPublication} onChange={v => set('sentForPublication', v)} options={SENT_FOR_PUB_OPTS} placeholder="— select person —" />
+          </Field>
+
+          <Field label="Date of Publication">
+            <input
+              type="date"
+              value={common.dateOfPublication}
+              onChange={e => set('dateOfPublication', e.target.value)}
+              className="input"
+              style={{ fontSize: 13, width: '100%' }}
+            />
           </Field>
 
         </div>

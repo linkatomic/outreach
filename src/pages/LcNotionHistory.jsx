@@ -60,7 +60,6 @@ export function LcNotionHistory() {
   const [fillState,   setFillState]   = useState({}) // batchId → article doc state
   const [liveState,   setLiveState]   = useState({}) // batchId → live link batch state
   const [statusState, setStatusState] = useState({}) // batchId → { sel, phase, done, total, errors, lastStatus }
-  const [cardState,   setCardState]   = useState({}) // `${batchId}:${idx}` → { url, editing, phase, error }
   const [sheetState,  setSheetState]  = useState({}) // batchId → { phase, done, total, error, written }
 
   useEffect(() => {
@@ -82,7 +81,6 @@ export function LcNotionHistory() {
   const setFs  = (id, val) => setFillState(p   => ({ ...p, [id]: val }))
   const setLs  = (id, val) => setLiveState(p   => ({ ...p, [id]: val }))
   const setSs  = (id, fn)  => setStatusState(p => ({ ...p, [id]: fn(p[id] || {}) }))
-  const setCs  = (key, fn) => setCardState(p   => ({ ...p, [key]: fn(p[key] || {}) }))
 
   // ── shared sheet reader ───────────────────────────────────────
   async function readSheetMap(batch, colMatcher, colLabel) {
@@ -155,19 +153,6 @@ export function LcNotionHistory() {
       (done, errors) => setSs(batchId, p => ({ ...p, done, errors: [...errors] })),
       errors => setSs(batchId, p => ({ ...p, phase: 'done', done: cards.length - errors.length, total: cards.length, errors }))
     )
-  }
-
-  // ── Fill Live Link (individual card) ─────────────────────────
-  async function handleFillCardLive(batchId, card, cardKey) {
-    const url = cardState[cardKey]?.url?.trim()
-    if (!url || !card.id) return
-    setCs(cardKey, p => ({ ...p, phase: 'saving' }))
-    try {
-      await updateNotionPage(card.id, { 'Live link': { url } })
-      setCs(cardKey, p => ({ ...p, phase: 'done', editing: false }))
-    } catch (e) {
-      setCs(cardKey, p => ({ ...p, phase: 'error', error: e.message }))
-    }
   }
 
   // ── Sync Live Links → Sheet ───────────────────────────────
@@ -478,56 +463,11 @@ export function LcNotionHistory() {
                     {cards.length === 0 ? (
                       <div style={{ padding: '12px 16px', fontSize: 12, color: 'var(--text-faint)' }}>No card data saved.</div>
                     ) : (
-                      cards.map((card, i) => {
-                        const cardKey = `${b.id}:${i}`
-                        const cs      = cardState[cardKey] || {}
-                        return (
+                      cards.map((card, i) => (
                           <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 16px', borderTop: i > 0 ? '1px solid var(--border)' : undefined, background: 'rgba(255,255,255,.015)' }}>
                             <span style={{ fontSize: 12, color: 'var(--text)', fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>
                               {card.title}
                             </span>
-
-                            {/* Per-card live link fill */}
-                            {cs.phase === 'done' ? (
-                              <span style={{ fontSize: 11, color: '#4ade80', flexShrink: 0 }}>✓ Live Link</span>
-                            ) : cs.editing ? (
-                              <div style={{ display: 'flex', gap: 5, alignItems: 'center', flexShrink: 0 }}>
-                                <input
-                                  autoFocus
-                                  value={cs.url || ''}
-                                  onChange={e => setCs(cardKey, p => ({ ...p, url: e.target.value }))}
-                                  onKeyDown={e => {
-                                    if (e.key === 'Enter')  handleFillCardLive(b.id, card, cardKey)
-                                    if (e.key === 'Escape') setCs(cardKey, p => ({ ...p, editing: false }))
-                                  }}
-                                  placeholder="https://…"
-                                  style={{ fontSize: 11, padding: '3px 8px', borderRadius: 5, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', width: 200 }}
-                                />
-                                <button
-                                  onClick={() => handleFillCardLive(b.id, card, cardKey)}
-                                  disabled={!cs.url?.trim() || cs.phase === 'saving' || !card.id}
-                                  style={{ fontSize: 11, padding: '3px 8px', borderRadius: 5, border: '1px solid rgba(96,165,250,.4)', background: 'transparent', color: '#60a5fa', cursor: 'pointer' }}
-                                >{cs.phase === 'saving' ? '…' : 'Save'}</button>
-                                <button
-                                  onClick={() => setCs(cardKey, p => ({ ...p, editing: false }))}
-                                  style={{ fontSize: 11, padding: '3px 7px', borderRadius: 5, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-faint)', cursor: 'pointer' }}
-                                >✕</button>
-                              </div>
-                            ) : (
-                              <button
-                                onClick={() => { if (card.id) setCs(cardKey, p => ({ ...p, editing: true, url: p.url || '', phase: 'idle' })) }}
-                                title={!card.id ? 'No page ID for this card' : cs.phase === 'error' ? cs.error : ''}
-                                style={{
-                                  fontSize: 10, padding: '2px 8px', borderRadius: 5, flexShrink: 0,
-                                  border: `1px solid ${cs.phase === 'error' ? 'rgba(248,113,113,.4)' : 'var(--border)'}`,
-                                  background: 'transparent',
-                                  color: cs.phase === 'error' ? '#f87171' : 'var(--text-faint)',
-                                  cursor: card.id ? 'pointer' : 'default',
-                                  opacity: card.id ? 0.7 : 0.35,
-                                }}
-                              >{cs.phase === 'error' ? '✗ Retry' : 'Fill Live Link'}</button>
-                            )}
-
                             {card.url ? (
                               <a href={card.url} target="_blank" rel="noreferrer"
                                  style={{ fontSize: 11, color: 'var(--accent)', textDecoration: 'none', fontWeight: 600, flexShrink: 0, padding: '3px 10px', borderRadius: 5, border: '1px solid var(--accent)', opacity: 0.8 }}>
@@ -537,8 +477,7 @@ export function LcNotionHistory() {
                               <span style={{ fontSize: 11, color: 'var(--text-faint)', flexShrink: 0 }}>no link</span>
                             )}
                           </div>
-                        )
-                      })
+                      ))
                     )}
                   </div>
                 )}

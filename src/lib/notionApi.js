@@ -121,20 +121,24 @@ export function buildNotionProperties({ orderId, domain, vendor, vendorPrice, ac
 
   // Common fields
   const { orderStatus, clientName, clientSheet, orderFrom, orderType, orderIn,
-          postType, paymentStatus, note, publicationCost, orderUrl } = common
+          postType, paymentStatus, note, publicationCost, orderUrl,
+          orderProcessBy, sentForPublication, dateOfPublication } = common
 
-  if (orderStatus)     p['Order Status']         = { status: stat(orderStatus) }
-  if (clientName)      p['Customer Name']         = { rich_text: txt(clientName) }
-  if (clientSheet)     p['Client Sheet']          = { url: clientSheet }
-  if (orderFrom)       p['Order From']            = { select: sel(orderFrom) }
-  if (orderType)       p['Order Type']            = { select: sel(orderType) }
-  if (orderIn)         p['Order In']              = { select: sel(orderIn) }
-  if (postType)        p['Post Type']             = { select: sel(postType) }
-  if (paymentStatus)   p['Payment Status']        = { status: stat(paymentStatus) }
-  if (note)            p['Note']                  = { rich_text: txt(note) }
+  if (orderStatus)          p['Order Status']          = { status: stat(orderStatus) }
+  if (clientName)           p['Customer Name']          = { rich_text: txt(clientName) }
+  if (clientSheet)          p['Client Sheet']           = { url: clientSheet }
+  if (orderFrom)            p['Order From']             = { select: sel(orderFrom) }
+  if (orderType)            p['Order Type']             = { select: sel(orderType) }
+  if (orderIn)              p['Order In']               = { select: sel(orderIn) }
+  if (postType)             p['Post Type']              = { select: sel(postType) }
+  if (paymentStatus)        p['Payment Status']         = { status: stat(paymentStatus) }
+  if (note)                 p['Note']                   = { rich_text: txt(note) }
   const pc = toNum(publicationCost)
-  if (pc != null)      p['Publication Cost']      = { number: pc }
-  if (orderUrl)        p['Order URL']             = { url: orderUrl }
+  if (pc != null)           p['Publication Cost']       = { number: pc }
+  if (orderUrl)             p['Order URL']              = { url: orderUrl }
+  if (orderProcessBy)       p['Order Process By']       = { select: sel(orderProcessBy) }
+  if (sentForPublication)   p['Sent for Publication']   = { select: sel(sentForPublication) }
+  if (dateOfPublication)    p['Date of Publication']    = { date: { start: dateOfPublication } }
 
   return p
 }
