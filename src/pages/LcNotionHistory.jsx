@@ -121,7 +121,7 @@ export function LcNotionHistory() {
       setLs(batchId, { phase: 'updating', done: 0, total: cards.length, skipped, errors: [] })
       await batchUpdate(
         cards,
-        card => ({ 'Live Link': { url: liveMap.get(card.domain.toLowerCase()) } }),
+        card => ({ 'Live link': { url: liveMap.get(card.domain.toLowerCase()) } }),
         (done, errors) => setLs(batchId, { phase: 'updating', done, total: cards.length, skipped, errors: [...errors] }),
         errors => setLs(batchId, { phase: 'done', done: cards.length - errors.length, total: cards.length, skipped, errors })
       )
@@ -150,7 +150,7 @@ export function LcNotionHistory() {
     if (!url || !card.id) return
     setCs(cardKey, p => ({ ...p, phase: 'saving' }))
     try {
-      await updateNotionPage(card.id, { 'Live Link': { url } })
+      await updateNotionPage(card.id, { 'Live link': { url } })
       setCs(cardKey, p => ({ ...p, phase: 'done', editing: false }))
     } catch (e) {
       setCs(cardKey, p => ({ ...p, phase: 'error', error: e.message }))
