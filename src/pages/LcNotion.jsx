@@ -3,7 +3,16 @@ import { extractSheetId, getSheetTabs, getSheetRows } from '../lib/sheetParserAP
 import { fetchGplBatch, extractGplInfo, buildNotionProperties, createNotionPage, testNotionConnection } from '../lib/notionApi.js'
 import { saveNotionBatch } from '../lib/supabase.js'
 
-const STATUS_OPTS     = ['Sent For Publication', 'In Progress', 'Completed', 'On Hold', 'Cancelled']
+const STATUS_OPTS     = [
+  // To-do
+  'New Orders',
+  // In progress
+  'Sent for Content Update', 'Pending Publication', 'Credit With Vendors',
+  'Client Input Required', 'Sent For Writing', 'Sent For Article Approval',
+  'Sent For Publication', 'Post Improvement', 'Order Cancelled',
+  // Complete
+  'Credit Used', 'Published', 'Testing Card',
+]
 const ORDER_FROM_OPTS = ['GUESTPOSTLINKS', 'DIRECT', 'FIVERR', 'OTHER']
 const ORDER_TYPE_OPTS = ['Article Publication', 'Link Insertion', 'Press Release']
 const ORDER_IN_OPTS   = ['Single', 'Bulk']

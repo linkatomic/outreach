@@ -63,7 +63,7 @@ export function extractGplInfo(siteData, niche) {
   return {
     vendor:      vendor.name ?? vendor.vendor_name ?? '',
     vendorPrice: addon?.admin_price ?? '',
-    actualPaid:  addon?.buyer_price ?? '',
+    actualPaid:  addon?.actualPrice ?? '',
     currency:    vendor.currency ?? '',
   }
 }
