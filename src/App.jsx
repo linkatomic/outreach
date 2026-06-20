@@ -21,6 +21,7 @@ import { OnlinePage } from './pages/OnlinePage.jsx'
 import { LcHistory } from './pages/LcHistory.jsx'
 import { LcNotion } from './pages/LcNotion.jsx'
 import { LcNotionHistory } from './pages/LcNotionHistory.jsx'
+import { LcGuide } from './pages/LcGuide.jsx'
 
 const TWEAK_DEFAULTS = { dark: true };
 
@@ -305,6 +306,7 @@ export default function App() {
       case 'lc-notion-history': return <LcNotionHistory />;
       case 'lc-history':        return <LcHistory />;
       case 'lc-team':    return <LiveChatTeam />;
+      case 'lc-guide':   return <LcGuide />;
       case 'online':     return ['lead', 'super'].includes(me.role)
                            ? <OnlinePage allUsers={ALL_USERS} onlineIds={onlineIds} presenceData={presenceData} />
                            : <MemberHome me={m} setRoute={setRoute} />;

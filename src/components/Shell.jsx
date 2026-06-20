@@ -29,6 +29,7 @@ export function Sidebar({ route, setRoute, role, me, allUsers = [], impersonated
       { id: 'lc-notion-history', label: 'Notion History', icon: 'clock' },
     ]},
     { id: 'lc-team',    label: 'Team',        icon: 'users' },
+    { id: 'lc-guide',   label: 'Guide',       icon: 'list' },
   ];
 
   // Only lead/super (the two specific admin roles) can see Active Users
@@ -199,6 +200,7 @@ export function Topbar({ route, role, theme, toggleTheme, openCmdK, notifOpen, s
     'lc-notion':         ['Live Chat', 'Notion Cards'],
     'lc-notion-history': ['Live Chat', 'Notion History'],
     'lc-history':        ['Live Chat', 'Sheet History'],
+    'lc-guide':          ['Live Chat', 'Guide'],
     online: ['Admin', 'Active Users'],
   }[route] || ['Home'];
 
