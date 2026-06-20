@@ -20,13 +20,15 @@ export function Sidebar({ route, setRoute, role, me, allUsers = [], impersonated
     { id: 'brief',       label: 'Design Brief', icon: 'layers' },
   ];
   const lcNavItems = [
-    { id: 'lc-home',    label: 'Home',         icon: 'home' },
-    { id: 'lc-clients', label: 'Clients',       icon: 'users' },
-    { id: 'lc-orders',  label: 'Order Sheet',   icon: 'download' },
-    { id: 'lc-notion',         label: 'Notion Cards',    icon: 'layers' },
-    { id: 'lc-notion-history', label: 'Notion History',  icon: 'clock' },
-    { id: 'lc-history',        label: 'Sheet History',   icon: 'clock' },
-    { id: 'lc-team',    label: 'Team',          icon: 'users' },
+    { id: 'lc-home',    label: 'Home',        icon: 'home' },
+    { id: 'lc-clients', label: 'Clients',     icon: 'users' },
+    { id: 'lc-orders',  label: 'Order Sheet', icon: 'download', children: [
+      { id: 'lc-history', label: 'Sheet History', icon: 'clock' },
+    ]},
+    { id: 'lc-notion',  label: 'Notion Cards', icon: 'layers', children: [
+      { id: 'lc-notion-history', label: 'Notion History', icon: 'clock' },
+    ]},
+    { id: 'lc-team',    label: 'Team',        icon: 'users' },
   ];
 
   // Only lead/super (the two specific admin roles) can see Active Users
@@ -88,12 +90,26 @@ export function Sidebar({ route, setRoute, role, me, allUsers = [], impersonated
       {showLcNav ? (
         <div className="nav-section">
           <div className="nav-section-title">Live Chat</div>
-          {lcNavItems.map(it => (
-            <div key={it.id} className={`nav-item ${route === it.id ? 'active' : ''}`} onClick={() => setRoute(it.id)}>
-              <Icon name={it.icon} size={15} />
-              <span>{it.label}</span>
-            </div>
-          ))}
+          {lcNavItems.map(it => {
+            const childActive = it.children?.some(c => c.id === route)
+            return (
+              <div key={it.id}>
+                <div className={`nav-item ${route === it.id ? 'active' : ''}`} onClick={() => setRoute(it.id)}>
+                  <Icon name={it.icon} size={15} />
+                  <span>{it.label}</span>
+                </div>
+                {it.children?.map(child => (
+                  <div key={child.id}
+                    className={`nav-item ${route === child.id ? 'active' : ''}`}
+                    onClick={() => setRoute(child.id)}
+                    style={{ paddingLeft: 28, fontSize: 12 }}>
+                    <Icon name={child.icon} size={13} />
+                    <span>{child.label}</span>
+                  </div>
+                ))}
+              </div>
+            )
+          })}
         </div>
       ) : (
         <>
