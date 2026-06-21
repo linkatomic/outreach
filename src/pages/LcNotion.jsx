@@ -31,7 +31,20 @@ const ORDER_IN_OPTS     = [
   'Crypto Elite Pack', 'Crypto Pro Pack', 'Crypto Growth Pack', 'Crypto Starter Pack',
 ]
 const POST_TYPE_OPTS    = ['CBD', 'Crypto', 'Adult', 'Casino', 'General']
-const PAY_OPTS          = ['Need to Check', 'Paid', 'Pending', 'Overdue']
+const PAY_OPTS = [
+  // To-do
+  'Need To Deliver', 'Need to Check', 'In Process', 'Sent for Verification',
+  'Refund Request', 'PrePayment Invoice', 'PrePay Done', 'Ready For Payment',
+  'Need to Tally', 'Credit With Vendors', 'Bulk Pending Payment',
+  'Invoice Details Pending', 'Order Cancelled', 'No Status',
+  // In progress
+  'Action Required', 'No Response', '3rd Follow-up', '2nd Follow-up',
+  '1st Follow-up', 'Tra ID Pending', 'Refunded', 'Live Link Pending', 'Paid',
+  // Complete
+  'Free Posts', 'Credit Used', 'No Invoice',
+  'Payment Confirmation Sent to Vendor/Admin',
+  'Refund Processed', 'Paid from Credit', 'Refund Received', 'Replaced',
+]
 const SENT_FOR_PUB_OPTS = ['Bhavansinh Chauhan', 'Nilesh P', 'Kanaiya Kadiya', 'Dev P', 'Nagji Rajput']
 const ORDER_PROCESS_BY_OPTS = ['Dev P', 'Bhavansinh Chauhan', 'Nagji Rajput', 'Kanaiya Kadiya', 'Nilesh P']
 
@@ -104,6 +117,69 @@ function Sel({ value, onChange, options, placeholder }) {
       {placeholder && <option value="">{placeholder}</option>}
       {options.map(o => <option key={o} value={o}>{o}</option>)}
     </select>
+  )
+}
+
+function SearchSelect({ value, onChange, options, placeholder = '— select —' }) {
+  const [open, setOpen]   = useState(false)
+  const [query, setQuery] = useState('')
+  const ref               = useState(() => ({ current: null }))[0]
+
+  const filtered = query
+    ? options.filter(o => o.toLowerCase().includes(query.toLowerCase()))
+    : options
+
+  function pick(opt) { onChange(opt); setOpen(false); setQuery('') }
+  function handleBlur(e) {
+    if (!e.currentTarget.contains(e.relatedTarget)) { setOpen(false); setQuery('') }
+  }
+
+  return (
+    <div ref={el => (ref.current = el)} style={{ position: 'relative', width: '100%' }} onBlur={handleBlur}>
+      <div
+        onClick={() => setOpen(o => !o)}
+        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6,
+          padding: '0 10px', height: 34, borderRadius: 7, border: '1px solid var(--border)',
+          background: 'var(--surface)', cursor: 'pointer', fontSize: 13,
+          color: value ? 'var(--text)' : 'var(--text-faint)', userSelect: 'none' }}
+      >
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {value || placeholder}
+        </span>
+        <span style={{ fontSize: 10, color: 'var(--text-faint)', flexShrink: 0 }}>{open ? '▲' : '▼'}</span>
+      </div>
+      {open && (
+        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100, marginTop: 3,
+          background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8,
+          boxShadow: '0 8px 24px rgba(0,0,0,.35)', overflow: 'hidden' }}>
+          <div style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)' }}>
+            <input
+              autoFocus
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              placeholder="Search…"
+              onKeyDown={e => { if (e.key === 'Escape') { setOpen(false); setQuery('') } if (e.key === 'Enter' && filtered.length === 1) pick(filtered[0]) }}
+              style={{ width: '100%', padding: '4px 8px', borderRadius: 5, border: '1px solid var(--border)',
+                background: 'var(--bg)', color: 'var(--text)', fontSize: 12, outline: 'none', boxSizing: 'border-box' }}
+            />
+          </div>
+          <div style={{ maxHeight: 220, overflowY: 'auto' }}>
+            {filtered.length === 0 ? (
+              <div style={{ padding: '10px 12px', fontSize: 12, color: 'var(--text-faint)' }}>No results</div>
+            ) : filtered.map(o => (
+              <div key={o} tabIndex={-1} onClick={() => pick(o)}
+                onMouseEnter={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--accent) 10%, transparent)'}
+                onMouseLeave={e => e.currentTarget.style.background = o === value ? 'color-mix(in srgb, var(--accent) 8%, transparent)' : 'transparent'}
+                style={{ padding: '7px 12px', fontSize: 13, cursor: 'pointer',
+                  background: o === value ? 'color-mix(in srgb, var(--accent) 8%, transparent)' : 'transparent',
+                  color: o === value ? 'var(--accent)' : 'var(--text)', fontWeight: o === value ? 600 : 400 }}>
+                {o}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -364,7 +440,7 @@ export function LcNotion({ me }) {
             <Sel value={common.orderStatus} onChange={v => set('orderStatus', v)} options={STATUS_OPTS} />
           </Field>
           <Field label="Payment Status">
-            <Sel value={common.paymentStatus} onChange={v => set('paymentStatus', v)} options={PAY_OPTS} />
+            <SearchSelect value={common.paymentStatus} onChange={v => set('paymentStatus', v)} options={PAY_OPTS} placeholder="— select status —" />
           </Field>
 
           <Field label="Order From">
