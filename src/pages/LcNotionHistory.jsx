@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { loadNotionHistory } from '../lib/supabase.js'
-import { updateNotionPage, getNotionPage } from '../lib/notionApi.js'
+import { updateNotionPage, getNotionPage, listNotionUsers } from '../lib/notionApi.js'
 import { extractSheetId, getSheetRows, batchWriteRangeValues } from '../lib/sheetParserAPI.js'
 
 const sleep = ms => new Promise(r => setTimeout(r, ms))
@@ -60,9 +60,12 @@ export function LcNotionHistory() {
   const [fillState,   setFillState]   = useState({}) // batchId → article doc state
   const [statusState, setStatusState] = useState({}) // batchId → { sel, phase, done, total, errors, lastStatus }
   const [sheetState,  setSheetState]  = useState({}) // batchId → { phase, done, total, error, written }
+  const [pubState,    setPubState]    = useState({}) // batchId → { userId, date, phase, done, total, errors }
+  const [notionUsers, setNotionUsers] = useState([])
 
   useEffect(() => {
     loadNotionHistory().then(setBatches).catch(() => setBatches([]))
+    listNotionUsers().then(setNotionUsers).catch(() => {})
   }, [])
 
   const filtered = (batches || []).filter(b => {
@@ -80,6 +83,7 @@ export function LcNotionHistory() {
   const setSh  = (id, val) => setSheetState(p  => ({ ...p, [id]: val }))
   const setFs  = (id, val) => setFillState(p   => ({ ...p, [id]: val }))
   const setSs  = (id, fn)  => setStatusState(p => ({ ...p, [id]: fn(p[id] || {}) }))
+  const setPs  = (id, fn)  => setPubState(p   => ({ ...p, [id]: fn(p[id] || {}) }))
 
   // ── shared sheet reader ───────────────────────────────────────
   async function readSheetMap(batch, colMatcher, colLabel) {
@@ -132,6 +136,27 @@ export function LcNotionHistory() {
       () => ({ 'Order Status': { status: { name: newStatus } } }),
       (done, errors) => setSs(batchId, p => ({ ...p, done, errors: [...errors] })),
       errors => setSs(batchId, p => ({ ...p, phase: 'done', done: cards.length - errors.length, total: cards.length, errors }))
+    )
+  }
+
+  // ── Update Sent for Publication + Date of Publication ────────
+  async function handleUpdatePub(batch) {
+    const batchId = batch.id
+    const ps      = pubState[batchId] || {}
+    const cards   = (batch.cards || []).filter(c => c.id)
+    if (!cards.length) return
+
+    const props = {}
+    if (ps.userId) props['Sent for Publication'] = { people: [{ object: 'user', id: ps.userId }] }
+    if (ps.date)   props['Date of Publication']   = { date: { start: ps.date } }
+    if (!Object.keys(props).length) return
+
+    setPs(batchId, p => ({ ...p, phase: 'updating', done: 0, total: cards.length, errors: [] }))
+    await batchUpdate(
+      cards,
+      () => props,
+      (done, errors) => setPs(batchId, p => ({ ...p, done, errors: [...errors] })),
+      errors => setPs(batchId, p => ({ ...p, phase: 'done', done: cards.length - errors.length, total: cards.length, errors }))
     )
   }
 
@@ -231,15 +256,18 @@ export function LcNotionHistory() {
             const fs    = fillState[b.id]
             const ss    = statusState[b.id] || {}
             const sh    = sheetState[b.id]
+            const ps    = pubState[b.id]    || {}
 
             const canSheet      = !!b.sheet_url && cards.some(c => c.id)
             const canStatus     = cards.some(c => c.id)
             const fillBusy      = fs?.phase === 'loading' || fs?.phase === 'updating'
             const sheetBusy     = sh?.phase === 'reading' || sh?.phase === 'writing'
             const statusBusy    = ss.phase === 'updating'
+            const pubBusy       = ps.phase === 'updating'
             const canUpdateNow  = canStatus && !!ss.sel && !statusBusy
+            const canPubNow     = canStatus && (!!ps.userId || !!ps.date) && !pubBusy
 
-            const hasProgress = fs || sh || (ss.phase && ss.phase !== 'idle')
+            const hasProgress = fs || sh || (ss.phase && ss.phase !== 'idle') || (ps.phase && ps.phase !== 'idle')
 
             function sheetBtnStyle(state, canAct) {
               const done = state?.phase === 'done' && !state?.error
@@ -267,6 +295,10 @@ export function LcNotionHistory() {
             const statusLabel = ss.phase === 'updating' ? `${ss.done ?? 0}/${ss.total ?? 0}…`
                               : ss.phase === 'done'     ? `✓ ${ss.done} updated`
                               : 'Update All'
+
+            const pubLabel = ps.phase === 'updating' ? `${ps.done ?? 0}/${ps.total ?? 0}…`
+                           : ps.phase === 'done'     ? `✓ ${ps.done} updated`
+                           : 'Update'
 
             return (
               <div key={b.id} className="card" style={{ padding: 0, overflow: 'hidden' }}>
@@ -355,6 +387,39 @@ export function LcNotionHistory() {
                   </div>
                 </div>
 
+                {/* ── Publication row ── */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6, padding: '6px 16px', borderTop: '1px solid var(--border)', background: 'rgba(255,255,255,.01)' }}>
+                  <span style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-faint)', marginRight: 4 }}>Publication</span>
+                  <select
+                    value={ps.userId || ''}
+                    onChange={e => setPs(b.id, p => ({ ...p, userId: e.target.value, phase: p.phase === 'done' ? 'idle' : p.phase }))}
+                    disabled={pubBusy}
+                    style={{ fontSize: 11, padding: '3px 8px', height: 27, borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface)', color: ps.userId ? 'var(--text)' : 'var(--text-faint)', cursor: 'pointer', maxWidth: 160 }}
+                  >
+                    <option value="">{notionUsers.length ? 'Sent for pub…' : 'Loading users…'}</option>
+                    {notionUsers.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                  </select>
+                  <input
+                    type="date"
+                    value={ps.date || ''}
+                    onChange={e => setPs(b.id, p => ({ ...p, date: e.target.value, phase: p.phase === 'done' ? 'idle' : p.phase }))}
+                    disabled={pubBusy}
+                    style={{ fontSize: 11, padding: '3px 8px', height: 27, borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface)', color: ps.date ? 'var(--text)' : 'var(--text-faint)', cursor: 'pointer' }}
+                  />
+                  <button
+                    onClick={() => handleUpdatePub(b)}
+                    disabled={!canPubNow}
+                    style={{
+                      fontSize: 11, padding: '4px 10px', borderRadius: 6, border: '1px solid',
+                      whiteSpace: 'nowrap', cursor: canPubNow ? 'pointer' : 'default',
+                      background:  ps.phase === 'done' ? 'rgba(74,222,128,.1)' : 'transparent',
+                      borderColor: ps.phase === 'done' ? 'rgba(74,222,128,.3)' : canPubNow ? 'rgba(167,139,250,.5)' : 'var(--border)',
+                      color:       ps.phase === 'done' ? '#4ade80' : canPubNow ? '#a78bfa' : 'var(--text-faint)',
+                      opacity: !canPubNow ? 0.4 : 1,
+                    }}
+                  >{pubLabel}</button>
+                </div>
+
                 {/* ── Progress / results ── */}
                 {hasProgress && (
                   <div style={{ padding: '8px 16px', borderTop: '1px solid var(--border)', background: 'rgba(255,255,255,.02)', fontSize: 12, display: 'flex', flexDirection: 'column', gap: 5 }}>
@@ -406,6 +471,21 @@ export function LcNotionHistory() {
                       <span>
                         <span style={{ color: '#4ade80' }}>✓ {ss.done} cards → "{ss.lastStatus}"</span>
                         {ss.errors?.length > 0 && <span style={{ marginLeft: 10, color: '#f87171' }}>· {ss.errors.length} failed</span>}
+                      </span>
+                    )}
+
+                    {ps.phase === 'updating' && (
+                      <div>
+                        <div style={{ height: 3, background: 'var(--border)', borderRadius: 2, overflow: 'hidden', marginBottom: 4 }}>
+                          <div style={{ height: '100%', background: '#a78bfa', borderRadius: 2, width: `${Math.round(((ps.done || 0) / (ps.total || 1)) * 100)}%`, transition: 'width .3s' }} />
+                        </div>
+                        <span style={{ color: 'var(--text-faint)' }}>Publication update: {ps.done}/{ps.total}…</span>
+                      </div>
+                    )}
+                    {ps.phase === 'done' && (
+                      <span>
+                        <span style={{ color: '#4ade80' }}>✓ {ps.done} cards publication updated</span>
+                        {ps.errors?.length > 0 && <span style={{ marginLeft: 10, color: '#f87171' }}>· {ps.errors.length} failed</span>}
                       </span>
                     )}
                   </div>
