@@ -22,6 +22,7 @@ import { LcHistory } from './pages/LcHistory.jsx'
 import { LcNotion } from './pages/LcNotion.jsx'
 import { LcNotionHistory } from './pages/LcNotionHistory.jsx'
 import { LcGuide } from './pages/LcGuide.jsx'
+import { UrlFetcherPage } from './pages/UrlFetcher.jsx'
 
 const TWEAK_DEFAULTS = { dark: true };
 
@@ -312,6 +313,11 @@ export default function App() {
                            : <MemberHome me={m} setRoute={setRoute} />;
       default:           return isLcOnly ? <LiveChatHome me={m} /> : <MemberHome me={m} setRoute={setRoute} />;
     }
+  }
+
+  // ── Public pages (no login required) ────────────────
+  if (window.location.pathname === '/url-fetcher') {
+    return <UrlFetcherPage />;
   }
 
   // ── Loading splash ───────────────────────────────────
