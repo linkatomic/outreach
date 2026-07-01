@@ -7,5 +7,9 @@
       "path": "/api/cron/midnight-check",
       "schedule": "30 18 * * *"
     }
+  ],
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api/$1" },
+    { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
