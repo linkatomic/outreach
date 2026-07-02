@@ -37,7 +37,7 @@ function extractDomains(html, text) {
 
   // 3. Bare domains (no protocol) — e.g. "mumbaijournals.com — DA 37"
   //    Require: starts with a letter, each segment ≥2 chars, TLD = 2-6 letters only
-  for (const m of t.matchAll(/\b([a-zA-Z][a-zA-Z0-9-]{1,}(?:\.[a-zA-Z0-9][a-zA-Z0-9-]{1,})*\.[a-zA-Z]{2,6})\b/g)) {
+  for (const m of t.matchAll(/\b([a-zA-Z][a-zA-Z0-9-]{1,}(?:\.[a-zA-Z0-9][a-zA-Z0-9-]{1,})*\.[a-zA-Z]{2,6})(?![a-zA-Z])/g)) {
     add(m[1])
   }
 
