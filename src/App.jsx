@@ -23,6 +23,7 @@ import { LcNotion } from './pages/LcNotion.jsx'
 import { LcNotionHistory } from './pages/LcNotionHistory.jsx'
 import { LcGuide } from './pages/LcGuide.jsx'
 import { UrlFetcherPage } from './pages/UrlFetcher.jsx'
+import { DomainExtractorPage } from './pages/DomainExtractor.jsx'
 
 const TWEAK_DEFAULTS = { dark: true };
 
@@ -318,6 +319,9 @@ export default function App() {
   // ── Public pages (no login required) ────────────────
   if (window.location.pathname === '/url-fetcher') {
     return <UrlFetcherPage />;
+  }
+  if (window.location.pathname === '/domain-extractor') {
+    return <DomainExtractorPage />;
   }
 
   // ── Loading splash ───────────────────────────────────
