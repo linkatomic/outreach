@@ -41,7 +41,15 @@ function extractDomains(html, text) {
     add(m[1])
   }
 
-  return list
+  // Final dedup pass — catches any edge cases where the same domain
+  // slips through via different extraction paths (http vs bare, www variants, etc.)
+  const finalSeen = new Set()
+  return list.filter(d => {
+    const key = d.toLowerCase()
+    if (finalSeen.has(key)) return false
+    finalSeen.add(key)
+    return true
+  })
 }
 
 export function DomainExtractorPage() {
