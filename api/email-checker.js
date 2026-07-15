@@ -56,16 +56,16 @@ async function fetchPage(url, timeoutMs = 7000) {
   }
 }
 
-async function checkPageType(domain, config) {
+async function checkPageType(domain, config, targetEmail) {
   for (const path of config.paths) {
-    // try https first, then http
     const result = await fetchPage(`https://${domain}${path}`)
       || await fetchPage(`http://${domain}${path}`)
     if (result) {
-      return { type: config.type, url: result.url, emails: extractEmails(result.html), fetched: true }
+      const emails = extractEmails(result.html)
+      return { type: config.type, url: result.url, emails, fetched: true, hasTarget: emails.includes(targetEmail) }
     }
   }
-  return { type: config.type, url: `https://${domain}${config.paths[0]}`, emails: [], fetched: false }
+  return { type: config.type, url: `https://${domain}${config.paths[0]}`, emails: [], fetched: false, hasTarget: false }
 }
 
 export default async function handler(req, res) {
@@ -77,7 +77,7 @@ export default async function handler(req, res) {
   const domain      = cleanDomain(rawDomain)
   const targetEmail = rawTarget.trim().toLowerCase()
 
-  const pages = await Promise.all(PAGE_CONFIGS.map(cfg => checkPageType(domain, cfg)))
+  const pages = await Promise.all(PAGE_CONFIGS.map(cfg => checkPageType(domain, cfg, targetEmail)))
 
   const allEmails = [...new Set(pages.flatMap(p => p.emails))]
   const hasTarget = allEmails.includes(targetEmail)
