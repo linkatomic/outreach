@@ -45,6 +45,17 @@ function rangeFmt(sheetId, r0, r1, c0, c1, fmt) {
   return { repeatCell: { range: rc(sheetId, r0, r1, c0, c1), cell: { userEnteredFormat: fmt }, fields: `userEnteredFormat(${Object.keys(fmt).join(',')})` } }
 }
 
+// ── Cross-site email frequency ────────────────────────────
+function computeEmailFrequency(results) {
+  const freq = {}
+  for (const r of results.filter(x => x.status !== 'pending')) {
+    for (const email of (r.allEmails || [])) {
+      freq[email] = (freq[email] || 0) + 1
+    }
+  }
+  return freq
+}
+
 // ── Email prefix analysis ─────────────────────────────────
 const PREFIX_CATEGORIES = {
   contact:   ['info', 'contact', 'hello', 'hi', 'hey', 'team', 'mail', 'email', 'enquiries', 'enquiry', 'general'],
@@ -129,7 +140,7 @@ async function createSpreadsheet(title) {
 }
 
 // ── Build Dashboard values ────────────────────────────────
-function buildDashboardValues(results, dateStr) {
+function buildDashboardValues(results, dateStr, freq) {
   const done       = results.filter(r => r.status !== 'pending')
   const withEmails = done.filter(r => (r.allEmails?.length || 0) > 0)
   const noEmails   = done.filter(r => !r.error && (r.allEmails?.length || 0) === 0)
@@ -213,12 +224,40 @@ function buildDashboardValues(results, dateStr) {
     }
   }
 
-  return { rows, withEmailsCount: withEmails.length, topSitesCount: topSites.length, noEmailsCount: noEmails.length, errorsCount: errors.length, catRowCount: catOrder.length, prefixRowCount: topPrefixes.length }
+  // Cross-site emails — emails appearing on 2+ domains
+  const crossSiteEmails = Object.entries(freq || {})
+    .filter(([, count]) => count > 1)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 20)
+
+  if (crossSiteEmails.length > 0) {
+    rows.push(['', '', '', '', ''])
+    rows.push(['EMAILS FOUND ACROSS MULTIPLE SITES', '', '', '', ''])
+    rows.push(['Email Address', '# Sites', 'Domains Found On', '', ''])
+    for (const [email, count] of crossSiteEmails) {
+      const domains = done
+        .filter(r => (r.allEmails || []).includes(email))
+        .map(r => r.domain)
+        .join(', ')
+      rows.push([email, count, domains, '', ''])
+    }
+  }
+
+  return {
+    rows,
+    withEmailsCount:  withEmails.length,
+    topSitesCount:    topSites.length,
+    noEmailsCount:    noEmails.length,
+    errorsCount:      errors.length,
+    catRowCount:      catOrder.length,
+    prefixRowCount:   topPrefixes.length,
+    crossSiteCount:   crossSiteEmails.length,
+  }
 }
 
 // ── Format Dashboard ──────────────────────────────────────
 function buildDashboardFmt(dashId, meta) {
-  const { withEmailsCount, topSitesCount, noEmailsCount, errorsCount, catRowCount, prefixRowCount } = meta
+  const { withEmailsCount, topSitesCount, noEmailsCount, errorsCount, catRowCount, prefixRowCount, crossSiteCount } = meta
   const reqs = []
 
   // Title
@@ -321,6 +360,25 @@ function buildDashboardFmt(dashId, meta) {
     r++
     for (let i = 0; i < errorsCount; i++) {
       reqs.push(rowFmt(dashId, r + i, 5, { backgroundColor: C.errorBg }))
+    }
+    r += errorsCount + 1
+  }
+
+  if (crossSiteCount > 0) {
+    // Section header
+    reqs.push(rowFmt(dashId, r, 5, { backgroundColor: C.headerBg, textFormat: { bold: true, foregroundColor: C.white, fontSize: 10 } }))
+    reqs.push(rowH(dashId, r, r + 1, 30))
+    r++
+    // Column header
+    reqs.push(rowFmt(dashId, r, 5, { backgroundColor: C.accentBg, textFormat: { bold: true, foregroundColor: C.white, fontSize: 9 }, horizontalAlignment: 'CENTER' }))
+    r++
+    // Data rows
+    for (let i = 0; i < crossSiteCount; i++) {
+      if (i % 2 === 1) reqs.push(rowFmt(dashId, r + i, 5, { backgroundColor: C.lightGray }))
+      // Email: mono
+      reqs.push(cell(dashId, r + i, 0, { textFormat: { fontFamily: 'Courier New', fontSize: 11 } }))
+      // # Sites: bold green
+      reqs.push(cell(dashId, r + i, 1, { textFormat: { bold: true, fontSize: 14, foregroundColor: C.green }, horizontalAlignment: 'CENTER' }))
     }
   }
 
@@ -428,35 +486,36 @@ function buildDirectoryFmt(dirId, results) {
 }
 
 // ── All Emails flat list ──────────────────────────────────
-const FLAT_COLS   = ['#', 'Domain', 'Email Address', 'Prefix', 'Category', 'Pages Found On']
-const FLAT_WIDTHS = [40, 190, 250, 130, 130, 250]
+const FLAT_COLS   = ['#', 'Domain', 'Email Address', 'Prefix', 'Category', '# Sites', 'Pages Found On']
+const FLAT_WIDTHS = [40, 190, 250, 130, 130, 65, 250]
 const N_FLAT      = FLAT_COLS.length
 
-function buildFlatValues(results) {
+function buildFlatValues(results, freq) {
   const done = results.filter(r => r.status !== 'pending')
   const rows = [FLAT_COLS]
   let rowNum = 0
 
-  // Sort: sites with most emails first, then alphabetically
+  // Sort: sites with most emails first
   const sorted = [...done].sort((a, b) => (b.allEmails?.length || 0) - (a.allEmails?.length || 0))
 
   for (const r of sorted) {
     for (const email of (r.allEmails || [])) {
       rowNum++
-      const prefix    = getEmailPrefix(email)
-      const category  = getPrefixCategory(prefix)
-      const catLabel  = category === 'contact' ? 'Contact / General'
-                      : category === 'sales'   ? 'Sales / Business'
-                      : category === 'editorial' ? 'Editorial'
-                      : category === 'support' ? 'Support'
-                      : category === 'admin'   ? 'Admin / System'
-                      : 'Personal / Other'
+      const prefix   = getEmailPrefix(email)
+      const category = getPrefixCategory(prefix)
+      const catLabel = category === 'contact'  ? 'Contact / General'
+                     : category === 'sales'    ? 'Sales / Business'
+                     : category === 'editorial'? 'Editorial'
+                     : category === 'support'  ? 'Support'
+                     : category === 'admin'    ? 'Admin / System'
+                     : 'Personal / Other'
+      const siteCount = freq?.[email] || 1
       const foundOn   = (r.pages || [])
         .filter(p => p.emails.includes(email))
         .map(p => p.type)
         .join(', ')
 
-      rows.push([rowNum, r.domain, email, prefix + '@', catLabel, foundOn || '—'])
+      rows.push([rowNum, r.domain, email, prefix + '@', catLabel, siteCount, foundOn || '—'])
     }
   }
 
@@ -492,8 +551,10 @@ function buildFlatFmt(flatId, totalEmailRows) {
     rangeFmt(flatId, 1, totalEmailRows + 1, 3, 4, { horizontalAlignment: 'CENTER', textFormat: { fontFamily: 'Courier New', fontSize: 11, foregroundColor: C.blue } }),
     // Category: center
     rangeFmt(flatId, 1, totalEmailRows + 1, 4, 5, { horizontalAlignment: 'CENTER' }),
+    // # Sites: center, bold
+    rangeFmt(flatId, 1, totalEmailRows + 1, 5, 6, { horizontalAlignment: 'CENTER', textFormat: { bold: true, fontSize: 12 } }),
     // Pages: left, dim
-    rangeFmt(flatId, 1, totalEmailRows + 1, 5, 6, { horizontalAlignment: 'LEFT', textFormat: { foregroundColor: C.gray, fontSize: 11 } }),
+    rangeFmt(flatId, 1, totalEmailRows + 1, 6, 7, { horizontalAlignment: 'LEFT', textFormat: { foregroundColor: C.gray, fontSize: 11 } }),
     ...FLAT_WIDTHS.map((px, i) => colW(flatId, i, px)),
   ]
 
@@ -518,9 +579,11 @@ export async function buildEmailHarvesterSheet(results, onProgress) {
 
   onProgress?.('Analysing data…')
 
-  const { rows: dashRows, ...dashMeta } = buildDashboardValues(results, dateStr)
+  const freq = computeEmailFrequency(results)
+
+  const { rows: dashRows, ...dashMeta } = buildDashboardValues(results, dateStr, freq)
   const dirRows  = buildDirectoryValues(results)
-  const flatRows = buildFlatValues(results)
+  const flatRows = buildFlatValues(results, freq)
 
   onProgress?.('Writing data…')
 

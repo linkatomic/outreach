@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useMemo } from 'react'
 import { Icon } from '../data.jsx'
 import { buildEmailHarvesterSheet } from '../lib/emailHarvesterSheet.js'
 
@@ -46,26 +46,34 @@ async function runCapped(tasks, cap, onResult) {
   await Promise.all(Array.from({ length: Math.min(cap, tasks.length) }, next))
 }
 
-function EmailPill({ email }) {
+function EmailPill({ email, count }) {
+  const multi = count > 1
   return (
     <span style={{
-      display: 'inline-block',
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: 4,
       padding: '2px 8px',
       borderRadius: 999,
       fontSize: 12,
       fontFamily: 'var(--font-mono)',
-      background: 'var(--surface-3)',
-      color: 'var(--text-dim)',
-      border: '1px solid var(--border)',
+      background: multi ? 'rgba(92,255,161,.08)' : 'var(--surface-3)',
+      color: multi ? 'var(--ok)' : 'var(--text-dim)',
+      border: multi ? '1px solid rgba(92,255,161,.25)' : '1px solid var(--border)',
       marginRight: 4,
       marginBottom: 2,
     }}>
       {email}
+      {multi && (
+        <span style={{ fontSize: 10, fontWeight: 700, background: 'rgba(92,255,161,.2)', color: 'var(--ok)', borderRadius: 4, padding: '0 4px', lineHeight: '16px' }}>
+          ×{count}
+        </span>
+      )}
     </span>
   )
 }
 
-function SiteCard({ result }) {
+function SiteCard({ result, emailFreq }) {
   const { domain, pages, allEmails, error } = result
   const hasEmails = (allEmails?.length || 0) > 0
 
@@ -121,7 +129,7 @@ function SiteCard({ result }) {
                       <span style={{ fontSize: 12, color: 'var(--text-ghost)' }}>—</span>
                     ) : (
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
-                        {page.emails.map(email => <EmailPill key={email} email={email} />)}
+                        {page.emails.map(email => <EmailPill key={email} email={email} count={emailFreq?.[email] || 1} />)}
                       </div>
                     )}
                   </td>
@@ -134,7 +142,7 @@ function SiteCard({ result }) {
             <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border)', display: 'flex', alignItems: 'flex-start', gap: 10 }}>
               <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.05em', paddingTop: 3, flexShrink: 0 }}>All unique</span>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
-                {allEmails.map(email => <EmailPill key={email} email={email} />)}
+                {allEmails.map(email => <EmailPill key={email} email={email} count={emailFreq?.[email] || 1} />)}
               </div>
             </div>
           )}
@@ -202,10 +210,20 @@ export function EmailHarvester() {
     }
   }
 
-  const doneResults   = results.filter(r => r.status !== 'pending')
-  const withEmails    = doneResults.filter(r => (r.allEmails?.length || 0) > 0)
-  const withNone      = doneResults.filter(r => !r.error && (r.allEmails?.length || 0) === 0)
-  const totalEmails   = [...new Set(doneResults.flatMap(r => r.allEmails || []))].length
+  const doneResults = results.filter(r => r.status !== 'pending')
+  const withEmails  = doneResults.filter(r => (r.allEmails?.length || 0) > 0)
+  const withNone    = doneResults.filter(r => !r.error && (r.allEmails?.length || 0) === 0)
+  const totalEmails = [...new Set(doneResults.flatMap(r => r.allEmails || []))].length
+
+  const emailFreq = useMemo(() => {
+    const freq = {}
+    for (const r of doneResults) {
+      for (const email of (r.allEmails || [])) {
+        freq[email] = (freq[email] || 0) + 1
+      }
+    }
+    return freq
+  }, [doneResults])
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -288,7 +306,7 @@ export function EmailHarvester() {
                   <span style={{ fontSize: 12, color: 'var(--text-ghost)' }}>Harvesting…</span>
                 </div>
               )
-              : <SiteCard key={i} result={r} />
+              : <SiteCard key={i} result={r} emailFreq={emailFreq} />
           ))}
         </div>
       )}
