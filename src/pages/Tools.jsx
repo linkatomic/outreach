@@ -4,6 +4,7 @@ import { loadPriceTable } from '../lib/supabase.js'
 import { SheetParser } from './SheetParser.jsx'
 import { LiveChatClients } from './LiveChat.jsx'
 import { EmailChecker } from './EmailChecker.jsx'
+import { EmailHarvester } from './EmailHarvester.jsx'
 
 // ─── shared helpers ────────────────────────────────────────────────────────────
 
@@ -999,6 +1000,7 @@ const TOOLS = [
   { id: 'price-calc',     title: 'Price Calculator',        desc: 'Convert admin price to buyer & reseller price instantly',                                                     icon: 'tool',     tag: 'Pricing'  },
   { id: 'livechat-clients', title: 'Live Chat Clients',     desc: 'Manage live chat team clients — order sheets, article costs, discounts, buyer/reseller types',               icon: 'users',    tag: 'LiveChat', roles: ['livechat', 'lead', 'super'] },
   { id: 'email-checker',   title: 'Email Checker',          desc: 'Enter an email + paste a site list — checks contact, about, footer & privacy pages for that email across all sites', icon: 'mail',     tag: 'Outreach' },
+  { id: 'email-harvester', title: 'Email Harvester',        desc: 'Paste a list of sites — scrapes contact, about, home & privacy pages and collects every email found. No target needed.', icon: 'inbox',    tag: 'Outreach' },
 ]
 
 // ─── Tools Page ────────────────────────────────────────────────────────────────
@@ -1129,6 +1131,20 @@ export function ToolsPage({ me, role }) {
           </div>
           <div className="card-pad">
             <EmailChecker />
+          </div>
+        </div>
+      ) : activeTool === 'email-harvester' ? (
+        <div className="card">
+          <div className="card-head">
+            <div>
+              <h3>Email Harvester</h3>
+              <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 2 }}>
+                Scrapes contact, about, home &amp; privacy pages — collects every email found per site
+              </div>
+            </div>
+          </div>
+          <div className="card-pad">
+            <EmailHarvester />
           </div>
         </div>
       ) : null}
