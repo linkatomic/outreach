@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react'
 import { Icon } from '../data.jsx'
+import { buildEmailCheckerSheet } from '../lib/emailCheckerSheet.js'
 
 const CONCURRENCY = 5
 
@@ -163,6 +164,7 @@ export function EmailChecker() {
   const [results,      setResults]      = useState([])
   const [progress,     setProgress]     = useState(null) // { done, total }
   const [running,      setRunning]      = useState(false)
+  const [sheetStatus,  setSheetStatus]  = useState(null) // null | 'building' | { url } | { error }
   const abortRef = useRef(false)
 
   const domains = parseDomains(websiteText)
@@ -198,6 +200,20 @@ export function EmailChecker() {
     abortRef.current = true
     setRunning(false)
     setProgress(null)
+  }
+
+  async function generateSheet() {
+    setSheetStatus('building')
+    try {
+      const url = await buildEmailCheckerSheet(
+        targetEmail,
+        results,
+        msg => setSheetStatus(s => typeof s === 'object' && s?.url ? s : `building:${msg}`)
+      )
+      setSheetStatus({ url })
+    } catch (err) {
+      setSheetStatus({ error: err.message })
+    }
   }
 
   const doneResults  = results.filter(r => r.status !== 'pending')
@@ -259,11 +275,30 @@ export function EmailChecker() {
         )}
 
         {results.length > 0 && !running && (
-          <div style={{ display: 'flex', gap: 14, fontSize: 12, marginLeft: 'auto' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14, fontSize: 12, marginLeft: 'auto', flexWrap: 'wrap' }}>
             {foundCount > 0  && <span style={{ color: 'var(--ok)'  }}>✓ {foundCount} found</span>}
             {otherCount > 0  && <span style={{ color: 'var(--warn)' }}>⚠ {otherCount} other emails</span>}
             {noneCount > 0   && <span style={{ color: 'var(--text-faint)' }}>— {noneCount} no emails</span>}
-            <button className="btn ghost" style={{ fontSize: 11, padding: '2px 8px' }} onClick={() => { setResults([]); setWebsiteText(''); setTargetEmail('') }}>Clear</button>
+
+            {/* Generate Sheet */}
+            {doneResults.length > 0 && (
+              sheetStatus === 'building' || (typeof sheetStatus === 'string' && sheetStatus.startsWith('building:'))
+                ? <span style={{ color: 'var(--text-faint)', fontSize: 11 }}>
+                    {typeof sheetStatus === 'string' && sheetStatus.includes(':') ? sheetStatus.split(':')[1] : 'Building sheet…'}
+                  </span>
+                : sheetStatus?.url
+                ? <a href={sheetStatus.url} target="_blank" rel="noreferrer"
+                    style={{ fontSize: 11, fontWeight: 700, color: 'var(--ok)', textDecoration: 'none', background: 'rgba(92,255,161,.1)', border: '1px solid rgba(92,255,161,.25)', borderRadius: 5, padding: '3px 10px' }}>
+                    ↗ Open Sheet
+                  </a>
+                : sheetStatus?.error
+                ? <span style={{ color: 'var(--danger)', fontSize: 11 }} title={sheetStatus.error}>Sheet error</span>
+                : <button className="btn ghost" style={{ fontSize: 11, padding: '3px 10px' }} onClick={generateSheet}>
+                    ↗ Generate Sheet
+                  </button>
+            )}
+
+            <button className="btn ghost" style={{ fontSize: 11, padding: '2px 8px' }} onClick={() => { setResults([]); setWebsiteText(''); setTargetEmail(''); setSheetStatus(null) }}>Clear</button>
           </div>
         )}
       </div>
