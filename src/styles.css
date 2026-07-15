@@ -229,6 +229,10 @@ hr { border: 0; border-top: 1px solid var(--border); margin: 0; }
 .avatar.d { background: linear-gradient(135deg, #2C5C42, #18361F); }
 .avatar.e { background: linear-gradient(135deg, #5C2C3F, #381822); }
 .avatar.f { background: linear-gradient(135deg, #3F4D5C, #1F2832); }
+.avatar.g { background: linear-gradient(135deg, #5C3D1E, #3A2410); }
+.avatar.h { background: linear-gradient(135deg, #1E4D5C, #102832); }
+.avatar.i { background: linear-gradient(135deg, #4A5C1E, #2A3810); }
+.avatar.j { background: linear-gradient(135deg, #5C1E4A, #38102A); }
 
 /* ───────── Main column ───────── */
 

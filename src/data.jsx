@@ -7,6 +7,7 @@ export const TEAM = [
   { id: 'keyur',  name: 'Keyur D',     short: 'KD', role: 'member', color: 'd', email: 'keyur.d@amrytt.com',  joined: '2024-11-18' },
   { id: 'arjun',  name: 'Arjun M',     short: 'AM', role: 'member', color: 'e', email: 'arjun.m@amrytt.com',  joined: '2025-03-02' },
   { id: 'neel',   name: 'Neel P',      short: 'NP', role: 'member', color: 'f', email: 'neel.p@amrytt.com',   joined: '2025-05-19', neelOnly: true },
+  { id: 'yaksh',  name: 'Yaksh B',     short: 'YB', role: 'member', color: 'g', email: 'yaksh.b@amrytt.com',  joined: '2026-07-15' },
 ];
 
 export const METRICS = [

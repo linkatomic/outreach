@@ -22,6 +22,7 @@ import { LcHistory } from './pages/LcHistory.jsx'
 import { LcNotion } from './pages/LcNotion.jsx'
 import { LcNotionHistory } from './pages/LcNotionHistory.jsx'
 import { LcGuide } from './pages/LcGuide.jsx'
+import { AdminPage } from './pages/AdminPage.jsx'
 import { UrlFetcherPage } from './pages/UrlFetcher.jsx'
 import { DomainExtractorPage } from './pages/DomainExtractor.jsx'
 
@@ -309,6 +310,7 @@ export default function App() {
       case 'lc-history':        return <LcHistory />;
       case 'lc-team':    return <LiveChatTeam />;
       case 'lc-guide':   return <LcGuide />;
+      case 'admin':      return ['lead', 'super'].includes(me.role) ? <AdminPage /> : <MemberHome me={m} setRoute={setRoute} />;
       case 'online':     return ['lead', 'super'].includes(me.role)
                            ? <OnlinePage allUsers={ALL_USERS} onlineIds={onlineIds} presenceData={presenceData} />
                            : <MemberHome me={m} setRoute={setRoute} />;

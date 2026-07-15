@@ -164,6 +164,11 @@ export function Sidebar({ route, setRoute, role, me, allUsers = [], impersonated
         <div className={`nav-item ${route === 'settings' ? 'active' : ''}`} onClick={() => setRoute('settings')}>
           <Icon name="settings" size={15} /><span>Settings</span>
         </div>
+        {['lead', 'super'].includes(role) && (
+          <div className={`nav-item ${route === 'admin' ? 'active' : ''}`} onClick={() => setRoute('admin')}>
+            <Icon name="shield" size={15} /><span>Admin</span>
+          </div>
+        )}
       </div>
 
       <div className="sidebar-foot">
@@ -193,7 +198,7 @@ export function Topbar({ route, role, theme, toggleTheme, openCmdK, notifOpen, s
   const crumbs = {
     home: ['Home'], report: ['Daily Report'], emails: ['Email Log'],
     analytics: ['Analytics'], team: ['Team'], review: ['Manage', 'Review Queue'],
-    leaderboard: ['Manage', 'Leaderboard'], settings: ['Settings'],
+    leaderboard: ['Manage', 'Leaderboard'], settings: ['Settings'], admin: ['Admin'],
     shortcuts: ['Shortcuts'], brief: ['Design Brief'],
     'lc-home': ['Live Chat', 'Home'], 'lc-team': ['Live Chat', 'Team'],
     'lc-clients': ['Live Chat', 'Clients'], 'lc-orders': ['Live Chat', 'Order Sheet'],
