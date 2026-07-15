@@ -3,6 +3,7 @@ import { Icon } from '../data.jsx'
 import { loadPriceTable } from '../lib/supabase.js'
 import { SheetParser } from './SheetParser.jsx'
 import { LiveChatClients } from './LiveChat.jsx'
+import { EmailChecker } from './EmailChecker.jsx'
 
 // ─── shared helpers ────────────────────────────────────────────────────────────
 
@@ -997,6 +998,7 @@ const TOOLS = [
   { id: 'combined-calc',  title: 'Currency & % Calculator', desc: 'Apply % discount/markup, convert currency, get post price with buyer/reseller lookup',                       icon: 'globe',    tag: 'Pricing'  },
   { id: 'price-calc',     title: 'Price Calculator',        desc: 'Convert admin price to buyer & reseller price instantly',                                                     icon: 'tool',     tag: 'Pricing'  },
   { id: 'livechat-clients', title: 'Live Chat Clients',     desc: 'Manage live chat team clients — order sheets, article costs, discounts, buyer/reseller types',               icon: 'users',    tag: 'LiveChat', roles: ['livechat', 'lead', 'super'] },
+  { id: 'email-checker',   title: 'Email Checker',          desc: 'Enter an email + paste a site list — checks contact, about, footer & privacy pages for that email across all sites', icon: 'mail',     tag: 'Outreach' },
 ]
 
 // ─── Tools Page ────────────────────────────────────────────────────────────────
@@ -1115,6 +1117,20 @@ export function ToolsPage({ me, role }) {
         </div>
       ) : activeTool === 'livechat-clients' ? (
         <LiveChatClients me={me} />
+      ) : activeTool === 'email-checker' ? (
+        <div className="card">
+          <div className="card-head">
+            <div>
+              <h3>Email Checker</h3>
+              <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 2 }}>
+                Checks contact, about, privacy &amp; home pages for a specific email — shows all other emails found too
+              </div>
+            </div>
+          </div>
+          <div className="card-pad">
+            <EmailChecker />
+          </div>
+        </div>
       ) : null}
     </div>
   )
