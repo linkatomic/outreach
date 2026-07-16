@@ -21,14 +21,49 @@ function cleanDomain(raw) {
     .toLowerCase()
 }
 
+// Cloudflare encodes emails as hex XOR'd with a key byte stored at position 0
+function decodeCFEmail(encoded) {
+  try {
+    const bytes = encoded.match(/.{2}/g)
+    if (!bytes || bytes.length < 2) return null
+    const key   = parseInt(bytes[0], 16)
+    const email = bytes.slice(1).map(b => String.fromCharCode(parseInt(b, 16) ^ key)).join('')
+    return email.includes('@') ? email : null
+  } catch { return null }
+}
+
 function extractEmails(html) {
-  const found  = html.match(EMAIL_RE) || []
-  const unique = [...new Set(found.map(e => e.toLowerCase()))]
+  const collected = []
+
+  // 1. Cloudflare email protection (data-cfemail="...") — most common on WP sites
+  const cfRe = /data-cfemail="([0-9a-f]+)"/gi
+  let m
+  while ((m = cfRe.exec(html)) !== null) {
+    const decoded = decodeCFEmail(m[1])
+    if (decoded) collected.push(decoded.toLowerCase())
+  }
+
+  // 2. Strip script/style/noscript blocks to avoid false positives from inline code
+  let text = html
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<noscript[^>]*>[\s\S]*?<\/noscript>/gi, ' ')
+
+  // 3. Decode numeric HTML entities (e.g. &#104; → h, &#x40; → @)
+  text = text
+    .replace(/&#(\d+);/g,       (_, c) => String.fromCharCode(+c))
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCharCode(parseInt(h, 16)))
+
+  // 4. Strip remaining HTML tags, then run regex
+  text = text.replace(/<[^>]+>/g, ' ')
+  const plain = text.match(EMAIL_RE) || []
+  for (const e of plain) collected.push(e.toLowerCase())
+
+  const unique = [...new Set(collected)]
   return unique.filter(e => {
     if (SKIP_EXTS.test(e)) return false
     const [, domain] = e.split('@')
-    if (!domain || !domain.includes('.')) return false
-    return true
+    return domain && domain.includes('.')
   })
 }
 
