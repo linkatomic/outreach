@@ -1,10 +1,8 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
 import { Icon } from '../data.jsx'
 import { buildEmailCheckerSheet } from '../lib/emailCheckerSheet.js'
-import {
-  loadHistory, saveRunToHistory, deleteHistoryRun, clearHistory,
-  saveDraft, loadDraft, makeRunId, fmtRelDate,
-} from '../lib/runHistory.js'
+import { saveDraft, loadDraft, makeRunId, fmtRelDate } from '../lib/runHistory.js'
+import { dbLoadRuns, dbSaveRun, dbDeleteRun, dbClearRuns, upsertLocal } from '../lib/toolRunsDB.js'
 
 const CONCURRENCY = 5
 const TOOL_KEY    = 'email-checker'
@@ -220,10 +218,13 @@ export function EmailChecker() {
   const [progress,     setProgress]     = useState(null)
   const [running,      setRunning]      = useState(false)
   const [sheetStatus,  setSheetStatus]  = useState(null)
-  const [history,      setHistory]      = useState(() => loadHistory(TOOL_KEY))
+  const [history,      setHistory]      = useState([])
   const [restored,     setRestored]     = useState(false)
   const abortRef  = useRef(false)
   const runIdRef  = useRef(null)
+
+  // Load history from Supabase on mount
+  useEffect(() => { dbLoadRuns(TOOL_KEY).then(setHistory) }, [])
 
   // Restore last session on mount
   useEffect(() => {
@@ -299,7 +300,8 @@ export function EmailChecker() {
       sheetUrl:    null,
       partial:     false,
     }
-    setHistory(saveRunToHistory(TOOL_KEY, entry))
+    dbSaveRun(TOOL_KEY, entry)
+    setHistory(prev => upsertLocal(prev, entry))
   }
 
   function stop() {
@@ -319,7 +321,8 @@ export function EmailChecker() {
         sheetUrl:    sheetStatus?.url || null,
         partial:     true,
       }
-      setHistory(saveRunToHistory(TOOL_KEY, entry))
+      dbSaveRun(TOOL_KEY, entry)
+      setHistory(prev => upsertLocal(prev, entry))
       return next
     })
   }
@@ -342,7 +345,8 @@ export function EmailChecker() {
         sheetUrl:    url,
         partial:     results.some(r => r.error === 'Stopped'),
       }
-      setHistory(saveRunToHistory(TOOL_KEY, entry))
+      dbSaveRun(TOOL_KEY, entry)
+      setHistory(prev => upsertLocal(prev, entry))
     } catch (err) {
       setSheetStatus({ error: err.message })
     }
@@ -359,7 +363,8 @@ export function EmailChecker() {
   }
 
   function handleDeleteHistory(id) {
-    setHistory(deleteHistoryRun(TOOL_KEY, id))
+    dbDeleteRun(id)
+    setHistory(prev => prev.filter(e => e.id !== id))
   }
 
   const doneResults = results.filter(r => r.status !== 'pending')
@@ -400,7 +405,7 @@ export function EmailChecker() {
             <>
               <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                 <button className="btn ghost" style={{ fontSize: 11, padding: '3px 10px', color: 'var(--text-faint)' }}
-                  onClick={() => setHistory(clearHistory(TOOL_KEY))}>
+                  onClick={() => { dbClearRuns(TOOL_KEY); setHistory([]) }}>
                   Clear all
                 </button>
               </div>

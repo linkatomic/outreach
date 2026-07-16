@@ -1,7 +1,8 @@
 import { useState, useRef, useMemo, useEffect } from 'react'
 import { Icon } from '../data.jsx'
 import { buildEmailHarvesterSheet } from '../lib/emailHarvesterSheet.js'
-import { loadHistory, saveRunToHistory, deleteHistoryRun, clearHistory, saveDraft, loadDraft, makeRunId, fmtRelDate } from '../lib/runHistory.js'
+import { saveDraft, loadDraft, makeRunId, fmtRelDate } from '../lib/runHistory.js'
+import { dbLoadRuns, dbSaveRun, dbDeleteRun, dbClearRuns, upsertLocal } from '../lib/toolRunsDB.js'
 
 const TOOL_KEY    = 'harvester'
 const CONCURRENCY = 5
@@ -133,7 +134,7 @@ function HistoryItem({ entry, onLoad, onDelete }) {
 
 export function EmailHarvester() {
   const [tab,         setTab]         = useState('run')
-  const [history,     setHistory]     = useState(() => loadHistory(TOOL_KEY))
+  const [history,     setHistory]     = useState([])
   const [websiteText, setWebsiteText] = useState('')
   const [results,     setResults]     = useState([])
   const [progress,    setProgress]    = useState(null)
@@ -142,6 +143,9 @@ export function EmailHarvester() {
   const [restored,    setRestored]    = useState(false)
   const abortRef  = useRef(false)
   const runIdRef  = useRef(null)
+
+  // Load history from Supabase on mount
+  useEffect(() => { dbLoadRuns(TOOL_KEY).then(setHistory) }, [])
 
   // Restore last session on mount
   useEffect(() => {
@@ -203,8 +207,9 @@ export function EmailHarvester() {
     setRunning(false)
     setProgress(null)
 
-    const entry = { id: runId, savedAt: new Date().toISOString(), websiteText: capturedText, results: final, sheetUrl: null }
-    setHistory(saveRunToHistory(TOOL_KEY, entry))
+    const entry = { id: runId, savedAt: new Date().toISOString(), websiteText: capturedText, results: final, sheetUrl: null, partial: false }
+    dbSaveRun(TOOL_KEY, entry)
+    setHistory(prev => upsertLocal(prev, entry))
   }
 
   function stop() {
@@ -216,8 +221,9 @@ export function EmailHarvester() {
       r.status === 'pending' ? { domain: r.domain, error: 'Stopped', pages: [], allEmails: [] } : r
     )
     setResults(stopped)
-    const entry = { id: runIdRef.current || makeRunId(), savedAt: new Date().toISOString(), websiteText, results: stopped, sheetUrl: null }
-    setHistory(saveRunToHistory(TOOL_KEY, entry))
+    const entry = { id: runIdRef.current || makeRunId(), savedAt: new Date().toISOString(), websiteText, results: stopped, sheetUrl: null, partial: true }
+    dbSaveRun(TOOL_KEY, entry)
+    setHistory(prev => upsertLocal(prev, entry))
   }
 
   async function generateSheet() {
@@ -228,8 +234,9 @@ export function EmailHarvester() {
         msg => setSheetStatus(s => typeof s === 'object' && s?.url ? s : `building:${msg}`)
       )
       setSheetStatus({ url })
-      const entry = { id: runIdRef.current, savedAt: new Date().toISOString(), websiteText, results, sheetUrl: url }
-      setHistory(saveRunToHistory(TOOL_KEY, entry))
+      const entry = { id: runIdRef.current, savedAt: new Date().toISOString(), websiteText, results, sheetUrl: url, partial: false }
+      dbSaveRun(TOOL_KEY, entry)
+      setHistory(prev => upsertLocal(prev, entry))
     } catch (err) {
       setSheetStatus({ error: err.message })
     }
@@ -281,9 +288,9 @@ export function EmailHarvester() {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-              <button className="btn ghost" onClick={() => setHistory(clearHistory(TOOL_KEY))} style={{ fontSize: 11, padding: '2px 8px', color: 'var(--text-faint)' }}>Clear all</button>
+              <button className="btn ghost" onClick={() => { dbClearRuns(TOOL_KEY); setHistory([]) }} style={{ fontSize: 11, padding: '2px 8px', color: 'var(--text-faint)' }}>Clear all</button>
             </div>
-            {history.map(e => <HistoryItem key={e.id} entry={e} onLoad={loadFromHistory} onDelete={id => setHistory(deleteHistoryRun(TOOL_KEY, id))} />)}
+            {history.map(e => <HistoryItem key={e.id} entry={e} onLoad={loadFromHistory} onDelete={id => { dbDeleteRun(id); setHistory(prev => prev.filter(h => h.id !== id)) }} />)}
           </div>
         )
       ) : (
