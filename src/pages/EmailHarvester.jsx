@@ -46,9 +46,10 @@ function EmailPill({ email, count }) {
   )
 }
 
-function SiteCard({ result, emailFreq }) {
-  const { domain, pages, allEmails, error } = result
+function SiteCard({ result, emailFreq, onRetry, isRetrying }) {
+  const { domain, pages, allEmails, error, retried } = result
   const hasEmails   = (allEmails?.length || 0) > 0
+  const isEmpty     = !error && !hasEmails
   const statusColor = error ? 'var(--text-faint)' : hasEmails ? 'var(--ok)' : 'var(--text-faint)'
   const statusLabel = error ? 'Error' : hasEmails ? `${allEmails.length} email${allEmails.length !== 1 ? 's' : ''} found` : 'No emails found'
   const statusIcon  = error ? 'alert' : hasEmails ? 'mail' : 'search'
@@ -57,9 +58,26 @@ function SiteCard({ result, emailFreq }) {
     <div style={{ border: `1px solid ${hasEmails ? 'rgba(92,255,161,.2)' : 'var(--border)'}`, borderRadius: 10, background: hasEmails ? 'rgba(92,255,161,.03)' : 'var(--surface)', overflow: 'hidden' }}>
       <div style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 10, borderBottom: '1px solid var(--border)' }}>
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 600, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{domain}</span>
-        <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 600, color: statusColor, flexShrink: 0 }}>
-          <Icon name={statusIcon} size={13} /> {statusLabel}
-        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+          {retried && (
+            <span style={{ fontSize: 10, fontWeight: 700, color: hasEmails ? 'var(--ok)' : 'var(--text-faint)', background: hasEmails ? 'rgba(92,255,161,.12)' : 'var(--surface-3)', border: `1px solid ${hasEmails ? 'rgba(92,255,161,.3)' : 'var(--border)'}`, borderRadius: 4, padding: '1px 6px', letterSpacing: '0.04em' }}>
+              retried
+            </span>
+          )}
+          {isEmpty && onRetry && (
+            <button
+              className="btn ghost"
+              onClick={onRetry}
+              disabled={isRetrying}
+              style={{ fontSize: 11, padding: '2px 9px', opacity: isRetrying ? 0.6 : 1 }}
+            >
+              {isRetrying ? '↺ Retrying…' : '↺ Retry'}
+            </button>
+          )}
+          <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 600, color: statusColor }}>
+            <Icon name={statusIcon} size={13} /> {statusLabel}
+          </span>
+        </div>
       </div>
       {error ? (
         <div style={{ padding: '10px 16px', fontSize: 12, color: 'var(--text-faint)' }}>Could not reach site: {error}</div>
@@ -139,8 +157,10 @@ export function EmailHarvester() {
   const [results,     setResults]     = useState([])
   const [progress,    setProgress]    = useState(null)
   const [running,     setRunning]     = useState(false)
-  const [sheetStatus, setSheetStatus] = useState(null)
-  const [restored,    setRestored]    = useState(false)
+  const [sheetStatus,  setSheetStatus]  = useState(null)
+  const [restored,     setRestored]     = useState(false)
+  const [retryingSet,  setRetryingSet]  = useState(new Set())
+  const [hasNewEmails, setHasNewEmails] = useState(false)
   const abortRef  = useRef(false)
   const runIdRef  = useRef(null)
 
@@ -185,6 +205,7 @@ export function EmailHarvester() {
     setRunning(true)
     setSheetStatus(null)
     setRestored(false)
+    setHasNewEmails(false)
     setProgress({ done: 0, total: domains.length })
 
     const initial = domains.map(d => ({ domain: d, status: 'pending' }))
@@ -224,6 +245,24 @@ export function EmailHarvester() {
     const entry = { id: runIdRef.current || makeRunId(), savedAt: new Date().toISOString(), websiteText, results: stopped, sheetUrl: null, partial: true }
     dbSaveRun(TOOL_KEY, entry)
     setHistory(prev => upsertLocal(prev, entry))
+  }
+
+  async function retry(domain, idx) {
+    setRetryingSet(prev => new Set([...prev, domain]))
+    try {
+      const data = await harvestDomain(domain)
+      const r    = { ...data, retried: true }
+      setResults(prev => {
+        const next = [...prev]
+        next[idx]  = r
+        return next
+      })
+      if ((data.allEmails?.length || 0) > 0) setHasNewEmails(true)
+    } catch {
+      // leave original result unchanged on network failure
+    } finally {
+      setRetryingSet(prev => { const s = new Set(prev); s.delete(domain); return s })
+    }
   }
 
   async function generateSheet() {
@@ -343,7 +382,12 @@ export function EmailHarvester() {
                   sheetStatus === 'building' || (typeof sheetStatus === 'string' && sheetStatus.startsWith('building:'))
                     ? <span style={{ color: 'var(--text-faint)', fontSize: 11 }}>{typeof sheetStatus === 'string' && sheetStatus.includes(':') ? sheetStatus.split(':')[1] : 'Building sheet…'}</span>
                     : sheetStatus?.url
-                    ? <a href={sheetStatus.url} target="_blank" rel="noreferrer" style={{ fontSize: 11, fontWeight: 700, color: 'var(--ok)', textDecoration: 'none', background: 'rgba(92,255,161,.1)', border: '1px solid rgba(92,255,161,.25)', borderRadius: 5, padding: '3px 10px' }}>↗ Open Sheet</a>
+                    ? <>
+                        <a href={sheetStatus.url} target="_blank" rel="noreferrer" style={{ fontSize: 11, fontWeight: 700, color: 'var(--ok)', textDecoration: 'none', background: 'rgba(92,255,161,.1)', border: '1px solid rgba(92,255,161,.25)', borderRadius: 5, padding: '3px 10px' }}>↗ Open Sheet</a>
+                        {hasNewEmails && (
+                          <button className="btn ghost" style={{ fontSize: 11, padding: '3px 10px' }} onClick={() => { setSheetStatus(null); generateSheet() }}>↺ Regenerate</button>
+                        )}
+                      </>
                     : sheetStatus?.error
                     ? <span style={{ color: 'var(--danger)', fontSize: 11 }} title={sheetStatus.error}>Sheet error</span>
                     : <button className="btn ghost" style={{ fontSize: 11, padding: '3px 10px' }} onClick={generateSheet}>↗ Generate Sheet</button>
@@ -363,7 +407,7 @@ export function EmailHarvester() {
                       <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--text-faint)' }}>{r.domain}</span>
                       <span style={{ fontSize: 12, color: 'var(--text-ghost)' }}>Harvesting…</span>
                     </div>
-                  : <SiteCard key={i} result={r} emailFreq={emailFreq} />
+                  : <SiteCard key={i} result={r} emailFreq={emailFreq} onRetry={() => retry(r.domain, i)} isRetrying={retryingSet.has(r.domain)} />
               ))}
             </div>
           )}
