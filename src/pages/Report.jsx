@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { METRICS, METRIC_GROUPS, NEEL_METRICS, NEEL_METRIC_GROUPS, metricsFor, metricGroupsFor,
+         coreTasksFor, missedCoreTasks,
          TEAM, Icon, todayISO, fmtFull, fmtDateShort } from '../data.jsx'
 import { saveReport, loadReport, loadMostRecentReport, getEmailCountToday, getEmailCountForDate } from '../lib/supabase.js'
 
@@ -17,6 +18,10 @@ function ReadOnlyView({ record, date, memberName, metricsDef = METRICS, canEdit 
   }
 
   const metrics = record.metrics || {};
+  const reasons = metrics._reasons || {};
+  const reasonEntries = metricsDef
+    .filter(m => reasons[m.key])
+    .map(m => ({ task: m, reason: reasons[m.key] }));
 
   return (
     <div>
@@ -35,20 +40,36 @@ function ReadOnlyView({ record, date, memberName, metricsDef = METRICS, canEdit 
               const isSkipped = v === 'skip';
               const isCheckbox = m.type === 'checkbox';
               const hasValue = typeof v === 'number' || typeof v === 'boolean';
+              const isCore = m.group === 'core';
+              const hardTarget = isCore && (m.target > 0 || m.mustComplete);
+              const targetMet = !hardTarget ? null
+                : isCheckbox ? v === true
+                : typeof v === 'number' && v >= m.target;
               return (
                 <div key={m.key} style={{
                   display: 'flex', alignItems: 'center', gap: 10,
                   padding: '10px 12px', background: 'var(--surface-2)', borderRadius: 8,
                   opacity: (!hasValue && !isSkipped) ? 0.35 : 1,
+                  border: isCore ? '1px solid ' + (targetMet === false ? 'color-mix(in srgb, var(--danger, #ef4444) 35%, transparent)' : targetMet === true ? 'color-mix(in srgb, var(--accent) 30%, transparent)' : 'var(--border)') : 'none',
                 }}>
                   <Icon name={m.icon} size={14} />
-                  <span style={{ flex: 1, fontSize: 13 }}>{m.label}</span>
+                  <span style={{ flex: 1, fontSize: 13 }}>
+                    {m.label}
+                    {isCore && (
+                      <span style={{ display: 'block', fontSize: 10, color: 'var(--text-faint)', marginTop: 1 }}>
+                        Target: {m.targetLabel || `${m.target} ${m.unit}`}
+                      </span>
+                    )}
+                  </span>
+                  {targetMet === true && <span className="chip accent" style={{ fontSize: 9 }}>hit</span>}
+                  {targetMet === false && <span className="chip warn" style={{ fontSize: 9 }}>missed</span>}
                   <span className="mono" style={{
                     fontSize: 14,
                     fontWeight: hasValue ? 600 : 400,
                     color: isSkipped ? 'var(--text-faint)' : (isCheckbox && v === false) ? 'var(--text-faint)' : 'var(--text)',
                   }}>
                     {isSkipped ? '—' : isCheckbox ? (v ? '✓' : '✗') : (hasValue ? v : '0')}
+                    {isCore && m.target > 0 && !isCheckbox && <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>/{m.target}</span>}
                   </span>
                 </div>
               );
@@ -56,6 +77,24 @@ function ReadOnlyView({ record, date, memberName, metricsDef = METRICS, canEdit 
           </div>
         </div>
       </div>
+      {reasonEntries.length > 0 && (
+        <div className="card" style={{ marginTop: 16, padding: 16, border: '1px solid color-mix(in srgb, var(--danger, #ef4444) 25%, transparent)' }}>
+          <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-faint)', marginBottom: 10 }}>
+            Missed target — reasons given
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {reasonEntries.map(({ task, reason }) => (
+              <div key={task.key}>
+                <div style={{ fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Icon name={task.icon} size={12} /> {task.label}
+                  <span style={{ fontWeight: 400, color: 'var(--text-faint)' }}>· target {task.targetLabel || task.target}</span>
+                </div>
+                <div style={{ fontSize: 13, lineHeight: 1.5, color: 'var(--text-dim)', marginTop: 3, paddingLeft: 18 }}>{reason}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       {record.note && (
         <div className="card" style={{ marginTop: 16, padding: 16 }}>
           <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-faint)', marginBottom: 8 }}>Notes</div>
@@ -194,14 +233,19 @@ export function DailyReportPage({ me, setRoute, showToast }) {
   const [loadingRecord, setLoadingRecord] = useState(false);
   const [liveEmailCount, setLiveEmailCount] = useState(null);
   const [autoSaveStatus, setAutoSaveStatus] = useState(''); // '' | 'saving' | 'saved'
+  const [reasons, setReasons] = useState({});          // { coreTaskKey: reason text }
+  const [showReasons, setShowReasons] = useState(false);
+  const [pendingFinal, setPendingFinal] = useState(null);
   const inputRef = useRef(null);
   const userEditedRef = useRef(false);
   const valuesRef = useRef({});
   const noteRef = useRef('');
+  const reasonsRef = useRef({});
 
   // Keep refs in sync for unmount-flush
   useEffect(() => { valuesRef.current = values; }, [values]);
   useEffect(() => { noteRef.current = note; }, [note]);
+  useEffect(() => { reasonsRef.current = reasons; }, [reasons]);
 
   const isLead = ['lead', 'hr', 'super'].includes(me.role);
   const allMembers = TEAM.filter(m => m.role === 'member');
@@ -211,9 +255,22 @@ export function DailyReportPage({ me, setRoute, showToast }) {
   const [leadEditing, setLeadEditing] = useState(false);
   const [leadEmailCount, setLeadEmailCount] = useState(null);
 
-  const myMetrics = metricsFor(me.id);
-  const myGroups  = metricGroupsFor(me.id);
-  const isNeel    = !!TEAM.find(m => m.id === me.id)?.neelOnly;
+  const myMetrics   = metricsFor(me.id);
+  const myGroups    = metricGroupsFor(me.id);
+  const isNeel      = !!TEAM.find(m => m.id === me.id)?.neelOnly;
+  const myCoreTasks = coreTasksFor(me.id);
+
+  // Merge validated reasons for currently-missed core tasks into the metrics payload
+  function buildMetricsPayload(vals, reasonMap) {
+    const missed = missedCoreTasks(me.id, vals);
+    const kept = {};
+    for (const t of missed) {
+      const r = (reasonMap[t.key] || '').trim();
+      if (r) kept[t.key] = r;
+    }
+    const { _reasons: _drop, ...clean } = vals;
+    return Object.keys(kept).length ? { ...clean, _reasons: kept } : clean;
+  }
 
   // email_response is auto-filled from email log — excluded from the manual step queue
   const queue   = myMetrics.filter(m => isNeel || m.key !== 'email_response');
@@ -227,7 +284,9 @@ export function DailyReportPage({ me, setRoute, showToast }) {
     loadReport(me.id, todayISO())
       .then(async (existing) => {
         if (existing) {
-          setValues(existing.metrics || {});
+          const { _reasons, ...vals } = existing.metrics || {};
+          setValues(vals);
+          setReasons(_reasons || {});
           setNote(existing.note || '');
           setAlreadySaved(true);
         }
@@ -266,7 +325,7 @@ export function DailyReportPage({ me, setRoute, showToast }) {
   useEffect(() => {
     if (!isToday || isLead || !userEditedRef.current || loadingToday) return;
     setAutoSaveStatus('saving');
-    const v = values; const n = note;
+    const v = buildMetricsPayload(values, reasonsRef.current); const n = note;
     const numericTotal = Object.values(v).filter(x => typeof x === 'number').reduce((s, x) => s + x, 0);
     const timer = setTimeout(async () => {
       try {
@@ -283,8 +342,8 @@ export function DailyReportPage({ me, setRoute, showToast }) {
   useEffect(() => {
     return () => {
       if (!userEditedRef.current) return;
-      const v = valuesRef.current; const n = noteRef.current;
-      if (Object.keys(v).length === 0) return;
+      if (Object.keys(valuesRef.current).length === 0) return;
+      const v = buildMetricsPayload(valuesRef.current, reasonsRef.current); const n = noteRef.current;
       const numericTotal = Object.values(v).filter(x => typeof x === 'number').reduce((s, x) => s + x, 0);
       saveReport({ memberId: me.id, date: todayISO(), metrics: v, note: n, total: numericTotal }).catch(() => {});
     };
@@ -295,8 +354,8 @@ export function DailyReportPage({ me, setRoute, showToast }) {
     try {
       const report = await loadMostRecentReport(me.id);
       if (!report) { showToast('No previous report found'); return; }
-      // Keep email_response locked — don't copy it from previous report
-      const { email_response: _, ...otherMetrics } = report.metrics || {};
+      // Keep email_response locked — don't copy it (or old reasons) from previous report
+      const { email_response: _, _reasons: __, ...otherMetrics } = report.metrics || {};
       setValues(prev => ({ ...prev, ...otherMetrics }));
       setNote(report.note || '');
       setStepIdx(0);
@@ -391,15 +450,39 @@ export function DailyReportPage({ me, setRoute, showToast }) {
     setDraft(typeof v === 'number' ? String(v) : '');
   }
 
+  const REASON_MIN = 10;
+
+  function reasonOk(taskKey) {
+    return (reasons[taskKey] || '').trim().length >= REASON_MIN;
+  }
+
   async function finalize(final) {
+    // Hard daily targets: every missed core task needs a written reason before submit
+    const missed = missedCoreTasks(me.id, final);
+    if (missed.some(t => !reasonOk(t.key))) {
+      setPendingFinal(final);
+      setShowReasons(true);
+      return;
+    }
+    await submitFinal(final);
+  }
+
+  async function submitFinal(final) {
     setSaving(true);
-    const numericTotal = Object.values(final).filter(v => typeof v === 'number').reduce((s, v) => s + v, 0);
+    const payload = buildMetricsPayload(final, reasons);
+    const numericTotal = Object.values(payload).filter(v => typeof v === 'number').reduce((s, v) => s + v, 0);
     try {
-      await saveReport({ memberId: me.id, date: todayISO(), metrics: final, note, total: numericTotal });
+      await saveReport({ memberId: me.id, date: todayISO(), metrics: payload, note, total: numericTotal });
+      setShowReasons(false);
       setDone(true);
       showToast(`Report saved · ${numericTotal} total`);
       // Send summary email to lead (fire-and-forget — never block the UI)
-      sendReportEmail({ me, metrics: final, note, total: numericTotal, metricsDef: metricsFor(me.id) }).catch(() => {})
+      sendReportEmail({
+        me, metrics: payload, note, total: numericTotal,
+        metricsDef: metricsFor(me.id),
+        missedTasks: missedCoreTasks(me.id, payload),
+        reasons: payload._reasons || {},
+      }).catch(() => {})
     } catch {
       showToast('Save failed — check your connection');
       setSaving(false);
@@ -596,6 +679,13 @@ export function DailyReportPage({ me, setRoute, showToast }) {
                       <Icon name={current.icon} size={20} />
                       <span style={{ marginLeft: 8 }}>{current.label}</span>
                     </div>
+                    {current.group === 'core' && (
+                      <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'center' }}>
+                        <span className="chip" style={{ fontSize: 10, background: 'color-mix(in srgb, var(--accent) 12%, transparent)', color: 'var(--accent)' }}>
+                          CORE · Daily target: {current.targetLabel || `${current.target} ${current.unit}`}
+                        </span>
+                      </div>
+                    )}
 
                     {current.type === 'checkbox' ? (
                       <>
@@ -682,6 +772,9 @@ export function DailyReportPage({ me, setRoute, showToast }) {
                             <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                               <Icon name={m.icon} size={12} />
                               {m.label}
+                              {m.group === 'core' && (
+                                <span style={{ fontSize: 8.5, fontWeight: 700, letterSpacing: '0.05em', color: 'var(--accent)', background: 'color-mix(in srgb, var(--accent) 12%, transparent)', padding: '1px 4px', borderRadius: 3 }}>CORE</span>
+                              )}
                             </span>
                             <span className="val">
                               {isAutoFilled ? (
@@ -689,7 +782,11 @@ export function DailyReportPage({ me, setRoute, showToast }) {
                                   <span style={{ fontSize: 9, opacity: 0.55, textTransform: 'uppercase', letterSpacing: '0.05em' }}>auto</span>
                                   <span style={{ color: 'var(--accent)' }}>{liveEmailCount ?? (typeof v === 'number' ? v : '—')}</span>
                                 </span>
-                              ) : isDone ? displayVal
+                              ) : isDone ? (
+                                m.group === 'core' && m.target > 0 && typeof v === 'number'
+                                  ? <span style={{ color: v >= m.target ? 'var(--accent)' : 'var(--warn, #fbbf24)' }}>{v}<span style={{ opacity: 0.5 }}>/{m.target}</span></span>
+                                  : displayVal
+                              )
                                 : isSkip ? '—'
                                 : isCurrent ? '…' : '·'}
                             </span>
@@ -710,10 +807,21 @@ export function DailyReportPage({ me, setRoute, showToast }) {
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
                       {myMetrics.map(m => {
                         const isAutoFilled = !isNeel && m.key === 'email_response';
+                        const isCore = m.group === 'core';
+                        const coreHit = isCore && (m.type === 'checkbox'
+                          ? values[m.key] === true
+                          : m.target > 0 && typeof values[m.key] === 'number' && values[m.key] >= m.target);
                         return (
-                          <div key={m.key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: 'var(--surface-2)', borderRadius: 8 }}>
+                          <div key={m.key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: 'var(--surface-2)', borderRadius: 8, border: isCore ? '1px solid ' + (coreHit ? 'color-mix(in srgb, var(--accent) 35%, transparent)' : 'color-mix(in srgb, var(--accent) 15%, transparent)') : 'none' }}>
                             <Icon name={m.icon} size={14} />
-                            <span style={{ flex: 1, fontSize: 13 }}>{m.label}</span>
+                            <span style={{ flex: 1, fontSize: 13 }}>
+                              {m.label}
+                              {isCore && (
+                                <span style={{ display: 'block', fontSize: 10, color: coreHit ? 'var(--accent)' : 'var(--text-faint)', marginTop: 1 }}>
+                                  {coreHit ? '✓ target hit · ' : ''}Target: {m.targetLabel || `${m.target} ${m.unit}`}
+                                </span>
+                              )}
+                            </span>
                             {isAutoFilled ? (
                               // Locked — auto-filled from email log
                               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -784,12 +892,81 @@ export function DailyReportPage({ me, setRoute, showToast }) {
               </div>
             </>
       )}
+
+      {/* ── Missed-target reasons (blocks submission until each has a proper reason) ── */}
+      {showReasons && (() => {
+        const finalVals  = pendingFinal || values;
+        const missedNow  = missedCoreTasks(me.id, finalVals);
+        const allOk      = missedNow.every(t => reasonOk(t.key));
+        if (missedNow.length === 0) { /* targets now met — nothing to explain */ }
+        return (
+          <div style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(0,0,0,0.55)', display: 'grid', placeItems: 'center', padding: 20 }}
+               onClick={e => { if (e.target === e.currentTarget) setShowReasons(false); }}>
+            <div className="card" style={{ width: '100%', maxWidth: 560, maxHeight: '85vh', overflowY: 'auto', padding: 24 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                <span style={{ width: 34, height: 34, borderRadius: 8, background: 'color-mix(in srgb, var(--danger, #ef4444) 15%, transparent)', display: 'grid', placeItems: 'center', color: 'var(--danger, #ef4444)' }}>
+                  <Icon name="alert" size={16} />
+                </span>
+                <div>
+                  <div style={{ fontSize: 16, fontWeight: 600 }}>Daily target{missedNow.length !== 1 ? 's' : ''} missed</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-faint)' }}>
+                    {missedNow.length === 0
+                      ? 'All targets now met — you can submit.'
+                      : 'A written reason is required for each missed target before you can submit.'}
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginTop: 16 }}>
+                {missedNow.map(t => {
+                  const v = finalVals[t.key];
+                  const actual = t.type === 'checkbox'
+                    ? (v === true ? 'Done' : 'Not done')
+                    : (typeof v === 'number' ? v : 0);
+                  const len = (reasons[t.key] || '').trim().length;
+                  const ok  = len >= REASON_MIN;
+                  return (
+                    <div key={t.key} style={{ background: 'var(--surface-2)', borderRadius: 10, padding: 14, border: '1px solid ' + (ok ? 'color-mix(in srgb, var(--accent) 25%, transparent)' : 'var(--border)') }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                        <Icon name={t.icon} size={13} />
+                        <span style={{ fontSize: 13, fontWeight: 600, flex: 1 }}>{t.label}</span>
+                        <span className="chip warn" style={{ fontSize: 10 }}>
+                          {actual} / {t.targetLabel || `${t.target} ${t.unit}`}
+                        </span>
+                      </div>
+                      <textarea
+                        className="input"
+                        style={{ width: '100%', height: 64, padding: 9, resize: 'none', fontSize: 13 }}
+                        placeholder="Why wasn't this target achieved today? Be specific — blockers, dependencies, time spent elsewhere…"
+                        maxLength={500}
+                        value={reasons[t.key] || ''}
+                        onChange={e => { userEditedRef.current = true; setReasons(prev => ({ ...prev, [t.key]: e.target.value })); }}
+                      />
+                      <div style={{ fontSize: 10, color: ok ? 'var(--ok, var(--accent))' : 'var(--text-faint)', marginTop: 4, textAlign: 'right' }}>
+                        {ok ? '✓ reason recorded' : `at least ${REASON_MIN} characters (${len}/${REASON_MIN})`}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div style={{ display: 'flex', gap: 8, marginTop: 18, justifyContent: 'flex-end' }}>
+                <button className="btn ghost" onClick={() => setShowReasons(false)}>Go back & update numbers</button>
+                <button className="btn primary" disabled={(!allOk && missedNow.length > 0) || saving}
+                        onClick={() => submitFinal(finalVals)}>
+                  {saving ? 'Saving…' : 'Submit with reasons'}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
 
 // ── Send report summary email (fire-and-forget) ──────────────
-async function sendReportEmail({ me, metrics, note, total, metricsDef }) {
+async function sendReportEmail({ me, metrics, note, total, metricsDef, missedTasks = [], reasons = {} }) {
   const LEAD_EMAIL = 'dev.p@amrytt.com'
   const dateLabel  = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
 
@@ -801,11 +978,26 @@ async function sendReportEmail({ me, metrics, note, total, metricsDef }) {
     .map(m => {
       const v = metrics[m.key]
       const display = typeof v === 'boolean' ? (v ? 'Done' : 'Not done') : `${v} ${m.unit || ''}`
-      return `<tr style="border-top:1px solid #f4f4f5;">
-        <td style="padding:8px 14px;font-size:13px;color:#52525b;">${m.label}</td>
-        <td style="padding:8px 14px;font-size:13px;font-weight:600;text-align:right;">${display.trim()}</td>
+      const isCore = m.group === 'core'
+      const missed = missedTasks.some(t => t.key === m.key)
+      return `<tr style="border-top:1px solid #f4f4f5;${missed ? 'background:#fef2f2;' : ''}">
+        <td style="padding:8px 14px;font-size:13px;color:#52525b;">${m.label}${isCore ? ' <span style="font-size:9px;font-weight:700;color:#65a30d;">CORE</span>' : ''}</td>
+        <td style="padding:8px 14px;font-size:13px;font-weight:600;text-align:right;${missed ? 'color:#dc2626;' : ''}">${display.trim()}${isCore && m.target > 0 ? ` <span style="color:#a1a1aa;font-weight:400;">/ ${m.target}</span>` : ''}</td>
       </tr>`
     }).join('')
+
+  const missedBlock = missedTasks.length ? `
+  <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:10px;padding:16px;margin-bottom:20px;">
+    <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:#dc2626;margin-bottom:10px;">⚠ ${missedTasks.length} daily target${missedTasks.length !== 1 ? 's' : ''} missed</div>
+    ${missedTasks.map(t => {
+      const v = metrics[t.key]
+      const actual = t.type === 'checkbox' ? (v === true ? 'Done' : 'Not done') : (typeof v === 'number' ? v : 0)
+      return `<div style="margin-bottom:10px;">
+        <div style="font-size:13px;font-weight:600;">${t.label} <span style="font-weight:400;color:#71717a;">— ${actual} of ${t.targetLabel || t.target}</span></div>
+        <div style="font-size:13px;color:#52525b;margin-top:2px;padding-left:10px;border-left:2px solid #fca5a5;">${reasons[t.key] || 'No reason given'}</div>
+      </div>`
+    }).join('')}
+  </div>` : ''
 
   const html = `<!DOCTYPE html>
 <html>
@@ -825,6 +1017,7 @@ async function sendReportEmail({ me, metrics, note, total, metricsDef }) {
     </thead>
     <tbody>${metricRows || '<tr><td colspan="2" style="padding:12px 14px;color:#a1a1aa;font-size:13px;">No numeric metrics logged.</td></tr>'}</tbody>
   </table>
+  ${missedBlock}
   ${note ? `<div style="background:#f9fafb;border-radius:8px;padding:14px;font-size:13px;color:#52525b;border-left:3px solid #a3e635;"><strong>Note:</strong> ${note}</div>` : ''}
   <p style="color:#a1a1aa;font-size:11px;margin-top:32px;border-top:1px solid #e4e4e7;padding-top:16px;">Sent by Relay · internal team tool</p>
 </body>
@@ -833,6 +1026,6 @@ async function sendReportEmail({ me, metrics, note, total, metricsDef }) {
   await fetch('/api/send-email', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ to: LEAD_EMAIL, subject: `${me.name} filed report — ${total} total · ${dateLabel}`, html }),
+    body: JSON.stringify({ to: LEAD_EMAIL, subject: `${me.name} filed report — ${total} total${missedTasks.length ? ` · ⚠ ${missedTasks.length} target${missedTasks.length !== 1 ? 's' : ''} missed` : ''} · ${dateLabel}`, html }),
   })
 }

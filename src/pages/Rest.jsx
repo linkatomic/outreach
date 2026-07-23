@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { TEAM, METRICS, ACCENT_PRESETS, Icon, todayISO, isoNDaysAgo, fmtDateShort, fmtFull,
-         metricsFor, pct } from '../data.jsx'
+         metricsFor, missedCoreTasks, pct } from '../data.jsx'
 import { supabase, loadAllReportsForDate, updateReportStatus,
          loadEmailLogsByDateRange, loadReportsByDateRange } from '../lib/supabase.js'
 import { Sparkline, LineChart } from './Home.jsx'
@@ -601,6 +601,12 @@ export function ReviewPage({ setRoute, showToast }) {
                         <span><span className="mono" style={{ color: 'var(--text)' }}>{numericTotal}</span> total</span>
                         <span><span className="mono" style={{ color: 'var(--text)' }}>{r.metrics?.email_response || 0}</span> emails</span>
                         <span><span className="mono" style={{ color: 'var(--text)' }}>{(r.metrics?.web_added || 0) + (r.metrics?.web_audited || 0)}</span> sites</span>
+                        {(() => {
+                          const missed = missedCoreTasks(m.id, r.metrics || {});
+                          return missed.length > 0
+                            ? <span style={{ color: 'var(--danger, #ef4444)', fontWeight: 600 }}>⚠ {missed.length} target{missed.length !== 1 ? 's' : ''} missed</span>
+                            : null;
+                        })()}
                         {r.note && <span style={{ color: 'var(--text-faint)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 120 }}>"{r.note}"</span>}
                       </div>
                     )}
@@ -646,12 +652,17 @@ export function ReviewPage({ setRoute, showToast }) {
                       const v = r.metrics?.[mt.key];
                       if (v === undefined || v === 'skip') return null;
                       const isNum = typeof v === 'number';
+                      const isCore = mt.group === 'core';
                       return (
                         <div key={mt.key} style={{ padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 10, borderBottom: '1px solid var(--border)' }}>
                           <Icon name={mt.icon} size={13} />
-                          <span style={{ flex: 1, fontSize: 13 }}>{mt.label}</span>
+                          <span style={{ flex: 1, fontSize: 13 }}>
+                            {mt.label}
+                            {isCore && <span style={{ marginLeft: 6, fontSize: 8.5, fontWeight: 700, letterSpacing: '0.05em', color: 'var(--accent)', background: 'color-mix(in srgb, var(--accent) 12%, transparent)', padding: '1px 4px', borderRadius: 3 }}>CORE</span>}
+                          </span>
                           <span className="mono" style={{ fontSize: 14 }}>
                             {mt.type === 'checkbox' ? (v ? '✓' : '✗') : v}
+                            {isCore && isNum && mt.target > 0 && <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>/{mt.target}</span>}
                           </span>
                           {isNum && mt.target > 0 && (
                             <span className={`chip ${v >= mt.target ? 'ok' : v >= mt.target * 0.6 ? 'warn' : 'danger'}`} style={{ minWidth: 50, justifyContent: 'center' }}>
@@ -661,6 +672,22 @@ export function ReviewPage({ setRoute, showToast }) {
                         </div>
                       );
                     })}
+                    {r.metrics?._reasons && Object.keys(r.metrics._reasons).length > 0 && (
+                      <div style={{ padding: '14px 16px', background: 'color-mix(in srgb, var(--danger, #ef4444) 6%, transparent)', margin: 12, borderRadius: 8, border: '1px solid color-mix(in srgb, var(--danger, #ef4444) 20%, transparent)' }}>
+                        <div className="faint" style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Missed target — reasons from {m.name.split(' ')[0]}</div>
+                        {Object.entries(r.metrics._reasons).map(([key, reason]) => {
+                          const task = memberMetrics.find(mt => mt.key === key);
+                          return (
+                            <div key={key} style={{ marginBottom: 8 }}>
+                              <div style={{ fontSize: 12, fontWeight: 600 }}>{task?.label || key}
+                                {task && <span style={{ fontWeight: 400, color: 'var(--text-faint)' }}> · target {task.targetLabel || task.target}</span>}
+                              </div>
+                              <div style={{ fontSize: 12.5, lineHeight: 1.5, color: 'var(--text-dim)', marginTop: 2 }}>{reason}</div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                     {r.total > 0 && (
                       <div style={{ padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 10, borderBottom: '1px solid var(--border)', background: 'color-mix(in srgb, var(--accent) 5%, transparent)' }}>
                         <span style={{ flex: 1, fontSize: 12, fontWeight: 600 }}>Total</span>

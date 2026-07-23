@@ -68,11 +68,52 @@ export const NEEL_METRIC_GROUPS = [
   { id: 'admin',    label: 'Admin' },
 ];
 
+// ─── Core tasks (Outbound Team Daily Task Tracker) ───────────
+// Per-member responsibilities keyed by primary owner. Each member MUST hit
+// their daily target — a missed target requires a written reason at submit.
+// mustComplete on a checkbox task means "not done" counts as a missed target.
+export const CORE_TASKS = {
+  preeti: [
+    { key: 'core_ai_health',       label: 'AI Tools Health Check',         unit: 'checks',  target: 500, targetLabel: '500 checks',    group: 'core', icon: 'shield', desc: 'Monitor AI/automation workflows and verify outputs are running correctly' },
+    { key: 'core_order_issues',    label: 'Order Issue Resolution',        unit: 'issues',  target: 0,   targetLabel: 'As raised',     group: 'core', icon: 'alert',  desc: 'Track, escalate and resolve pending order issues' },
+    { key: 'core_site_audit',      label: 'New Website Audit & Addition',  unit: 'sites',   target: 50,  targetLabel: '50 sites',      group: 'core', icon: 'search', desc: 'Audit newly sourced websites and add approved ones to the network' },
+    { key: 'core_data_updates',    label: 'Website Data Updates',          unit: 'updates', target: 0,   targetLabel: 'As required',   group: 'core', icon: 'edit',   desc: 'Keep existing website records/details up to date' },
+    { key: 'core_teams_comm',      label: 'Teams Communication',           unit: '',        target: 0,   targetLabel: 'Same-day',      group: 'core', icon: 'chat',   type: 'checkbox', mustComplete: true, desc: 'Respond to and coordinate messages on Microsoft Teams' },
+  ],
+  keyur: [
+    { key: 'core_client_outreach', label: 'Client Requirements Outreach',  unit: 'emails',  target: 25,  targetLabel: '25 responses (excl. RIs)', group: 'core', icon: 'mail', desc: 'Work on active client requirements via outreach and follow-ups' },
+  ],
+  arjun: [
+    { key: 'core_vendor_outreach',  label: 'Existing Vendor Site Outreach', unit: 'emails', target: 25,  targetLabel: '25 responses (excl. RIs)', group: 'core', icon: 'building', desc: "Reach out to existing vendors' sites for new opportunities" },
+    { key: 'core_reseller_replace', label: 'Reseller Replacement Outreach', unit: 'emails', target: 25,  targetLabel: '25 responses (excl. RIs)', group: 'core', icon: 'swap',     desc: 'Identify and contact direct sources to replace reseller links' },
+  ],
+  neha: [
+    { key: 'core_marketplace',     label: 'Marketplace Outreach',          unit: 'emails',  target: 25,  targetLabel: '25 responses (excl. RIs)', group: 'core', icon: 'globe', desc: 'Prospect and reach out on marketplaces for new inventory' },
+  ],
+};
+
+export function coreTasksFor(memberId) {
+  return CORE_TASKS[memberId] || [];
+}
+
+// A core task is "missed" when its hard target wasn't met
+export function missedCoreTasks(memberId, metricValues) {
+  return coreTasksFor(memberId).filter(t => {
+    const v = (metricValues || {})[t.key];
+    if (t.type === 'checkbox') return t.mustComplete ? v !== true : false;
+    if (t.target > 0) return typeof v !== 'number' || v < t.target;
+    return false;
+  });
+}
+
 export function metricsFor(memberId) {
-  return TEAM.find(m => m.id === memberId)?.neelOnly ? NEEL_METRICS : METRICS;
+  const base = TEAM.find(m => m.id === memberId)?.neelOnly ? NEEL_METRICS : METRICS;
+  const core = CORE_TASKS[memberId];
+  return core ? [...core, ...base] : base;
 }
 export function metricGroupsFor(memberId) {
-  return TEAM.find(m => m.id === memberId)?.neelOnly ? NEEL_METRIC_GROUPS : METRIC_GROUPS;
+  const base = TEAM.find(m => m.id === memberId)?.neelOnly ? NEEL_METRIC_GROUPS : METRIC_GROUPS;
+  return CORE_TASKS[memberId] ? [{ id: 'core', label: 'Core Tasks' }, ...base] : base;
 }
 
 export const ACCENT_PRESETS = [

@@ -293,7 +293,7 @@ export function MemberHome({ me, setRoute }) {
         <div className="card">
           <div className="card-head">
             <h3>Today, so far</h3>
-            <span className="faint mono" style={{ fontSize: 11 }}>{Object.keys(todayMetrics).length} metrics</span>
+            <span className="faint mono" style={{ fontSize: 11 }}>{Object.keys(todayMetrics).filter(k => !k.startsWith('_')).length} metrics</span>
           </div>
           <div style={{ padding: '4px 0' }}>
             {myMetrics.slice(0, 8).map(m => {
