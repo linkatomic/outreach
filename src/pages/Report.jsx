@@ -1,8 +1,11 @@
 import { useState, useEffect, useRef } from 'react'
 import { METRICS, METRIC_GROUPS, NEEL_METRICS, NEEL_METRIC_GROUPS, metricsFor, metricGroupsFor,
-         coreTasksFor, missedCoreTasks,
+         coreTasksFor, missedCoreTasks, reportHasCoreData, computeReportTotal,
          TEAM, Icon, todayISO, fmtFull, fmtDateShort } from '../data.jsx'
 import { saveReport, loadReport, loadMostRecentReport, getEmailCountToday, getEmailCountForDate } from '../lib/supabase.js'
+
+// Minimum characters for a valid missed-target reason
+const REASON_MIN = 10;
 
 function ReadOnlyView({ record, date, memberName, metricsDef = METRICS, canEdit = false }) {
   if (!record) {
@@ -19,6 +22,9 @@ function ReadOnlyView({ record, date, memberName, metricsDef = METRICS, canEdit 
 
   const metrics = record.metrics || {};
   const reasons = metrics._reasons || {};
+  // Records filed before the core-task feature have no core keys — don't
+  // retroactively stamp them with hit/missed chips
+  const hasCoreData = metricsDef.some(m => m.group === 'core' && m.key in metrics);
   const reasonEntries = metricsDef
     .filter(m => reasons[m.key])
     .map(m => ({ task: m, reason: reasons[m.key] }));
@@ -41,7 +47,7 @@ function ReadOnlyView({ record, date, memberName, metricsDef = METRICS, canEdit 
               const isCheckbox = m.type === 'checkbox';
               const hasValue = typeof v === 'number' || typeof v === 'boolean';
               const isCore = m.group === 'core';
-              const hardTarget = isCore && (m.target > 0 || m.mustComplete);
+              const hardTarget = isCore && hasCoreData && (m.target > 0 || m.mustComplete);
               const targetMet = !hardTarget ? null
                 : isCheckbox ? v === true
                 : typeof v === 'number' && v >= m.target;
@@ -122,13 +128,20 @@ function LeadEditForm({ member, date, record, emailCount, onSave, onCancel, show
     }
   }, [emailCount, memberIsNeel]);
 
-  const total = Object.values(vals).filter(v => typeof v === 'number').reduce((s, v) => s + v, 0);
+  const total = computeReportTotal(vals);
 
   async function handleSave() {
     setSaving(true);
+    // Drop reasons for tasks that are no longer missed after the lead's edits
+    const { _reasons, ...cleanVals } = vals;
+    const stillMissed = new Set(missedCoreTasks(member.id, cleanVals).map(t => t.key));
+    const keptReasons = Object.fromEntries(
+      Object.entries(_reasons || {}).filter(([k]) => stillMissed.has(k))
+    );
+    const payload = Object.keys(keptReasons).length ? { ...cleanVals, _reasons: keptReasons } : cleanVals;
     try {
-      await saveReport({ memberId: member.id, date, metrics: vals, note, total });
-      onSave({ ...record, metrics: vals, note, total });
+      await saveReport({ memberId: member.id, date, metrics: payload, note, total });
+      onSave({ ...record, metrics: payload, note, total });
     } catch (err) {
       showToast('Save failed: ' + (err?.message || 'unknown error'));
     } finally {
@@ -260,13 +273,15 @@ export function DailyReportPage({ me, setRoute, showToast }) {
   const isNeel      = !!TEAM.find(m => m.id === me.id)?.neelOnly;
   const myCoreTasks = coreTasksFor(me.id);
 
-  // Merge validated reasons for currently-missed core tasks into the metrics payload
+  // Merge validated reasons for currently-missed core tasks into the metrics payload.
+  // Only reasons meeting the minimum length are persisted — a half-typed reason
+  // must never surface as an official explanation in the review views.
   function buildMetricsPayload(vals, reasonMap) {
     const missed = missedCoreTasks(me.id, vals);
     const kept = {};
     for (const t of missed) {
       const r = (reasonMap[t.key] || '').trim();
-      if (r) kept[t.key] = r;
+      if (r.length >= REASON_MIN) kept[t.key] = r;
     }
     const { _reasons: _drop, ...clean } = vals;
     return Object.keys(kept).length ? { ...clean, _reasons: kept } : clean;
@@ -277,7 +292,7 @@ export function DailyReportPage({ me, setRoute, showToast }) {
   const current = queue[stepIdx];
   const completed = Object.keys(values).filter(k => values[k] !== 'skip' && values[k] !== undefined).length;
   const skipped   = Object.keys(values).filter(k => values[k] === 'skip').length;
-  const total     = Object.values(values).filter(v => typeof v === 'number').reduce((s, v) => s + v, 0);
+  const total     = computeReportTotal(values);
 
   // Pre-fill today's form (auto-populate email_response from live email log for non-Neel)
   useEffect(() => {
@@ -325,8 +340,8 @@ export function DailyReportPage({ me, setRoute, showToast }) {
   useEffect(() => {
     if (!isToday || isLead || !userEditedRef.current || loadingToday) return;
     setAutoSaveStatus('saving');
-    const v = buildMetricsPayload(values, reasonsRef.current); const n = note;
-    const numericTotal = Object.values(v).filter(x => typeof x === 'number').reduce((s, x) => s + x, 0);
+    const v = buildMetricsPayload(values, reasons); const n = note;
+    const numericTotal = computeReportTotal(v);
     const timer = setTimeout(async () => {
       try {
         await saveReport({ memberId: me.id, date: todayISO(), metrics: v, note: n, total: numericTotal });
@@ -336,7 +351,7 @@ export function DailyReportPage({ me, setRoute, showToast }) {
       } catch { setAutoSaveStatus(''); }
     }, 1000);
     return () => clearTimeout(timer);
-  }, [values, note]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [values, note, reasons]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Flush save on unmount
   useEffect(() => {
@@ -344,7 +359,7 @@ export function DailyReportPage({ me, setRoute, showToast }) {
       if (!userEditedRef.current) return;
       if (Object.keys(valuesRef.current).length === 0) return;
       const v = buildMetricsPayload(valuesRef.current, reasonsRef.current); const n = noteRef.current;
-      const numericTotal = Object.values(v).filter(x => typeof x === 'number').reduce((s, x) => s + x, 0);
+      const numericTotal = computeReportTotal(v);
       saveReport({ memberId: me.id, date: todayISO(), metrics: v, note: n, total: numericTotal }).catch(() => {});
     };
   }, [me.id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -403,7 +418,7 @@ export function DailyReportPage({ me, setRoute, showToast }) {
 
   // Keyboard shortcuts (today only, member only)
   useEffect(() => {
-    if (mode !== 'numpad' || !isToday || done) return;
+    if (mode !== 'numpad' || !isToday || done || showReasons) return;
     const onKey = (e) => {
       if ((e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') && e.target !== inputRef.current) return;
       if (current?.type === 'checkbox') {
@@ -450,8 +465,6 @@ export function DailyReportPage({ me, setRoute, showToast }) {
     setDraft(typeof v === 'number' ? String(v) : '');
   }
 
-  const REASON_MIN = 10;
-
   function reasonOk(taskKey) {
     return (reasons[taskKey] || '').trim().length >= REASON_MIN;
   }
@@ -469,8 +482,12 @@ export function DailyReportPage({ me, setRoute, showToast }) {
 
   async function submitFinal(final) {
     setSaving(true);
-    const payload = buildMetricsPayload(final, reasons);
-    const numericTotal = Object.values(payload).filter(v => typeof v === 'number').reduce((s, v) => s + v, 0);
+    // email_response is auto-filled and may have updated while the reasons modal was open
+    const merged = (!isNeel && typeof liveEmailCount === 'number')
+      ? { ...final, email_response: liveEmailCount }
+      : final;
+    const payload = buildMetricsPayload(merged, reasons);
+    const numericTotal = computeReportTotal(payload);
     try {
       await saveReport({ memberId: me.id, date: todayISO(), metrics: payload, note, total: numericTotal });
       setShowReasons(false);
@@ -966,6 +983,10 @@ export function DailyReportPage({ me, setRoute, showToast }) {
 }
 
 // ── Send report summary email (fire-and-forget) ──────────────
+function esc(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
 async function sendReportEmail({ me, metrics, note, total, metricsDef, missedTasks = [], reasons = {} }) {
   const LEAD_EMAIL = 'dev.p@amrytt.com'
   const dateLabel  = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
@@ -994,7 +1015,7 @@ async function sendReportEmail({ me, metrics, note, total, metricsDef, missedTas
       const actual = t.type === 'checkbox' ? (v === true ? 'Done' : 'Not done') : (typeof v === 'number' ? v : 0)
       return `<div style="margin-bottom:10px;">
         <div style="font-size:13px;font-weight:600;">${t.label} <span style="font-weight:400;color:#71717a;">— ${actual} of ${t.targetLabel || t.target}</span></div>
-        <div style="font-size:13px;color:#52525b;margin-top:2px;padding-left:10px;border-left:2px solid #fca5a5;">${reasons[t.key] || 'No reason given'}</div>
+        <div style="font-size:13px;color:#52525b;margin-top:2px;padding-left:10px;border-left:2px solid #fca5a5;">${reasons[t.key] ? esc(reasons[t.key]) : 'No reason given'}</div>
       </div>`
     }).join('')}
   </div>` : ''
@@ -1018,7 +1039,7 @@ async function sendReportEmail({ me, metrics, note, total, metricsDef, missedTas
     <tbody>${metricRows || '<tr><td colspan="2" style="padding:12px 14px;color:#a1a1aa;font-size:13px;">No numeric metrics logged.</td></tr>'}</tbody>
   </table>
   ${missedBlock}
-  ${note ? `<div style="background:#f9fafb;border-radius:8px;padding:14px;font-size:13px;color:#52525b;border-left:3px solid #a3e635;"><strong>Note:</strong> ${note}</div>` : ''}
+  ${note ? `<div style="background:#f9fafb;border-radius:8px;padding:14px;font-size:13px;color:#52525b;border-left:3px solid #a3e635;"><strong>Note:</strong> ${esc(note)}</div>` : ''}
   <p style="color:#a1a1aa;font-size:11px;margin-top:32px;border-top:1px solid #e4e4e7;padding-top:16px;">Sent by Relay · internal team tool</p>
 </body>
 </html>`

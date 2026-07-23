@@ -106,6 +106,21 @@ export function missedCoreTasks(memberId, metricValues) {
   });
 }
 
+// True when a report was filed with the core-task feature (any core key present).
+// Reports from before the feature have no core_* keys and must not be flagged.
+export function reportHasCoreData(memberId, metricValues) {
+  return coreTasksFor(memberId).some(t => t.key in (metricValues || {}));
+}
+
+// Report total = sum of numeric metric values, EXCLUDING core task counts.
+// Core targets differ wildly per member (500 checks vs 25 emails), so keeping
+// them out preserves cross-member and historical comparability of totals.
+export function computeReportTotal(metricValues) {
+  return Object.entries(metricValues || {})
+    .filter(([k, v]) => typeof v === 'number' && !k.startsWith('core_'))
+    .reduce((s, [, v]) => s + v, 0);
+}
+
 export function metricsFor(memberId) {
   const base = TEAM.find(m => m.id === memberId)?.neelOnly ? NEEL_METRICS : METRICS;
   const core = CORE_TASKS[memberId];

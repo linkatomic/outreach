@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { TEAM, METRICS, ACCENT_PRESETS, Icon, todayISO, isoNDaysAgo, fmtDateShort, fmtFull,
-         metricsFor, missedCoreTasks, pct } from '../data.jsx'
+         metricsFor, missedCoreTasks, reportHasCoreData, computeReportTotal, pct } from '../data.jsx'
 import { supabase, loadAllReportsForDate, updateReportStatus,
          loadEmailLogsByDateRange, loadReportsByDateRange } from '../lib/supabase.js'
 import { Sparkline, LineChart } from './Home.jsx'
@@ -577,7 +577,7 @@ export function ReviewPage({ setRoute, showToast }) {
               {tabItems.map(({ m, r }, i) => {
                 const isSelected = selectedId === m.id;
                 const status = r?.status || 'pending';
-                const numericTotal = r ? Object.values(r.metrics || {}).filter(v => typeof v === 'number').reduce((s, v) => s + v, 0) : 0;
+                const numericTotal = r ? computeReportTotal(r.metrics) : 0;
                 return (
                   <div key={m.id}
                        style={{ padding: '14px 16px', borderBottom: i < tabItems.length - 1 ? '1px solid var(--border)' : 'none', cursor: r ? 'pointer' : 'default', background: isSelected ? 'var(--surface-2)' : 'transparent', transition: 'background .1s' }}
@@ -602,6 +602,8 @@ export function ReviewPage({ setRoute, showToast }) {
                         <span><span className="mono" style={{ color: 'var(--text)' }}>{r.metrics?.email_response || 0}</span> emails</span>
                         <span><span className="mono" style={{ color: 'var(--text)' }}>{(r.metrics?.web_added || 0) + (r.metrics?.web_audited || 0)}</span> sites</span>
                         {(() => {
+                          // Only flag reports filed with the core-task feature — never retroactively
+                          if (!reportHasCoreData(m.id, r.metrics)) return null;
                           const missed = missedCoreTasks(m.id, r.metrics || {});
                           return missed.length > 0
                             ? <span style={{ color: 'var(--danger, #ef4444)', fontWeight: 600 }}>⚠ {missed.length} target{missed.length !== 1 ? 's' : ''} missed</span>
@@ -781,7 +783,7 @@ export function MemberDetailPanel({ memberId, onClose, setRoute }) {
                   <div key={r.date} style={{ padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 10, borderBottom: '1px solid var(--border)' }}>
                     <div className="mono faint" style={{ fontSize: 11, minWidth: 50 }}>{fmtDateShort(r.date)}</div>
                     <div style={{ flex: 1, fontSize: 12 }}>
-                      {Object.keys(r.metrics || {}).length} metrics · {r.total || 0} total
+                      {Object.keys(r.metrics || {}).filter(k => !k.startsWith('_')).length} metrics · {r.total || 0} total
                     </div>
                     <span className={`chip ${r.status === 'approved' ? 'ok' : r.status === 'flagged' ? 'warn' : 'info'}`}>
                       {r.status || 'pending'}
