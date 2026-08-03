@@ -6,7 +6,6 @@ export const TEAM = [
   { id: 'preeti', name: 'Preeti S',    short: 'PS', role: 'member', color: 'c', email: 'preeti.s@amrytt.com', joined: '2025-01-06' },
   { id: 'keyur',  name: 'Keyur D',     short: 'KD', role: 'member', color: 'd', email: 'keyur.d@amrytt.com',  joined: '2024-11-18' },
   { id: 'arjun',  name: 'Arjun M',     short: 'AM', role: 'member', color: 'e', email: 'arjun.m@amrytt.com',  joined: '2025-03-02' },
-  { id: 'neel',   name: 'Neel P',      short: 'NP', role: 'member', color: 'f', email: 'neel.p@amrytt.com',   joined: '2025-05-19', neelOnly: true },
   { id: 'yaksh',  name: 'Yaksh B',     short: 'YB', role: 'member', color: 'g', email: 'yaksh.b@amrytt.com',  joined: '2026-07-15' },
 ];
 
@@ -42,63 +41,75 @@ export const VENDORS = [
   'Sterling Cooper', 'Dunder Mifflin', 'Pendant Publishing', 'Bluth Co',
 ];
 
-// Members who participate in standard team metrics (excludes Neel's separate track)
 export function teamMembers() {
-  return TEAM.filter(m => m.role === 'member' && !m.neelOnly);
+  return TEAM.filter(m => m.role === 'member');
 }
 
-// ─── Neel's separate metric track ───────────────
-// His work is scraping/indexing, not tracked in team analytics
-export const NEEL_METRICS = [
-  { key: 'domains_scraped',  label: 'Domains scraped',             unit: 'domains',  target: 80,  group: 'scraping', icon: 'search' },
-  { key: 'google_index',     label: 'Google indexing check',       unit: 'domains',  target: 500, group: 'scraping', icon: 'globe' },
-  { key: 'matrix_check',     label: 'Matrix check',                unit: 'items',    target: 0,   group: 'scraping', icon: 'shield' },
-  { key: 'web_added_tool',   label: 'Websites added in tool',      unit: 'sites',    target: 0,   group: 'scraping', icon: 'plus' },
-  { key: 'ri_reminder',      label: 'RI + reminder emails',        unit: 'emails',   target: 0,   group: 'outreach', icon: 'mail' },
-  { key: 'email_close',      label: 'Self-assigned email close',   unit: 'emails',   target: 0,   group: 'outreach', icon: 'check' },
-  { key: 'email_write',      label: 'Emails written',              unit: 'emails',   target: 0,   group: 'outreach', icon: 'edit' },
-  { key: 'reseller_emails',  label: 'Reseller emails updated',     unit: '',         target: 0,   group: 'admin',    icon: 'building', type: 'checkbox' },
-  { key: 'shared_sheet',     label: 'Working on shared sheet',     unit: '',         target: 0,   group: 'admin',    icon: 'check',    type: 'checkbox' },
-  { key: 'auto_categories',  label: 'Auto categories check',       unit: '',         target: 0,   group: 'admin',    icon: 'tag',      type: 'checkbox' },
-];
-
-export const NEEL_METRIC_GROUPS = [
-  { id: 'scraping', label: 'Scraping' },
-  { id: 'outreach', label: 'Outreach' },
-  { id: 'admin',    label: 'Admin' },
-];
-
-// ─── Core tasks (Outbound Team Daily Task Tracker) ───────────
-// Per-member responsibilities keyed by primary owner. Each member MUST hit
-// their daily target — a missed target requires a written reason at submit.
+// ─── Core tasks (Team Task Ownership — Person Wise) ───────────
+// role: 'primary'   — owned task with a hard daily target; a miss requires
+//                     a written reason at submit time.
+//        'secondary' — coverage/backup duty; loggable with the target shown
+//                     as reference, but never blocks submission.
+//        'common'    — shared daily duty (all members); done/not-done
+//                     checkbox that DOES block when unchecked.
 // mustComplete on a checkbox task means "not done" counts as a missed target.
+export const CORE_ROLE_META = {
+  primary:   { label: 'PRIMARY',   color: 'var(--accent)',     bg: 'color-mix(in srgb, var(--accent) 12%, transparent)' },
+  secondary: { label: 'SECONDARY', color: '#60a5fa',           bg: 'rgba(96,165,250,.12)' },
+  common:    { label: 'COMMON',    color: 'var(--text-faint)', bg: 'var(--surface-3)' },
+};
+
+// Shared daily duties — appended to every tracked member
+const COMMON_TASKS = [
+  { key: 'core_indexing_check', label: 'Indexing Check — Every Domain', unit: '', target: 0, targetLabel: 'All assigned domains',   group: 'core_common', role: 'common', icon: 'shield', type: 'checkbox', mustComplete: true, desc: 'Run indexing checks across all assigned domains' },
+  { key: 'core_scraping',       label: 'Scraping',                      unit: '', target: 0, targetLabel: 'As per assigned list',   group: 'core_common', role: 'common', icon: 'search', type: 'checkbox', mustComplete: true, desc: 'Complete scraping for the assigned list' },
+  { key: 'core_followups',      label: 'Email Follow Ups',              unit: '', target: 0, targetLabel: 'All pending follow-ups', group: 'core_common', role: 'common', icon: 'mail',   type: 'checkbox', mustComplete: true, desc: 'Clear all pending email follow-ups' },
+];
+
 export const CORE_TASKS = {
   preeti: [
-    { key: 'core_ai_health',       label: 'AI Tools Health Check',         unit: 'checks',  target: 500, targetLabel: '500 checks',    group: 'core', icon: 'shield', desc: 'Monitor AI/automation workflows and verify outputs are running correctly' },
-    { key: 'core_order_issues',    label: 'Order Issue Resolution',        unit: 'issues',  target: 0,   targetLabel: 'As raised',     group: 'core', icon: 'alert',  desc: 'Track, escalate and resolve pending order issues' },
-    { key: 'core_site_audit',      label: 'New Website Audit & Addition',  unit: 'sites',   target: 50,  targetLabel: '50 sites',      group: 'core', icon: 'search', desc: 'Audit newly sourced websites and add approved ones to the network' },
-    { key: 'core_data_updates',    label: 'Website Data Updates',          unit: 'updates', target: 0,   targetLabel: 'As required',   group: 'core', icon: 'edit',   desc: 'Keep existing website records/details up to date' },
-    { key: 'core_teams_comm',      label: 'Teams Communication',           unit: '',        target: 0,   targetLabel: 'Same-day',      group: 'core', icon: 'chat',   type: 'checkbox', mustComplete: true, desc: 'Respond to and coordinate messages on Microsoft Teams' },
+    { key: 'core_ai_health',        label: 'AI Tools Health Check & Categories', unit: 'checks',  target: 500, targetLabel: '500 checks · all categories', group: 'core_primary',   role: 'primary',   icon: 'shield',   desc: 'Monitor AI/automation workflows and verify outputs are running correctly' },
+    { key: 'core_order_issues',     label: 'Order Issue Resolution',             unit: 'issues',  target: 0,   targetLabel: 'As raised',                   group: 'core_primary',   role: 'primary',   icon: 'alert',    desc: 'Track, escalate and resolve pending order issues' },
+    { key: 'core_site_audit',       label: 'New Website Audit & Addition',       unit: 'sites',   target: 50,  targetLabel: '50 sites',                    group: 'core_primary',   role: 'primary',   icon: 'search',   desc: 'Audit newly sourced websites and add approved ones to the network' },
+    { key: 'core_data_updates',     label: 'Website Data Updates',               unit: 'updates', target: 0,   targetLabel: 'As required',                 group: 'core_primary',   role: 'primary',   icon: 'edit',     desc: 'Keep website records (price, guidelines etc.) up to date' },
+    { key: 'core_teams_comm',       label: 'Teams Communication',                unit: '',        target: 0,   targetLabel: 'Same-day response',           group: 'core_primary',   role: 'primary',   icon: 'chat',     type: 'checkbox', mustComplete: true, desc: 'Respond to and coordinate messages on Microsoft Teams' },
+    { key: 'core_reseller_replace', label: 'Reseller Replacement Outreach',      unit: 'emails',  target: 25,  targetLabel: '25 responses',                group: 'core_secondary', role: 'secondary', icon: 'swap',     desc: 'Backup for Arjun — contact direct sources to replace reseller links' },
   ],
   keyur: [
-    { key: 'core_client_outreach', label: 'Client Requirements Outreach',  unit: 'emails',  target: 25,  targetLabel: '25 responses (excl. RIs)', group: 'core', icon: 'mail', desc: 'Work on active client requirements via outreach and follow-ups' },
+    { key: 'core_client_outreach',  label: 'Client Requirements Outreach',       unit: 'emails',  target: 25,  targetLabel: '25 responses',                group: 'core_primary',   role: 'primary',   icon: 'mail',     desc: 'Work on active client requirements via outreach and follow-ups' },
+    { key: 'core_inbox_alloc',      label: 'Team Inbox Email Allocation',        unit: '',        target: 0,   targetLabel: 'Inbox empty at all times',    group: 'core_primary',   role: 'primary',   icon: 'inbox',    type: 'checkbox', mustComplete: true, desc: 'Allocate team inbox emails — inbox should be empty all the time' },
+    { key: 'core_ai_health',        label: 'AI Tools Health Check & Categories', unit: 'checks',  target: 500, targetLabel: '500 checks · all categories', group: 'core_secondary', role: 'secondary', icon: 'shield',   desc: 'Backup for Preeti — monitor AI/automation workflows' },
+    { key: 'core_site_audit',       label: 'New Website Audit & Addition',       unit: 'sites',   target: 50,  targetLabel: '50 sites',                    group: 'core_secondary', role: 'secondary', icon: 'search',   desc: 'Backup for Preeti — audit and add new websites' },
+    { key: 'core_data_updates',     label: 'Website Data Updates',               unit: 'updates', target: 0,   targetLabel: 'As required',                 group: 'core_secondary', role: 'secondary', icon: 'edit',     desc: 'Backup for Preeti — keep website records up to date' },
+    { key: 'core_teams_comm',       label: 'Teams Communication',                unit: '',        target: 0,   targetLabel: 'Same-day response',           group: 'core_secondary', role: 'secondary', icon: 'chat',     type: 'checkbox', desc: 'Backup for Preeti — Microsoft Teams coordination' },
   ],
   arjun: [
-    { key: 'core_vendor_outreach',  label: 'Existing Vendor Site Outreach', unit: 'emails', target: 25,  targetLabel: '25 responses (excl. RIs)', group: 'core', icon: 'building', desc: "Reach out to existing vendors' sites for new opportunities" },
-    { key: 'core_reseller_replace', label: 'Reseller Replacement Outreach', unit: 'emails', target: 25,  targetLabel: '25 responses (excl. RIs)', group: 'core', icon: 'swap',     desc: 'Identify and contact direct sources to replace reseller links' },
+    { key: 'core_vendor_outreach',  label: 'Existing Vendor Site Outreach',      unit: 'vendors', target: 5,   targetLabel: '5 existing vendors',          group: 'core_primary',   role: 'primary',   icon: 'building', desc: "Reach out to existing vendors' sites for new opportunities" },
+    { key: 'core_reseller_replace', label: 'Reseller Replacement Outreach',      unit: 'emails',  target: 25,  targetLabel: '25 responses',                group: 'core_primary',   role: 'primary',   icon: 'swap',     desc: 'Identify and contact direct sources to replace reseller links' },
+    { key: 'core_db_addition',      label: 'Website Database Addition',          unit: 'sites',   target: 0,   targetLabel: 'As received',                 group: 'core_primary',   role: 'primary',   icon: 'plus',     desc: 'Add websites received via Email, WhatsApp & JasaBacklink' },
   ],
   neha: [
-    { key: 'core_marketplace',     label: 'Marketplace Outreach',          unit: 'emails',  target: 25,  targetLabel: '25 responses (excl. RIs)', group: 'core', icon: 'globe', desc: 'Prospect and reach out on marketplaces for new inventory' },
+    { key: 'core_marketplace',      label: 'Marketplace Outreach',               unit: 'emails',  target: 25,  targetLabel: '25 responses',                group: 'core_primary',   role: 'primary',   icon: 'globe',    desc: 'Prospect and reach out on marketplaces for new inventory' },
+    { key: 'core_teams_comm',       label: 'Teams Communication',                unit: '',        target: 0,   targetLabel: 'Same-day response',           group: 'core_secondary', role: 'secondary', icon: 'chat',     type: 'checkbox', desc: 'Backup for Preeti — Microsoft Teams coordination' },
+  ],
+  yaksh: [
+    { key: 'core_client_outreach',  label: 'Client Requirements Outreach',       unit: 'emails',  target: 25,  targetLabel: '25 responses',                group: 'core_secondary', role: 'secondary', icon: 'mail',     desc: 'Backup for Keyur — client requirements outreach' },
+    { key: 'core_vendor_outreach',  label: 'Existing Vendor Site Outreach',      unit: 'vendors', target: 5,   targetLabel: '25 responses · 5 vendors',    group: 'core_secondary', role: 'secondary', icon: 'building', desc: 'Backup for Arjun — existing vendor outreach' },
+    { key: 'core_marketplace',      label: 'Marketplace Outreach',               unit: 'emails',  target: 25,  targetLabel: '25 responses',                group: 'core_secondary', role: 'secondary', icon: 'globe',    desc: 'Backup for Neha — marketplace outreach' },
   ],
 };
 
 export function coreTasksFor(memberId) {
-  return CORE_TASKS[memberId] || [];
+  const own = CORE_TASKS[memberId];
+  if (!own) return [];
+  return [...own, ...COMMON_TASKS];
 }
 
-// A core task is "missed" when its hard target wasn't met
+// A core task is "missed" when its hard target wasn't met.
+// Secondary (coverage) tasks never count as missed.
 export function missedCoreTasks(memberId, metricValues) {
   return coreTasksFor(memberId).filter(t => {
+    if (t.role === 'secondary') return false;
     const v = (metricValues || {})[t.key];
     if (t.type === 'checkbox') return t.mustComplete ? v !== true : false;
     if (t.target > 0) return typeof v !== 'number' || v < t.target;
@@ -122,13 +133,18 @@ export function computeReportTotal(metricValues) {
 }
 
 export function metricsFor(memberId) {
-  const base = TEAM.find(m => m.id === memberId)?.neelOnly ? NEEL_METRICS : METRICS;
-  const core = CORE_TASKS[memberId];
-  return core ? [...core, ...base] : base;
+  const core = coreTasksFor(memberId);
+  return core.length ? [...core, ...METRICS] : METRICS;
 }
 export function metricGroupsFor(memberId) {
-  const base = TEAM.find(m => m.id === memberId)?.neelOnly ? NEEL_METRIC_GROUPS : METRIC_GROUPS;
-  return CORE_TASKS[memberId] ? [{ id: 'core', label: 'Core Tasks' }, ...base] : base;
+  const base = METRIC_GROUPS;
+  const core = coreTasksFor(memberId);
+  if (!core.length) return base;
+  const groups = [];
+  if (core.some(t => t.role === 'primary'))   groups.push({ id: 'core_primary',   label: 'Primary Tasks' });
+  if (core.some(t => t.role === 'secondary')) groups.push({ id: 'core_secondary', label: 'Secondary Tasks' });
+  if (core.some(t => t.role === 'common'))    groups.push({ id: 'core_common',    label: 'Common Tasks' });
+  return [...groups, ...base];
 }
 
 export const ACCENT_PRESETS = [

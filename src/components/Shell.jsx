@@ -282,7 +282,7 @@ function NotificationsPanel({ onClose, me, role }) {
   }, [])
 
   const isLead = ['lead', 'super'].includes(role)
-  const members = TEAM.filter(m => !m.neelOnly || m.id === 'neel')
+  const members = TEAM
 
   const submittedMap = new Map((reports || []).map(r => [r.member_id, r]))
 

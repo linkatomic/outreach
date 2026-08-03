@@ -23,7 +23,7 @@ const MEMBERS = [
   { id: 'preeti', name: 'Preeti S',  email: 'preeti.s@amrytt.com' },
   { id: 'keyur',  name: 'Keyur D',   email: 'keyur.d@amrytt.com' },
   { id: 'arjun',  name: 'Arjun M',   email: 'arjun.m@amrytt.com' },
-  { id: 'neel',   name: 'Neel P',    email: 'neel.p@amrytt.com' },
+  { id: 'yaksh',  name: 'Yaksh B',   email: 'yaksh.b@amrytt.com' },
 ]
 const LEAD_EMAIL = 'dev.p@amrytt.com'
 const APP_URL = process.env.APP_URL || 'https://relay.vercel.app'

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
-import { METRICS, METRIC_GROUPS, NEEL_METRICS, NEEL_METRIC_GROUPS, metricsFor, metricGroupsFor,
-         coreTasksFor, missedCoreTasks, reportHasCoreData, computeReportTotal,
+import { METRICS, METRIC_GROUPS, metricsFor, metricGroupsFor,
+         coreTasksFor, missedCoreTasks, reportHasCoreData, computeReportTotal, CORE_ROLE_META,
          TEAM, Icon, todayISO, fmtFull, fmtDateShort } from '../data.jsx'
 import { saveReport, loadReport, loadMostRecentReport, getEmailCountToday, getEmailCountForDate } from '../lib/supabase.js'
 
@@ -24,7 +24,7 @@ function ReadOnlyView({ record, date, memberName, metricsDef = METRICS, canEdit 
   const reasons = metrics._reasons || {};
   // Records filed before the core-task feature have no core keys — don't
   // retroactively stamp them with hit/missed chips
-  const hasCoreData = metricsDef.some(m => m.group === 'core' && m.key in metrics);
+  const hasCoreData = metricsDef.some(m => m.role && m.key in metrics);
   const reasonEntries = metricsDef
     .filter(m => reasons[m.key])
     .map(m => ({ task: m, reason: reasons[m.key] }));
@@ -46,8 +46,10 @@ function ReadOnlyView({ record, date, memberName, metricsDef = METRICS, canEdit 
               const isSkipped = v === 'skip';
               const isCheckbox = m.type === 'checkbox';
               const hasValue = typeof v === 'number' || typeof v === 'boolean';
-              const isCore = m.group === 'core';
-              const hardTarget = isCore && hasCoreData && (m.target > 0 || m.mustComplete);
+              const isCore = !!m.role;
+              const roleMeta = isCore ? CORE_ROLE_META[m.role] : null;
+              // Secondary (coverage) tasks are informational — no hit/missed judgment
+              const hardTarget = isCore && hasCoreData && m.role !== 'secondary' && (m.target > 0 || m.mustComplete);
               const targetMet = !hardTarget ? null
                 : isCheckbox ? v === true
                 : typeof v === 'number' && v >= m.target;
@@ -61,6 +63,7 @@ function ReadOnlyView({ record, date, memberName, metricsDef = METRICS, canEdit 
                   <Icon name={m.icon} size={14} />
                   <span style={{ flex: 1, fontSize: 13 }}>
                     {m.label}
+                    {roleMeta && <span style={{ marginLeft: 6, fontSize: 8, fontWeight: 700, letterSpacing: '0.05em', color: roleMeta.color, background: roleMeta.bg, padding: '1px 4px', borderRadius: 3, verticalAlign: 'middle' }}>{roleMeta.label}</span>}
                     {isCore && (
                       <span style={{ display: 'block', fontSize: 10, color: 'var(--text-faint)', marginTop: 1 }}>
                         Target: {m.targetLabel || `${m.target} ${m.unit}`}
@@ -116,17 +119,16 @@ function ReadOnlyView({ record, date, memberName, metricsDef = METRICS, canEdit 
 // email_response is always locked to the value from email_logs (same as member view).
 function LeadEditForm({ member, date, record, emailCount, onSave, onCancel, showToast }) {
   const metricsDef = metricsFor(member.id);
-  const memberIsNeel = !!member.neelOnly;
   const [vals, setVals]   = useState(() => record?.metrics || {});
   const [note, setNote]   = useState(record?.note || '');
   const [saving, setSaving] = useState(false);
 
   // Keep email_response locked to email log count
   useEffect(() => {
-    if (!memberIsNeel && emailCount != null) {
+    if (emailCount != null) {
       setVals(prev => ({ ...prev, email_response: emailCount }));
     }
-  }, [emailCount, memberIsNeel]);
+  }, [emailCount]);
 
   const total = computeReportTotal(vals);
 
@@ -162,7 +164,7 @@ function LeadEditForm({ member, date, record, emailCount, onSave, onCancel, show
         <div className="card-pad">
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
             {metricsDef.map(m => {
-              const isAutoFilled = !memberIsNeel && m.key === 'email_response';
+              const isAutoFilled = m.key === 'email_response';
               return (
                 <div key={m.key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: 'var(--surface-2)', borderRadius: 8 }}>
                   <Icon name={m.icon} size={14} />
@@ -270,7 +272,6 @@ export function DailyReportPage({ me, setRoute, showToast }) {
 
   const myMetrics   = metricsFor(me.id);
   const myGroups    = metricGroupsFor(me.id);
-  const isNeel      = !!TEAM.find(m => m.id === me.id)?.neelOnly;
   const myCoreTasks = coreTasksFor(me.id);
 
   // Merge validated reasons for currently-missed core tasks into the metrics payload.
@@ -288,13 +289,13 @@ export function DailyReportPage({ me, setRoute, showToast }) {
   }
 
   // email_response is auto-filled from email log — excluded from the manual step queue
-  const queue   = myMetrics.filter(m => isNeel || m.key !== 'email_response');
+  const queue   = myMetrics.filter(m => m.key !== 'email_response');
   const current = queue[stepIdx];
   const completed = Object.keys(values).filter(k => values[k] !== 'skip' && values[k] !== undefined).length;
   const skipped   = Object.keys(values).filter(k => values[k] === 'skip').length;
   const total     = computeReportTotal(values);
 
-  // Pre-fill today's form (auto-populate email_response from live email log for non-Neel)
+  // Pre-fill today's form (auto-populate email_response from live email log)
   useEffect(() => {
     loadReport(me.id, todayISO())
       .then(async (existing) => {
@@ -305,27 +306,25 @@ export function DailyReportPage({ me, setRoute, showToast }) {
           setNote(existing.note || '');
           setAlreadySaved(true);
         }
-        if (!isNeel) {
-          try {
-            const count = await getEmailCountToday(me.id);
-            setLiveEmailCount(count);
-          } catch { /* silent */ }
-        }
+        try {
+          const count = await getEmailCountToday(me.id);
+          setLiveEmailCount(count);
+        } catch { /* silent */ }
       })
       .catch(() => {})
       .finally(() => setLoadingToday(false));
-  }, [me.id, isNeel]);
+  }, [me.id]);
 
-  // Always keep email_response locked to liveEmailCount for non-Neel members
+  // Always keep email_response locked to liveEmailCount
   useEffect(() => {
-    if (!isNeel && liveEmailCount != null) {
+    if (liveEmailCount != null) {
       setValues(prev => ({ ...prev, email_response: liveEmailCount }));
     }
-  }, [liveEmailCount, isNeel]);
+  }, [liveEmailCount]);
 
   // Refresh live email count every 30s (standard members only)
   useEffect(() => {
-    if (isLead || isNeel) return;
+    if (isLead) return;
     const interval = setInterval(async () => {
       try {
         const count = await getEmailCountToday(me.id);
@@ -333,7 +332,7 @@ export function DailyReportPage({ me, setRoute, showToast }) {
       } catch { /* silent */ }
     }, 30000);
     return () => clearInterval(interval);
-  }, [me.id, isLead, isNeel]);
+  }, [me.id, isLead]);
 
   // ── Auto-save: fires 1s after any user-initiated edit ─────────
   const isToday = selectedDate === todayISO();
@@ -483,7 +482,7 @@ export function DailyReportPage({ me, setRoute, showToast }) {
   async function submitFinal(final) {
     setSaving(true);
     // email_response is auto-filled and may have updated while the reasons modal was open
-    const merged = (!isNeel && typeof liveEmailCount === 'number')
+    const merged = typeof liveEmailCount === 'number'
       ? { ...final, email_response: liveEmailCount }
       : final;
     const payload = buildMetricsPayload(merged, reasons);
@@ -552,7 +551,7 @@ export function DailyReportPage({ me, setRoute, showToast }) {
               style={{ fontFamily: 'var(--font-mono)', fontSize: 13, width: 180, cursor: 'pointer' }}
             >
               {allMembers.map(m => (
-                <option key={m.id} value={m.id}>{m.name}{m.neelOnly ? ' ★' : ''}</option>
+                <option key={m.id} value={m.id}>{m.name}</option>
               ))}
             </select>
             {datePicker}
@@ -563,12 +562,6 @@ export function DailyReportPage({ me, setRoute, showToast }) {
             )}
           </div>
         </div>
-
-        {selectedMember?.neelOnly && !leadEditing && (
-          <div style={{ marginBottom: 12, padding: '8px 14px', background: 'rgba(168,139,250,0.08)', border: '1px solid rgba(168,139,250,0.2)', borderRadius: 8, fontSize: 12, color: 'var(--text-faint)' }}>
-            ★ Neel uses a separate task track — scraping & indexing metrics, not included in team analytics
-          </div>
-        )}
 
         {loadingLeadRecord && (
           <div className="card" style={{ padding: 48, textAlign: 'center' }}><span className="muted">Loading…</span></div>
@@ -647,7 +640,6 @@ export function DailyReportPage({ me, setRoute, showToast }) {
           <h1>Daily Report</h1>
           <div className="sub">
             {isToday ? `${fmtFull(todayISO())} · ${me.name}` : fmtFull(selectedDate)}
-            {isNeel && <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--text-faint)', background: 'var(--surface-2)', padding: '2px 7px', borderRadius: 4 }}>★ Scraping track</span>}
           </div>
         </div>
         <div className="actions">
@@ -696,10 +688,10 @@ export function DailyReportPage({ me, setRoute, showToast }) {
                       <Icon name={current.icon} size={20} />
                       <span style={{ marginLeft: 8 }}>{current.label}</span>
                     </div>
-                    {current.group === 'core' && (
+                    {current.role && (
                       <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'center' }}>
-                        <span className="chip" style={{ fontSize: 10, background: 'color-mix(in srgb, var(--accent) 12%, transparent)', color: 'var(--accent)' }}>
-                          CORE · Daily target: {current.targetLabel || `${current.target} ${current.unit}`}
+                        <span className="chip" style={{ fontSize: 10, background: CORE_ROLE_META[current.role].bg, color: CORE_ROLE_META[current.role].color }}>
+                          {CORE_ROLE_META[current.role].label} · {current.role === 'secondary' ? 'Reference target' : 'Daily target'}: {current.targetLabel || `${current.target} ${current.unit}`}
                         </span>
                       </div>
                     )}
@@ -770,7 +762,7 @@ export function DailyReportPage({ me, setRoute, showToast }) {
                     </div>
                     <div className="numpad-queue-list">
                       {myMetrics.map((m) => {
-                        const isAutoFilled = !isNeel && m.key === 'email_response';
+                        const isAutoFilled = m.key === 'email_response';
                         const v = values[m.key];
                         const queueIdx = queue.findIndex(q => q.key === m.key);
                         const isCurrent = !isAutoFilled && queue[stepIdx]?.key === m.key;
@@ -789,8 +781,8 @@ export function DailyReportPage({ me, setRoute, showToast }) {
                             <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                               <Icon name={m.icon} size={12} />
                               {m.label}
-                              {m.group === 'core' && (
-                                <span style={{ fontSize: 8.5, fontWeight: 700, letterSpacing: '0.05em', color: 'var(--accent)', background: 'color-mix(in srgb, var(--accent) 12%, transparent)', padding: '1px 4px', borderRadius: 3 }}>CORE</span>
+                              {m.role && (
+                                <span style={{ fontSize: 8.5, fontWeight: 700, letterSpacing: '0.05em', color: CORE_ROLE_META[m.role].color, background: CORE_ROLE_META[m.role].bg, padding: '1px 4px', borderRadius: 3 }}>{CORE_ROLE_META[m.role].label}</span>
                               )}
                             </span>
                             <span className="val">
@@ -800,7 +792,7 @@ export function DailyReportPage({ me, setRoute, showToast }) {
                                   <span style={{ color: 'var(--accent)' }}>{liveEmailCount ?? (typeof v === 'number' ? v : '—')}</span>
                                 </span>
                               ) : isDone ? (
-                                m.group === 'core' && m.target > 0 && typeof v === 'number'
+                                m.role && m.role !== 'secondary' && m.target > 0 && typeof v === 'number'
                                   ? <span style={{ color: v >= m.target ? 'var(--accent)' : 'var(--warn, #fbbf24)' }}>{v}<span style={{ opacity: 0.5 }}>/{m.target}</span></span>
                                   : displayVal
                               )
@@ -823,19 +815,22 @@ export function DailyReportPage({ me, setRoute, showToast }) {
                   <div className="card-pad">
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
                       {myMetrics.map(m => {
-                        const isAutoFilled = !isNeel && m.key === 'email_response';
-                        const isCore = m.group === 'core';
-                        const coreHit = isCore && (m.type === 'checkbox'
+                        const isAutoFilled = m.key === 'email_response';
+                        const isCore = !!m.role;
+                        const roleMeta = isCore ? CORE_ROLE_META[m.role] : null;
+                        const isHardTarget = isCore && m.role !== 'secondary';
+                        const coreHit = isHardTarget && (m.type === 'checkbox'
                           ? values[m.key] === true
                           : m.target > 0 && typeof values[m.key] === 'number' && values[m.key] >= m.target);
                         return (
-                          <div key={m.key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: 'var(--surface-2)', borderRadius: 8, border: isCore ? '1px solid ' + (coreHit ? 'color-mix(in srgb, var(--accent) 35%, transparent)' : 'color-mix(in srgb, var(--accent) 15%, transparent)') : 'none' }}>
+                          <div key={m.key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: 'var(--surface-2)', borderRadius: 8, border: isCore ? '1px solid ' + (coreHit ? 'color-mix(in srgb, var(--accent) 35%, transparent)' : isHardTarget ? 'color-mix(in srgb, var(--accent) 15%, transparent)' : 'var(--border)') : 'none' }}>
                             <Icon name={m.icon} size={14} />
                             <span style={{ flex: 1, fontSize: 13 }}>
                               {m.label}
+                              {roleMeta && <span style={{ marginLeft: 6, fontSize: 8, fontWeight: 700, letterSpacing: '0.05em', color: roleMeta.color, background: roleMeta.bg, padding: '1px 4px', borderRadius: 3, verticalAlign: 'middle' }}>{roleMeta.label}</span>}
                               {isCore && (
                                 <span style={{ display: 'block', fontSize: 10, color: coreHit ? 'var(--accent)' : 'var(--text-faint)', marginTop: 1 }}>
-                                  {coreHit ? '✓ target hit · ' : ''}Target: {m.targetLabel || `${m.target} ${m.unit}`}
+                                  {coreHit ? '✓ target hit · ' : ''}{m.role === 'secondary' ? 'Reference' : 'Target'}: {m.targetLabel || `${m.target} ${m.unit}`}
                                 </span>
                               )}
                             </span>
@@ -999,11 +994,12 @@ async function sendReportEmail({ me, metrics, note, total, metricsDef, missedTas
     .map(m => {
       const v = metrics[m.key]
       const display = typeof v === 'boolean' ? (v ? 'Done' : 'Not done') : `${v} ${m.unit || ''}`
-      const isCore = m.group === 'core'
+      const isCore = !!m.role
+      const roleTag = m.role === 'primary' ? 'PRIMARY' : m.role === 'secondary' ? 'SECONDARY' : m.role === 'common' ? 'COMMON' : ''
       const missed = missedTasks.some(t => t.key === m.key)
       return `<tr style="border-top:1px solid #f4f4f5;${missed ? 'background:#fef2f2;' : ''}">
-        <td style="padding:8px 14px;font-size:13px;color:#52525b;">${m.label}${isCore ? ' <span style="font-size:9px;font-weight:700;color:#65a30d;">CORE</span>' : ''}</td>
-        <td style="padding:8px 14px;font-size:13px;font-weight:600;text-align:right;${missed ? 'color:#dc2626;' : ''}">${display.trim()}${isCore && m.target > 0 ? ` <span style="color:#a1a1aa;font-weight:400;">/ ${m.target}</span>` : ''}</td>
+        <td style="padding:8px 14px;font-size:13px;color:#52525b;">${esc(m.label)}${isCore ? ` <span style="font-size:9px;font-weight:700;color:#65a30d;">${roleTag}</span>` : ''}</td>
+        <td style="padding:8px 14px;font-size:13px;font-weight:600;text-align:right;${missed ? 'color:#dc2626;' : ''}">${esc(display.trim())}${isCore && m.role !== 'secondary' && m.target > 0 ? ` <span style="color:#a1a1aa;font-weight:400;">/ ${m.target}</span>` : ''}</td>
       </tr>`
     }).join('')
 

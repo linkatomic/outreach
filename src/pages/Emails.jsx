@@ -377,7 +377,7 @@ export function EmailLogPage({ me, setRoute, showToast, focusEmailOnMount, bulkP
 
   const myTarget = 40
   const shownEmailCount = rows.reduce((sum, r) => sum + 1 + (r.replies || 0), 0)
-  const members  = TEAM.filter(m => m.role === 'member' && !m.neelOnly)
+  const members  = TEAM.filter(m => m.role === 'member')
   const showTime = ['lead', 'hr', 'super'].includes(me.role)
   // Last col is 52px to fit both edit + delete icon buttons
   const colTemplate = showTime

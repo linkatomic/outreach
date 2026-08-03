@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { TEAM, METRICS, ACCENT_PRESETS, Icon, todayISO, isoNDaysAgo, fmtDateShort, fmtFull,
-         metricsFor, missedCoreTasks, reportHasCoreData, computeReportTotal, pct } from '../data.jsx'
+         metricsFor, missedCoreTasks, reportHasCoreData, computeReportTotal, CORE_ROLE_META, pct } from '../data.jsx'
 import { supabase, loadAllReportsForDate, updateReportStatus,
          loadEmailLogsByDateRange, loadReportsByDateRange } from '../lib/supabase.js'
 import { Sparkline, LineChart } from './Home.jsx'
@@ -14,7 +14,7 @@ export function AnalyticsPage({ setRoute }) {
   const [reports, setReports]       = useState([]);
   const [loading, setLoading]       = useState(true);
 
-  const members     = TEAM.filter(m => m.role === 'member' && !m.neelOnly);
+  const members     = TEAM.filter(m => m.role === 'member');
   const isSingleDay = range === 'today' || range === 'date';
   const days        = isSingleDay ? 1 : range === '7d' ? 7 : range === '14d' ? 14 : range === '30d' ? 30 : 90;
   // chartStart: first day shown in chart (days-1 ago → days points ending today)
@@ -341,7 +341,7 @@ export function LeaderboardPage({ setRoute, openDetailFor }) {
   const [reports, setReports]     = useState([]);
   const [loading, setLoading]     = useState(true);
 
-  const members = TEAM.filter(m => m.role === 'member' && !m.neelOnly);
+  const members = TEAM.filter(m => m.role === 'member');
   const isCurrentMonth = viewYear === now.getFullYear() && viewMonth === now.getMonth() + 1;
 
   function prevMonth() {
@@ -654,20 +654,22 @@ export function ReviewPage({ setRoute, showToast }) {
                       const v = r.metrics?.[mt.key];
                       if (v === undefined || v === 'skip') return null;
                       const isNum = typeof v === 'number';
-                      const isCore = mt.group === 'core';
+                      const isCore = !!mt.role;
+                      const roleMeta = isCore ? CORE_ROLE_META[mt.role] : null;
+                      const isHardTarget = isCore && mt.role !== 'secondary';
                       return (
                         <div key={mt.key} style={{ padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 10, borderBottom: '1px solid var(--border)' }}>
                           <Icon name={mt.icon} size={13} />
                           <span style={{ flex: 1, fontSize: 13 }}>
                             {mt.label}
-                            {isCore && <span style={{ marginLeft: 6, fontSize: 8.5, fontWeight: 700, letterSpacing: '0.05em', color: 'var(--accent)', background: 'color-mix(in srgb, var(--accent) 12%, transparent)', padding: '1px 4px', borderRadius: 3 }}>CORE</span>}
+                            {roleMeta && <span style={{ marginLeft: 6, fontSize: 8.5, fontWeight: 700, letterSpacing: '0.05em', color: roleMeta.color, background: roleMeta.bg, padding: '1px 4px', borderRadius: 3 }}>{roleMeta.label}</span>}
                           </span>
                           <span className="mono" style={{ fontSize: 14 }}>
                             {mt.type === 'checkbox' ? (v ? '✓' : '✗') : v}
                             {isCore && isNum && mt.target > 0 && <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>/{mt.target}</span>}
                           </span>
                           {isNum && mt.target > 0 && (
-                            <span className={`chip ${v >= mt.target ? 'ok' : v >= mt.target * 0.6 ? 'warn' : 'danger'}`} style={{ minWidth: 50, justifyContent: 'center' }}>
+                            <span className={`chip ${!isHardTarget ? 'info' : v >= mt.target ? 'ok' : v >= mt.target * 0.6 ? 'warn' : 'danger'}`} style={{ minWidth: 50, justifyContent: 'center' }}>
                               {Math.round((v / mt.target) * 100)}%
                             </span>
                           )}

@@ -42,7 +42,7 @@ function summaryHtml() {
     { name: 'Preeti S', total: 43, done: true  },
     { name: 'Keyur D',  total: 0,  done: false },
     { name: 'Arjun M',  total: 51, done: true  },
-    { name: 'Neel P',   total: 0,  done: false },
+    { name: 'Yaksh B',  total: 0,  done: false },
   ]
   const rows = members.map(m => `
     <tr style="border-top:1px solid #f4f4f5;">

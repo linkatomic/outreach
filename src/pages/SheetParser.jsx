@@ -416,7 +416,7 @@ export function SheetParser({ priceMap, me }) {
 
   // ── Render ─────────────────────────────────────────────
 
-  const members = TEAM.filter(m => !m.neelOnly)
+  const members = TEAM
 
   if (activeTab === 'history') return (
     <div style={{ maxWidth: 900 }}>
