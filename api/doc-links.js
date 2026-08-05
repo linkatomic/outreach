@@ -48,8 +48,10 @@ function isUsableUrl(url) {
   try {
     const u = new URL(url)
     if (u.protocol !== 'http:' && u.protocol !== 'https:' && u.protocol !== 'mailto:') return false
-    // Internal doc navigation (headings, table of contents) — not a real backlink
-    if (u.hostname === 'docs.google.com') return false
+    // Internal doc navigation (headings, table of contents), and Google's own "smart chip"
+    // references (people/file/calendar mentions) — never real backlinks, but do render as
+    // genuine <a href> tags in the export and would otherwise pollute the results.
+    if (u.hostname === 'google.com' || u.hostname.endsWith('.google.com')) return false
     return true
   } catch {
     return false
@@ -60,12 +62,27 @@ function extractLinks(html) {
   const links = []
   const anchorRe = /<a\s+[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi
   let m
+  let prevEnd = null
   while ((m = anchorRe.exec(html)) !== null) {
     const text = stripTags(m[2])
-    if (!text) continue
-    const url = unwrapRedirect(m[1])
-    if (!isUsableUrl(url)) continue
-    links.push({ text, url })
+    const url  = unwrapRedirect(m[1])
+    const end  = anchorRe.lastIndex
+
+    if (!text || !isUsableUrl(url)) { prevEnd = end; continue }
+
+    // Google Docs sometimes splits ONE visual hyperlink into several consecutive <a> tags —
+    // one per formatting run (bold/italic/color changes within the same link). If two anchors
+    // share the same URL and there's nothing but the tags themselves between them, they're
+    // fragments of a single link — merge the text instead of emitting duplicate pairs, which
+    // would otherwise shift every later column in that doc's row.
+    const gap  = prevEnd !== null ? stripTags(html.slice(prevEnd, m.index)) : null
+    const last = links[links.length - 1]
+    if (last && last.url === url && gap === '') {
+      last.text += text
+    } else {
+      links.push({ text, url })
+    }
+    prevEnd = end
   }
   return links
 }
