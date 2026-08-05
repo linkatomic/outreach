@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react'
 import { Icon } from '../data.jsx'
-import { extractSheetId, getSheetRows, batchWriteRangeValues } from '../lib/sheetParserAPI.js'
+import { extractSheetId, getSheetTabs, getSheetRows, batchWriteRangeValues } from '../lib/sheetParserAPI.js'
 
 const BATCH_SIZE        = 20  // docs per /api/doc-links request
 const BATCH_CONCURRENCY = 3   // concurrent batch requests in flight
@@ -33,6 +33,7 @@ export function AnchorSync() {
   const [scanning,  setScanning]  = useState(false)
   const [pending,   setPending]   = useState(null) // [{ sheetRow, docLink }]
   const [scanError, setScanError] = useState('')
+  const [resolvedTabName, setResolvedTabName] = useState('') // exact tab name as Google reports it
 
   const [running,  setRunning]  = useState(false)
   const [progress, setProgress] = useState(null)
@@ -48,7 +49,22 @@ export function AnchorSync() {
     try {
       const id = extractSheetId(sheetUrl)
       if (!id) throw new Error('Could not find a spreadsheet ID in that URL')
-      const rows = await getSheetRows(id, tabName)
+
+      // Google's range parser reports a generic "Unable to parse range" error when the tab
+      // name in the range doesn't match any real tab — not a clear "not found" message. Look
+      // up the real tabs first so a typo/case/whitespace mismatch gets a helpful error instead,
+      // and so a harmless difference (e.g. trailing space) still works via the exact real name.
+      const tabs  = await getSheetTabs(id)
+      const match = tabs.find(t => t.name.trim().toLowerCase() === tabName.trim().toLowerCase())
+      if (!match) {
+        throw new Error(
+          `Tab "${tabName}" not found in this spreadsheet. Available tabs: ${tabs.map(t => t.name).join(', ')}`
+        )
+      }
+      const realTabName = match.name
+      setResolvedTabName(realTabName)
+
+      const rows = await getSheetRows(id, realTabName)
       const fIdx = colLetterToIndex(sourceCol)
       const nIdx = colLetterToIndex(outputCol)
       if (fIdx < 0 || nIdx < 0) throw new Error('Enter valid column letters (e.g. F, N)')
@@ -107,16 +123,16 @@ export function AnchorSync() {
         const { sheetRow, docLink } = batch[i]
         const r = results[i]
         if (!r || r.error) {
-          writeData.push({ range: `'${tabName}'!${outputCol}${sheetRow}`, values: [['FAILED']] })
+          writeData.push({ range: `'${resolvedTabName}'!${outputCol}${sheetRow}`, values: [['FAILED']] })
           newLog.push({ sheetRow, docLink, status: 'failed', reason: r?.error || 'Unknown error' })
           continue
         }
         const vals = (r.links || []).flatMap(l => [l.text, l.url])
         if (vals.length === 0) {
-          writeData.push({ range: `'${tabName}'!${outputCol}${sheetRow}`, values: [['(no links found)']] })
+          writeData.push({ range: `'${resolvedTabName}'!${outputCol}${sheetRow}`, values: [['(no links found)']] })
         } else {
           const endCol = colIndexToLetter(nIdx + vals.length - 1)
-          writeData.push({ range: `'${tabName}'!${outputCol}${sheetRow}:${endCol}${sheetRow}`, values: [vals] })
+          writeData.push({ range: `'${resolvedTabName}'!${outputCol}${sheetRow}:${endCol}${sheetRow}`, values: [vals] })
         }
         newLog.push({ sheetRow, docLink, status: 'ok', linkCount: r.links?.length || 0 })
       }
