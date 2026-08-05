@@ -3,7 +3,10 @@
 // Fetches each Google Doc's public HTML export and extracts anchor text + URL pairs.
 // Docs must be shared as "Anyone with the link can view" — no auth is used here.
 
-const CONCURRENCY = 6
+// Concurrency intentionally matches the frontend's batch size (see AnchorExtractor.jsx
+// BATCH_SIZE) so a batch always processes in a single wave — keeps worst-case duration
+// bounded by ONE per-doc timeout, not (batchSize / concurrency) of them stacked serially.
+const CONCURRENCY = 20
 
 function extractDocId(raw) {
   const m = (raw || '').match(/\/document\/d\/([a-zA-Z0-9_-]+)/)
@@ -79,7 +82,7 @@ function looksBlocked(html) {
     || /Sorry,\s*unable to open the file/i.test(html)
 }
 
-async function fetchDocHtml(docId, timeoutMs = 9000) {
+async function fetchDocHtml(docId, timeoutMs = 7000) {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
   try {

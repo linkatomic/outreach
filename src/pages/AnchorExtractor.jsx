@@ -1,4 +1,8 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
+
+const BATCH_SIZE        = 20  // docs per API request — sized to finish inside one serverless invocation
+const BATCH_CONCURRENCY = 3   // concurrent batch requests in flight
+const CARD_RENDER_CAP   = 60  // max detailed cards rendered per section (perf guard for huge runs)
 
 function parseDocUrls(text) {
   return text
@@ -11,9 +15,20 @@ function parseDocUrls(text) {
 // Pasting this directly into Google Sheets spreads each doc's links across paired columns.
 function buildSheetText(docs) {
   return docs
-    .filter(d => !d.error && d.links?.length)
+    .filter(d => d && !d.error && d.links?.length)
     .map(d => d.links.flatMap(l => [l.text, l.url]).join('\t'))
     .join('\n')
+}
+
+async function runBatchesCapped(batches, cap, onBatchDone) {
+  let i = 0
+  async function next() {
+    if (i >= batches.length) return
+    const idx = i++
+    await onBatchDone(idx, batches[idx])
+    return next()
+  }
+  await Promise.all(Array.from({ length: Math.min(cap, batches.length) }, next))
 }
 
 function DocCard({ doc }) {
@@ -22,7 +37,7 @@ function DocCard({ doc }) {
 
   return (
     <div style={{
-      border: `1px solid ${hasError ? 'rgba(255,92,124,.3)' : count ? 'var(--border)' : 'var(--border)'}`,
+      border: `1px solid ${hasError ? 'rgba(255,92,124,.3)' : 'var(--border)'}`,
       borderRadius: 10,
       background: 'var(--surface)',
       overflow: 'hidden',
@@ -66,31 +81,59 @@ export function AnchorExtractorPage() {
   const [inputText, setInputText] = useState('')
   const [docs, setDocs]           = useState([])
   const [running, setRunning]     = useState(false)
+  const [progress, setProgress]   = useState(null) // { done, total }
   const [error, setError]         = useState('')
   const [copied, setCopied]       = useState(false)
+  const abortRef = useRef(false)
 
   const urls   = parseDocUrls(inputText)
   const canRun = urls.length > 0 && !running
 
   async function run() {
     if (!canRun) return
+    abortRef.current = false
     setRunning(true)
     setError('')
+    const results = new Array(urls.length)
     setDocs([])
-    try {
-      const res = await fetch('/api/doc-links', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ urls }),
-      })
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const data = await res.json()
-      setDocs(data.results || [])
-    } catch (err) {
-      setError('Something went wrong: ' + err.message)
-    } finally {
-      setRunning(false)
+    setProgress({ done: 0, total: urls.length })
+
+    const batches = []
+    for (let start = 0; start < urls.length; start += BATCH_SIZE) {
+      batches.push(urls.slice(start, start + BATCH_SIZE))
     }
+
+    let doneCount = 0
+
+    await runBatchesCapped(batches, BATCH_CONCURRENCY, async (batchIdx, batch) => {
+      if (abortRef.current) return
+      const start = batchIdx * BATCH_SIZE
+      try {
+        const res = await fetch('/api/doc-links', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ urls: batch }),
+        })
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        const data = await res.json()
+        const batchResults = data.results || batch.map(u => ({ input: u, error: 'No response for this batch' }))
+        for (let i = 0; i < batchResults.length; i++) results[start + i] = batchResults[i]
+      } catch (err) {
+        for (let i = 0; i < batch.length; i++) {
+          results[start + i] = { input: batch[i], error: `Batch failed (${err.message}) — try again` }
+        }
+      }
+      doneCount += batch.length
+      setProgress({ done: Math.min(urls.length, doneCount), total: urls.length })
+      setDocs(results.filter(Boolean))
+    })
+
+    setRunning(false)
+  }
+
+  function stop() {
+    abortRef.current = true
+    setRunning(false)
   }
 
   function copyForSheets() {
@@ -105,11 +148,14 @@ export function AnchorExtractorPage() {
     setInputText('')
     setDocs([])
     setError('')
+    setProgress(null)
   }
 
-  const totalLinks   = docs.reduce((s, d) => s + (d.links?.length || 0), 0)
-  const successCount = docs.filter(d => !d.error).length
-  const errorCount   = docs.filter(d => d.error).length
+  const successDocs  = docs.filter(d => !d.error)
+  const errorDocs    = docs.filter(d => d.error)
+  const totalLinks   = successDocs.reduce((s, d) => s + (d.links?.length || 0), 0)
+  const shownSuccess = successDocs.slice(0, CARD_RENDER_CAP)
+  const shownErrors  = errorDocs.slice(0, CARD_RENDER_CAP)
 
   const S = {
     page: {
@@ -158,6 +204,9 @@ export function AnchorExtractorPage() {
       padding: '8px 14px', fontWeight: 600, fontSize: 13,
       cursor: 'pointer', fontFamily: 'var(--font-sans)',
     },
+    progressBarTrack: { flex: 1, height: 4, background: 'var(--surface-3, var(--surface))', borderRadius: 2, overflow: 'hidden', minWidth: 120, maxWidth: 200, border: '1px solid var(--border)' },
+    progressBarFill: { height: '100%', background: 'var(--accent)', borderRadius: 2, transition: 'width .3s' },
+    progressText: { fontSize: 12, color: 'var(--text-faint)', fontFamily: 'var(--font-mono)' },
     error: {
       background: 'rgba(255,92,124,.08)', border: '1px solid rgba(255,92,124,.2)',
       color: '#ff8fa3', borderRadius: 8, padding: '10px 14px', fontSize: 13, marginTop: 16,
@@ -167,6 +216,8 @@ export function AnchorExtractorPage() {
     statErr: { fontSize: 12, fontWeight: 600, color: '#ff8fa3' },
     statDim: { fontSize: 12, color: 'var(--text-faint)' },
     list: { display: 'flex', flexDirection: 'column', gap: 8 },
+    sectionLabel: { fontSize: 11, fontWeight: 700, color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '18px 0 8px' },
+    truncNote: { fontSize: 12, color: 'var(--text-ghost)', marginTop: 8 },
   }
 
   return (
@@ -184,7 +235,8 @@ export function AnchorExtractorPage() {
         </p>
         <div style={S.note}>
           Each doc must be shared as <b>"Anyone with the link can view"</b> — we read the doc's
-          public export, no sign-in required on your end.
+          public export, no sign-in required on your end. Large batches (hundreds+) are processed
+          in the background in small chunks — keep this tab open and watch the progress bar.
         </div>
 
         <span style={S.label}>Google Doc links · one per line</span>
@@ -193,17 +245,27 @@ export function AnchorExtractorPage() {
           placeholder={'https://docs.google.com/document/d/1AbCdEfGhIjKlMnOpQrStUvWxYz/edit\nhttps://docs.google.com/document/d/...'}
           value={inputText}
           onChange={e => setInputText(e.target.value)}
+          disabled={running}
         />
         <div style={S.hint}>{urls.length > 0 ? `${urls.length} link${urls.length !== 1 ? 's' : ''} detected` : 'Paste doc share links, one per line'}</div>
 
         <div style={S.actionRow}>
           <button style={{ ...S.btnAccent, opacity: canRun ? 1 : 0.5, cursor: canRun ? 'pointer' : 'default' }} onClick={run} disabled={!canRun}>
-            {running ? 'Extracting…' : `Extract ${urls.length > 0 ? urls.length + ' doc' + (urls.length !== 1 ? 's' : '') : 'Links'}`}
+            {running ? `Extracting… ${progress?.done ?? 0}/${progress?.total ?? 0}` : `Extract ${urls.length > 0 ? urls.length + ' doc' + (urls.length !== 1 ? 's' : '') : 'Links'}`}
           </button>
+
+          {running && <button style={S.btnGhost} onClick={stop}>Stop</button>}
+
+          {progress && (
+            <div style={S.progressBarTrack}>
+              <div style={{ ...S.progressBarFill, width: `${progress.total ? Math.round((progress.done / progress.total) * 100) : 0}%` }} />
+            </div>
+          )}
+          {progress && <span style={S.progressText}>{progress.done}/{progress.total}</span>}
 
           {docs.length > 0 && !running && (
             <>
-              <button style={S.btnAccent} onClick={copyForSheets} disabled={successCount === 0}>
+              <button style={S.btnAccent} onClick={copyForSheets} disabled={successDocs.length === 0}>
                 {copied ? 'Copied!' : 'Copy for Sheets'}
               </button>
               <button style={S.btnGhost} onClick={clear}>Clear</button>
@@ -216,14 +278,33 @@ export function AnchorExtractorPage() {
         {docs.length > 0 && (
           <>
             <div style={S.resultsHeader}>
-              <span style={S.statOk}>✓ {successCount} doc{successCount !== 1 ? 's' : ''} processed</span>
+              <span style={S.statOk}>✓ {successDocs.length} doc{successDocs.length !== 1 ? 's' : ''} processed</span>
               <span style={S.statDim}>{totalLinks} link{totalLinks !== 1 ? 's' : ''} total</span>
-              {errorCount > 0 && <span style={S.statErr}>⚠ {errorCount} failed</span>}
+              {errorDocs.length > 0 && <span style={S.statErr}>⚠ {errorDocs.length} failed</span>}
             </div>
 
-            <div style={S.list}>
-              {docs.map((d, i) => <DocCard key={i} doc={d} />)}
-            </div>
+            {shownSuccess.length > 0 && (
+              <div style={S.list}>
+                {shownSuccess.map((d, i) => <DocCard key={i} doc={d} />)}
+              </div>
+            )}
+            {successDocs.length > CARD_RENDER_CAP && (
+              <div style={S.truncNote}>
+                +{successDocs.length - CARD_RENDER_CAP} more processed successfully — not shown here for performance, but included in "Copy for Sheets".
+              </div>
+            )}
+
+            {shownErrors.length > 0 && (
+              <>
+                <div style={S.sectionLabel}>Failed</div>
+                <div style={S.list}>
+                  {shownErrors.map((d, i) => <DocCard key={i} doc={d} />)}
+                </div>
+                {errorDocs.length > CARD_RENDER_CAP && (
+                  <div style={S.truncNote}>+{errorDocs.length - CARD_RENDER_CAP} more failed — same reasons, not all shown.</div>
+                )}
+              </>
+            )}
           </>
         )}
       </div>
