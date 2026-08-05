@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import { Icon } from '../data.jsx'
 import { loadPriceTable } from '../lib/supabase.js'
 import { SheetParser } from './SheetParser.jsx'
+import { AnchorSync } from './AnchorSync.jsx'
 import { LiveChatClients } from './LiveChat.jsx'
 import { EmailChecker } from './EmailChecker.jsx'
 import { EmailHarvester } from './EmailHarvester.jsx'
@@ -1001,6 +1002,7 @@ const TOOLS = [
   { id: 'livechat-clients', title: 'Live Chat Clients',     desc: 'Manage live chat team clients — order sheets, article costs, discounts, buyer/reseller types',               icon: 'users',    tag: 'LiveChat', roles: ['livechat', 'lead', 'super'] },
   { id: 'email-checker',   title: 'Email Checker',          desc: 'Enter an email + paste a site list — checks contact, about, footer & privacy pages for that email across all sites', icon: 'mail',     tag: 'Outreach' },
   { id: 'email-harvester', title: 'Email Harvester',        desc: 'Paste a list of sites — scrapes contact, about, home & privacy pages and collects every email found. No target needed.', icon: 'inbox',    tag: 'Outreach' },
+  { id: 'anchor-sync',     title: 'Anchor Sync',            desc: 'Reads Google Doc links from a sheet column and writes each doc\'s anchor text + URL pairs directly back into that same row', icon: 'link',     tag: 'Sheets'   },
 ]
 
 // ─── Tools Page ────────────────────────────────────────────────────────────────
@@ -1145,6 +1147,20 @@ export function ToolsPage({ me, role }) {
           </div>
           <div className="card-pad">
             <EmailHarvester />
+          </div>
+        </div>
+      ) : activeTool === 'anchor-sync' ? (
+        <div className="card">
+          <div className="card-head">
+            <div>
+              <h3>Anchor Sync</h3>
+              <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 2 }}>
+                Extracts anchor text + URL pairs from Google Docs and writes them straight into the source sheet, row by row
+              </div>
+            </div>
+          </div>
+          <div className="card-pad">
+            <AnchorSync />
           </div>
         </div>
       ) : null}
