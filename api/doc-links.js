@@ -3,6 +3,8 @@
 // Fetches each Google Doc's public HTML export and extracts anchor text + URL pairs.
 // Docs must be shared as "Anyone with the link can view" — no auth is used here.
 
+import { parse } from 'node-html-parser'
+
 // Concurrency intentionally matches the frontend's batch size (see AnchorExtractor.jsx
 // BATCH_SIZE) so a batch always processes in a single wave — keeps worst-case duration
 // bounded by ONE per-doc timeout, not (batchSize / concurrency) of them stacked serially.
@@ -13,25 +15,8 @@ function extractDocId(raw) {
   return m ? m[1] : null
 }
 
-function decodeEntities(str) {
-  return (str || '')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&#(\d+);/g, (_, c) => String.fromCharCode(+c))
-    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCharCode(parseInt(h, 16)))
-}
-
-function stripTags(html) {
-  return decodeEntities(html.replace(/<[^>]+>/g, '')).replace(/\s+/g, ' ').trim()
-}
-
 // Google Docs export wraps external links as https://www.google.com/url?q=<real>&...
-function unwrapRedirect(rawHref) {
-  const href = decodeEntities(rawHref)
+function unwrapRedirect(href) {
   try {
     const u = new URL(href)
     if ((u.hostname === 'www.google.com' || u.hostname === 'google.com') && u.pathname === '/url') {
@@ -58,15 +43,29 @@ function isUsableUrl(url) {
   }
 }
 
+// Real DOM parsing instead of regex — regex over arbitrary HTML is fragile (misses
+// single-quoted attributes, chokes on malformed/nested markup) and was the likely source
+// of scrambled text/URL pairings on real-world documents.
 function extractLinks(html) {
+  const root = parse(html, { lowerCaseTagName: true })
+  const anchorNodes = root.querySelectorAll('a')
+
   const links = []
-  const anchorRe = /<a\s+[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi
-  let m
+  let searchFrom = 0
   let prevEnd = null
-  while ((m = anchorRe.exec(html)) !== null) {
-    const text = stripTags(m[2])
-    const url  = unwrapRedirect(m[1])
-    const end  = anchorRe.lastIndex
+
+  for (const node of anchorNodes) {
+    const href = node.getAttribute('href') || ''
+    const text = node.textContent.replace(/\s+/g, ' ').trim()
+    const url  = unwrapRedirect(href)
+
+    // Locate this anchor's span in the original HTML (for adjacency/merge detection below).
+    // Search forward-only so document order is preserved even if outerHTML repeats elsewhere.
+    const outer = node.outerHTML
+    const idx   = outer ? html.indexOf(outer, searchFrom) : -1
+    const start = idx >= 0 ? idx : searchFrom
+    const end   = idx >= 0 ? idx + outer.length : searchFrom
+    searchFrom  = end
 
     if (!text || !isUsableUrl(url)) { prevEnd = end; continue }
 
@@ -75,21 +74,24 @@ function extractLinks(html) {
     // share the same URL and there's nothing but the tags themselves between them, they're
     // fragments of a single link — merge the text instead of emitting duplicate pairs, which
     // would otherwise shift every later column in that doc's row.
-    const gap  = prevEnd !== null ? stripTags(html.slice(prevEnd, m.index)) : null
-    const last = links[links.length - 1]
-    if (last && last.url === url && gap === '') {
+    const gapHtml = prevEnd !== null ? html.slice(prevEnd, start) : null
+    const gapText = gapHtml !== null ? parse(gapHtml).textContent.trim() : null
+    const last    = links[links.length - 1]
+
+    if (last && last.url === url && gapText === '') {
       last.text += text
     } else {
       links.push({ text, url })
     }
     prevEnd = end
   }
+
   return links
 }
 
 function extractTitle(html) {
   const m = html.match(/<title>([\s\S]*?)<\/title>/i)
-  return m ? stripTags(m[1]) : null
+  return m ? parse(m[1]).textContent.trim() : null
 }
 
 function looksBlocked(html) {
