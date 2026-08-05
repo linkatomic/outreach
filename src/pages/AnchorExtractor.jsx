@@ -11,12 +11,13 @@ function parseDocUrls(text) {
     .filter(Boolean)
 }
 
-// Builds one row per doc: AnchorText1 \t AnchorURL1 \t AnchorText2 \t AnchorURL2 ...
-// Pasting this directly into Google Sheets spreads each doc's links across paired columns.
+// Builds one row per doc, in the exact order docs were entered: AnchorText1 \t AnchorURL1 \t ...
+// Only genuinely failed docs are skipped — a successful doc with zero links still gets a row
+// (blank), so row position keeps lining up with the original input list.
 function buildSheetText(docs) {
   return docs
-    .filter(d => d && !d.error && d.links?.length)
-    .map(d => d.links.flatMap(l => [l.text, l.url]).join('\t'))
+    .filter(d => d && !d.error)
+    .map(d => (d.links || []).flatMap(l => [l.text, l.url]).join('\t'))
     .join('\n')
 }
 
