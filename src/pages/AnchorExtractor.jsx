@@ -11,13 +11,16 @@ function parseDocUrls(text) {
     .filter(Boolean)
 }
 
-// Builds one row per doc, in the exact order docs were entered: AnchorText1 \t AnchorURL1 \t ...
-// Only genuinely failed docs are skipped — a successful doc with zero links still gets a row
-// (blank), so row position keeps lining up with the original input list.
+// Builds EXACTLY one row per doc, in the exact order docs were entered — never removes a row.
+// Removing a failed doc's row would shift every row after it out of alignment with whatever
+// external list of documents the user is matching against. Failed docs print "FAILED" in
+// their row instead, so row position always equals input position, 1:1, no exceptions.
 function buildSheetText(docs) {
   return docs
-    .filter(d => d && !d.error)
-    .map(d => (d.links || []).flatMap(l => [l.text, l.url]).join('\t'))
+    .map(d => {
+      if (!d || d.error) return 'FAILED'
+      return (d.links || []).flatMap(l => [l.text, l.url]).join('\t')
+    })
     .join('\n')
 }
 
@@ -126,9 +129,15 @@ export function AnchorExtractorPage() {
       }
       doneCount += batch.length
       setProgress({ done: Math.min(urls.length, doneCount), total: urls.length })
-      setDocs(results.filter(Boolean))
+      setDocs(results.map((d, i) => d || { input: urls[i], pending: true }))
     })
 
+    // Guarantee exactly urls.length entries, in order, with no gaps — Stop can leave batches
+    // that never started, and a gap here would silently shift every later row's position.
+    for (let i = 0; i < results.length; i++) {
+      if (!results[i]) results[i] = { input: urls[i], error: 'Not processed — run was stopped' }
+    }
+    setDocs(results)
     setRunning(false)
   }
 
@@ -152,8 +161,9 @@ export function AnchorExtractorPage() {
     setProgress(null)
   }
 
-  const successDocs  = docs.filter(d => !d.error)
-  const errorDocs    = docs.filter(d => d.error)
+  const doneDocs     = docs.filter(d => !d.pending)
+  const successDocs  = doneDocs.filter(d => !d.error)
+  const errorDocs    = doneDocs.filter(d => d.error)
   const totalLinks   = successDocs.reduce((s, d) => s + (d.links?.length || 0), 0)
   const shownSuccess = successDocs.slice(0, CARD_RENDER_CAP)
   const shownErrors  = errorDocs.slice(0, CARD_RENDER_CAP)
