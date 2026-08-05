@@ -94,6 +94,14 @@ export function extractSheetId(url) {
   return m ? m[1] : null
 }
 
+// encodeURIComponent deliberately leaves !'()* unescaped (they're valid in a URI per RFC 3986),
+// but when a range needs quoting for a tab name with a space (e.g. 'Sheet 4'!A:ZZ), those
+// literal quote/bang characters land unescaped in the request PATH and the Sheets API's range
+// parser rejects them outright ("Unable to parse range"). Escape them too for any tab name.
+function encodeRangeForPath(range) {
+  return encodeURIComponent(range).replace(/[!'()*]/g, c => '%' + c.charCodeAt(0).toString(16).toUpperCase())
+}
+
 export async function getSheetTabs(spreadsheetId) {
   const data = await gsheets(`/spreadsheets/${spreadsheetId}?fields=sheets.properties`)
   return data.sheets.map(s => ({ name: s.properties.title, sheetId: s.properties.sheetId }))
@@ -102,7 +110,7 @@ export async function getSheetTabs(spreadsheetId) {
 export async function getSheetRows(spreadsheetId, tabName, maxRows = null) {
   const range = maxRows ? `'${tabName}'!A1:ZZ${maxRows}` : `'${tabName}'!A:ZZ`
   const data = await gsheets(
-    `/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}?valueRenderOption=FORMATTED_VALUE`
+    `/spreadsheets/${spreadsheetId}/values/${encodeRangeForPath(range)}?valueRenderOption=FORMATTED_VALUE`
   )
   return data.values || []
 }
@@ -521,7 +529,7 @@ export async function addSheetTab(spreadsheetId, title) {
 
 export async function writeRangeValues(spreadsheetId, range, values) {
   return gsheets(
-    `/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`,
+    `/spreadsheets/${spreadsheetId}/values/${encodeRangeForPath(range)}?valueInputOption=USER_ENTERED`,
     { method: 'PUT', body: JSON.stringify({ values }) }
   )
 }
