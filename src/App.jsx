@@ -25,6 +25,7 @@ import { LcGuide } from './pages/LcGuide.jsx'
 import { AdminPage } from './pages/AdminPage.jsx'
 import { UrlFetcherPage } from './pages/UrlFetcher.jsx'
 import { DomainExtractorPage } from './pages/DomainExtractor.jsx'
+import { AnchorExtractorPage } from './pages/AnchorExtractor.jsx'
 
 const TWEAK_DEFAULTS = { dark: true };
 
@@ -324,6 +325,9 @@ export default function App() {
   }
   if (window.location.pathname === '/domain-extractor') {
     return <DomainExtractorPage />;
+  }
+  if (window.location.pathname === '/anchor-extractor') {
+    return <AnchorExtractorPage />;
   }
 
   // ── Loading splash ───────────────────────────────────
