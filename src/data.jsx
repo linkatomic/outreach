@@ -9,6 +9,15 @@ export const TEAM = [
   { id: 'yaksh',  name: 'Yaksh B',     short: 'YB', role: 'member', color: 'g', email: 'yaksh.b@amrytt.com',  joined: '2026-07-15' },
 ];
 
+// Members whose primary role is 'livechat' but who ALSO get outreach access via the
+// department switcher (same mechanism lead/super/hr use), without becoming a lead/super/hr
+// themselves. They are NOT enrolled in outreach daily-report tracking/targets/analytics —
+// this only unlocks navigation into the outreach side of the app.
+export const DUAL_ACCESS_IDS = new Set(['jigar']);
+export function hasDualAccess(id) {
+  return DUAL_ACCESS_IDS.has(id);
+}
+
 export const METRICS = [
   { key: 'email_response',  label: 'Email responses',         unit: 'emails',   target: 30, group: 'inbox',   icon: 'mail' },
   { key: 'email_review',    label: 'Email review',            unit: 'emails',   target: 0,  group: 'inbox',   icon: 'eye' },

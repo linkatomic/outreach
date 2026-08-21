@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { TEAM, Icon, fmtDateShort, fmtRel } from '../data.jsx'
+import { TEAM, Icon, fmtDateShort, fmtRel, hasDualAccess } from '../data.jsx'
 import { loadAllReportsForDate } from '../lib/supabase.js'
 
 // ────────────────────── Sidebar ──────────────────────
@@ -35,8 +35,8 @@ export function Sidebar({ route, setRoute, role, me, allUsers = [], impersonated
   // Only lead/super (the two specific admin roles) can see Active Users
   const showActiveUsers = (me.role === 'lead' || me.role === 'super') && !impersonatedId;
 
-  // Who can switch departments
-  const canSwitchDept = ['lead', 'super', 'hr'].includes(me.role) && !impersonatedId;
+  // Who can switch departments — lead/super/hr, plus livechat members granted dual access
+  const canSwitchDept = (['lead', 'super', 'hr'].includes(me.role) || hasDualAccess(me.id)) && !impersonatedId;
 
   // Show manage section for: lead, hr, super (when not impersonating), or impersonating a lead
   const showManageItems = (me.role === 'lead'
@@ -44,8 +44,9 @@ export function Sidebar({ route, setRoute, role, me, allUsers = [], impersonated
     || (me.role === 'super' && !impersonatedId)
     || role === 'lead') && dept === 'outreach';
 
-  // livechat-role users always see LC nav regardless of dept state
-  const showLcNav = dept === 'livechat' || me.role === 'livechat';
+  // Plain livechat-role users always see LC nav regardless of dept state.
+  // Dual-access livechat members can toggle like lead/super/hr — respect dept state instead.
+  const showLcNav = me.role === 'livechat' && !hasDualAccess(me.id) ? true : dept === 'livechat';
 
   // Identity shown in footer: impersonated user or real user
   const displayUser = impersonatedId

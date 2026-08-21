@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { TEAM, ACCENT_PRESETS, reportToday } from './data.jsx'
+import { TEAM, ACCENT_PRESETS, reportToday, hasDualAccess } from './data.jsx'
 import { LC_STAFF } from './pages/LiveChatTeam.jsx'
 import { supabase, getProfile, getProfileByMemberId, saveUserAccent } from './lib/supabase.js'
 import { useTweaks, TweaksPanel, TweakSection, TweakToggle } from './components/TweaksPanel.jsx'
@@ -282,10 +282,10 @@ export default function App() {
   function renderPage() {
     // Pages all receive effectiveMe so impersonation is transparent
     const m = effectiveMe;
-    const isLcOnly = m.role === 'livechat';
+    const isLcOnly = m.role === 'livechat' && !hasDualAccess(m.id);
     const isManager = ['lead', 'super', 'hr'].includes(m.role);
 
-    // livechat-only users can't access outreach routes
+    // livechat-only users can't access outreach routes (dual-access livechat members are exempt)
     if (isLcOnly && !route.startsWith('lc-') && route !== 'settings' && route !== 'shortcuts') {
       return <LiveChatHome me={m} />;
     }
