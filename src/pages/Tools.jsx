@@ -3,6 +3,7 @@ import { Icon } from '../data.jsx'
 import { loadPriceTable } from '../lib/supabase.js'
 import { SheetParser } from './SheetParser.jsx'
 import { AnchorSync } from './AnchorSync.jsx'
+import { SamplePostFinder } from './SamplePostFinder.jsx'
 import { LiveChatClients } from './LiveChat.jsx'
 import { EmailChecker } from './EmailChecker.jsx'
 import { EmailHarvester } from './EmailHarvester.jsx'
@@ -1003,6 +1004,7 @@ const TOOLS = [
   { id: 'email-checker',   title: 'Email Checker',          desc: 'Enter an email + paste a site list — checks contact, about, footer & privacy pages for that email across all sites', icon: 'mail',     tag: 'Outreach' },
   { id: 'email-harvester', title: 'Email Harvester',        desc: 'Paste a list of sites — scrapes contact, about, home & privacy pages and collects every email found. No target needed.', icon: 'inbox',    tag: 'Outreach' },
   { id: 'anchor-sync',     title: 'Anchor Sync',            desc: 'Reads Google Doc links from a sheet column and writes each doc\'s anchor text + URL pairs directly back into that same row', icon: 'link',     tag: 'Sheets'   },
+  { id: 'sample-posts',    title: 'Sample Post Finder',     desc: 'Paste a site list — finds post/article URLs via sitemap, RSS/Atom feed, and the WordPress API, with a copy-all button', icon: 'search',   tag: 'Outreach' },
 ]
 
 // ─── Tools Page ────────────────────────────────────────────────────────────────
@@ -1161,6 +1163,20 @@ export function ToolsPage({ me, role }) {
           </div>
           <div className="card-pad">
             <AnchorSync />
+          </div>
+        </div>
+      ) : activeTool === 'sample-posts' ? (
+        <div className="card">
+          <div className="card-head">
+            <div>
+              <h3>Sample Post Finder</h3>
+              <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 2 }}>
+                Discovers post/article URLs per site from sitemaps, feeds, and the WordPress API
+              </div>
+            </div>
+          </div>
+          <div className="card-pad">
+            <SamplePostFinder />
           </div>
         </div>
       ) : null}

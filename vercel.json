@@ -3,7 +3,8 @@
   "outputDirectory": "dist",
   "framework": "vite",
   "functions": {
-    "api/doc-links.js": { "maxDuration": 30 }
+    "api/doc-links.js": { "maxDuration": 30 },
+    "api/sample-posts.js": { "maxDuration": 60 }
   },
   "crons": [
     {
