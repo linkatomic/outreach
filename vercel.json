@@ -4,7 +4,8 @@
   "framework": "vite",
   "functions": {
     "api/doc-links.js": { "maxDuration": 30 },
-    "api/sample-posts.js": { "maxDuration": 60 }
+    "api/sample-posts.js": { "maxDuration": 60 },
+    "api/analyze-post.js": { "maxDuration": 30 }
   },
   "crons": [
     {

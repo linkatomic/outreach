@@ -338,6 +338,74 @@ Return ONLY valid JSON:
   return result.mapping || {}
 }
 
+// ── Guest post classification ─────────────────────────────
+
+export async function classifyGuestPost({ title, contentText, externalLinks }) {
+  const linksBlock = (externalLinks || []).length
+    ? externalLinks.map(l => `- "${l.text || '(no anchor text)'}" -> ${l.domain}`).join('\n')
+    : '(none found — no external links besides major platforms/reference sites)'
+
+  const prompt = `You are analyzing whether a blog/article post is a "guest post" — content contributed by an
+external party, usually in exchange for a backlink — as opposed to original editorial content
+the site's own writers produced organically.
+
+Title: "${title || '(no title found)'}"
+
+Content excerpt (may be truncated):
+${contentText || '(no content extracted)'}
+
+External links found in the article body (major platforms like Wikipedia, YouTube, social
+media, Google, Amazon etc. are already excluded — anything listed here is a genuine
+third-party site):
+${linksBlock}
+
+Signals a post IS a guest post:
+- An external link's anchor text reads like commercial/marketing copy (a brand name, "best
+  X for Y", a service description) rather than a citation or reference
+- The post favorably promotes a specific commercial business/product/service that seems
+  unrelated to why this host site would organically cover it
+- Generic, broadly-applicable listicle or how-to content that could run on almost any site
+  in the niche, rather than reading specific to this site's own voice/audience
+- An author bio identifying the writer as a guest contributor, freelancer, or an external
+  company representative
+- Multiple external links clustered around promoting one specific outside site/brand
+
+Signals AGAINST it being a guest post:
+- No external links besides major reference/platform sites
+- Content clearly reflects the site's own business, personal experience, or ongoing
+  editorial voice
+- Any external links present are incidental citations/sources, not promotional
+
+Weigh these signals together and classify. Confidence should be "high" only when multiple
+signals agree; "low" when the evidence is thin or ambiguous either way.
+
+Respond with ONLY valid JSON, no markdown, no explanation outside the JSON:
+{
+  "isGuestPost": true or false,
+  "confidence": "high" | "medium" | "low",
+  "reasoning": "<one sentence>",
+  "suspiciousDomain": "<the external domain most likely to be the paid/contributed link, or null>"
+}`
+
+  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${OPENAI_API_KEY}` },
+    body: JSON.stringify({
+      model: 'gpt-5.4-nano',
+      messages: [
+        { role: 'system', content: 'You are an expert at detecting paid or contributed guest posts on websites from content and outbound links. Respond only with valid JSON.' },
+        { role: 'user', content: prompt },
+      ],
+      temperature: 0,
+      max_completion_tokens: 300,
+    }),
+  })
+  const data = await res.json()
+  if (!res.ok || data.error) throw new Error(`OpenAI: ${data.error?.message || res.status}`)
+  const text = data.choices[0].message.content.trim()
+  return JSON.parse(text)
+}
+
 // ── GPL publisher data lookup ─────────────────────────────
 
 export async function lookupPublisherData(domains, onProgress) {
