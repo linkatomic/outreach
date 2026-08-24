@@ -86,6 +86,19 @@ async function fetchGplData(domains, onProgress) {
   return map
 }
 
+const NICHE_LABELS = { general: 'General', casino: 'Casino', cbd: 'CBD', crypto: 'Crypto' }
+function nicheLabel(niche) {
+  return NICHE_LABELS[String(niche || '').toLowerCase()]
+    || (niche ? niche[0].toUpperCase() + niche.slice(1) : 'Niche')
+}
+
+// A "no price" cell is written as text (e.g. "No Casino Prices") rather than left blank,
+// and rather than silently falling back to General's price — that fallback was writing the
+// wrong number into the sheet with nothing to indicate it wasn't actually a Casino price.
+export function isNoPriceMarker(p) {
+  return typeof p === 'string' && /^No .+ Prices$/.test(p)
+}
+
 function getPrice(siteData, niche, clientType) {
   if (!siteData?.vendors) return ''
   if (isSiteDisabled(siteData)) return ''
@@ -93,9 +106,9 @@ function getPrice(siteData, niche, clientType) {
                ?? siteData.vendors.find(v => !v.is_disable)
   if (!vendor?.addons) return ''
   const addon = vendor.addons.find(a => a.label === niche.toLowerCase())
-             ?? vendor.addons.find(a => a.label === 'general')
-  if (!addon) return ''
-  return clientType === 'buyer' ? (addon.buyer_price ?? '') : (addon.reseller_price ?? '')
+  const price = addon ? (clientType === 'buyer' ? addon.buyer_price : addon.reseller_price) : null
+  if (price === null || price === undefined || price === '') return `No ${nicheLabel(niche)} Prices`
+  return price
 }
 
 function isSiteDisabled(siteData) {
@@ -444,7 +457,7 @@ export async function createOrderSheet(client, niche, domains, includeWriting = 
     .map((dom, i) => {
       if (!gplMap.has(dom) || isSiteDisabled(gplMap.get(dom))) return -1
       const p = dataRows[i][C.PRICE]
-      return (p === '' || p === null || p === undefined) ? i : -1
+      return (p === '' || p === null || p === undefined || isNoPriceMarker(p)) ? i : -1
     })
     .filter(i => i >= 0)
   // Duplicate rows start at uniqueDomains.length (entire row highlighted blue)
@@ -575,7 +588,7 @@ export async function fillOrderSheet(client, niche, subSheetUrl, includeWriting 
     .map((dom, i) => {
       if (!gplMap.has(dom) || isSiteDisabled(gplMap.get(dom))) return -1
       const p = freshDataRows[i][C.PRICE]
-      return (p === '' || p === null || p === undefined) ? i : -1
+      return (p === '' || p === null || p === undefined || isNoPriceMarker(p)) ? i : -1
     })
     .filter(i => i >= 0)
   // Convert to absolute sheet row indices (0-indexed, header = headerRowIdx)
