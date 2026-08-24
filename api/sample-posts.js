@@ -13,7 +13,17 @@ const MAX_WP_PAGES    = 8      // cap on WP REST API pages (100 posts/page)
 const FETCH_TIMEOUT   = 8000
 
 const POST_SITEMAP_HINT     = /(post|article|blog|news|story)/i
+// Taxonomy/system sitemap names ALWAYS win over a coincidental "post" match — WordPress SEO
+// plugins (Yoast) name the tag taxonomy sitemap "post_tag-sitemap.xml", which contains the
+// substring "post" and was being wrongly trusted as a real post-content sitemap, flooding
+// results with /tag/... archive pages instead of actual articles.
 const NON_POST_SITEMAP_HINT = /(page|categor|tag|author|product|attachment|taxonom)/i
+
+// A sitemap is trusted as "every URL in it is a real post" only when it's post-hinted AND
+// not ALSO a taxonomy/system sitemap by name.
+function isPostContentSitemap(url) {
+  return POST_SITEMAP_HINT.test(url) && !NON_POST_SITEMAP_HINT.test(url)
+}
 
 // Clear non-post paths — admin/system/commerce/asset paths, never articles
 const EXCLUDE_PATH_RE = /\/(wp-json|wp-admin|wp-content|wp-includes|feed\/?$|category|tag|author|page\/\d+|cart|checkout|shop|product|wp-login|sitemap)(\/|$|\.)/i
@@ -113,8 +123,11 @@ async function crawlSitemap(url, domain, state) {
   if (state.visited.has(url)) return
   state.visited.add(url)
 
-  // Skip obviously non-post sub-sitemaps by filename — saves budget for real posts
-  if (NON_POST_SITEMAP_HINT.test(url) && !POST_SITEMAP_HINT.test(url)) return
+  // Skip taxonomy/system sub-sitemaps by filename outright — never contain real posts, and
+  // skipping them entirely (rather than fetching-then-filtering) saves the sitemap/time
+  // budget for ones that do. Taxonomy naming always wins, even over a coincidental "post"
+  // substring match (e.g. Yoast's tag sitemap is literally named "post_tag-sitemap.xml").
+  if (NON_POST_SITEMAP_HINT.test(url)) return
 
   state.sitemapsFetched++
   const xml = await fetchText(url)
@@ -122,15 +135,15 @@ async function crawlSitemap(url, domain, state) {
 
   if (/<sitemapindex[\s>]/i.test(xml)) {
     const locs = extractLocs(xml)
-    // Post-named sub-sitemaps first, so a capped crawl still yields real posts
-    const prioritized = [...locs].sort((a, b) => (POST_SITEMAP_HINT.test(b) ? 1 : 0) - (POST_SITEMAP_HINT.test(a) ? 1 : 0))
+    // Genuine post-content sub-sitemaps first, so a capped crawl still yields real posts
+    const prioritized = [...locs].sort((a, b) => (isPostContentSitemap(b) ? 1 : 0) - (isPostContentSitemap(a) ? 1 : 0))
     for (const loc of prioritized) {
       if (!budgetOk(state) || state.sitemapsFetched >= MAX_SITEMAPS) break
       await crawlSitemap(loc, domain, state)
     }
   } else if (/<urlset[\s>]/i.test(xml)) {
     const locs = extractLocs(xml)
-    const trustAll = POST_SITEMAP_HINT.test(url) // e.g. post-sitemap.xml — every URL in it is a post
+    const trustAll = isPostContentSitemap(url) // e.g. post-sitemap.xml — every URL in it is a post
     for (const loc of locs) {
       if (state.urls.size >= MAX_URLS) break
       if (!state.urls.has(loc) && (trustAll || looksLikePostUrl(loc, domain))) {
