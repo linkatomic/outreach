@@ -1,13 +1,17 @@
 // POST /api/email-harvester
 // Body: { domain: string }
 // Fetches Home, Contact, About, Privacy pages and returns all emails found.
+// Non-English contact/about/privacy pages (e.g. German "Kontakt") are found via an AI
+// fallback over the site's own nav links when the English-slug guesses come up empty.
+
+import { extractNavLinks, findPagesWithAI } from './_lib/pageDiscovery.js'
 
 const PAGE_CONFIGS = [
-  { type: 'Home',    paths: ['/'] },
   { type: 'Contact', paths: ['/contact', '/contact-us', '/contact.html', '/contactus', '/get-in-touch', '/reach-us'] },
   { type: 'About',   paths: ['/about', '/about-us', '/about.html', '/aboutus', '/our-story', '/team'] },
   { type: 'Privacy', paths: ['/privacy-policy', '/privacy', '/privacy.html', '/legal/privacy', '/policies/privacy'] },
 ]
+const TYPE_KEY = { Contact: 'contact', About: 'about', Privacy: 'privacy' }
 
 const EMAIL_RE  = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g
 const SKIP_EXTS = /\.(png|jpg|jpeg|gif|svg|webp|ico|css|js|woff|woff2|ttf|eot|otf|map)$/i
@@ -102,6 +106,36 @@ async function checkPageType(domain, config) {
   return { type: config.type, url: `https://${domain}${config.paths[0]}`, emails: [], fetched: false }
 }
 
+async function discoverPages(domain) {
+  const homeResult = await fetchPage(`https://${domain}/`) || await fetchPage(`http://${domain}/`)
+  const homePage = homeResult
+    ? { type: 'Home', url: homeResult.url, emails: extractEmails(homeResult.html), fetched: true }
+    : { type: 'Home', url: `https://${domain}/`, emails: [], fetched: false }
+
+  const otherPages = await Promise.all(PAGE_CONFIGS.map(cfg => checkPageType(domain, cfg)))
+
+  // AI fallback — only for page types the English-slug guesses missed, and only when we
+  // have a homepage to pull real nav links from.
+  const missing = otherPages.filter(p => !p.fetched).map(p => TYPE_KEY[p.type])
+  if (missing.length && homeResult) {
+    const navLinks = extractNavLinks(homeResult.html, homeResult.url)
+    const found = await findPagesWithAI(domain, navLinks, missing)
+    for (const page of otherPages) {
+      const key = TYPE_KEY[page.type]
+      if (page.fetched || !found[key]) continue
+      const result = await fetchPage(found[key])
+      if (result) {
+        page.url = result.url
+        page.emails = extractEmails(result.html)
+        page.fetched = true
+        page.foundVia = 'ai'
+      }
+    }
+  }
+
+  return [homePage, ...otherPages]
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
 
@@ -109,7 +143,7 @@ export default async function handler(req, res) {
   if (!rawDomain) return res.status(400).json({ error: 'domain is required' })
 
   const domain    = cleanDomain(rawDomain)
-  const pages     = await Promise.all(PAGE_CONFIGS.map(cfg => checkPageType(domain, cfg)))
+  const pages     = await discoverPages(domain)
   const allEmails = [...new Set(pages.flatMap(p => p.emails))]
 
   return res.json({ domain, pages, allEmails })
