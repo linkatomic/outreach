@@ -81,6 +81,15 @@ async function resolveChain(startUrl, deadline) {
 // protocol. A DNS failure would fail identically either way, so it short-circuits instead.
 const RETRY_WITH_OTHER_PROTOCOL = new Set(['SSL_ERROR', 'CONNECTION_ERROR', 'TIMEOUT', 'NO_RESPONSE'])
 
+// Real browsers (and the URL/WHATWG spec) normalize an empty path to "/" — e.g. typing
+// "example.com" actually requests and displays "https://example.com/". Building the start
+// URL as a raw template string skips that normalization; routing it through the URL class
+// applies the same rule a browser's address bar would, so a site with no redirect at all
+// still reports the trailing slash instead of looking different from what Chrome shows.
+function buildUrl(protocol, host) {
+  try { return new URL(`${protocol}://${host}`).href } catch { return null }
+}
+
 async function resolveDomain(rawInput) {
   const trimmed = (rawInput || '').trim()
   if (!trimmed) return { status: 'NO_RESPONSE' }
@@ -89,10 +98,15 @@ async function resolveDomain(rawInput) {
 
   if (hasProtocol(trimmed)) {
     // Caller gave an explicit protocol — respect it, no fallback testing of the other one.
-    return resolveChain(trimmed, deadline)
+    let normalized
+    try { normalized = new URL(trimmed).href } catch { return { status: 'NO_RESPONSE' } }
+    return resolveChain(normalized, deadline)
   }
 
-  const httpsResult = await resolveChain(`https://${trimmed}`, deadline)
+  const httpsStart = buildUrl('https', trimmed)
+  if (!httpsStart) return { status: 'NO_RESPONSE' }
+
+  const httpsResult = await resolveChain(httpsStart, deadline)
   if (httpsResult.status === 'OK') return httpsResult
   if (httpsResult.status === 'DNS_ERROR') return httpsResult // http:// would fail identically
   if (httpsResult.status === 'REDIRECT_LOOP') return httpsResult // not a connectivity issue
@@ -100,7 +114,9 @@ async function resolveDomain(rawInput) {
   if (!RETRY_WITH_OTHER_PROTOCOL.has(httpsResult.status)) return httpsResult
   if (Date.now() >= deadline) return httpsResult
 
-  const httpResult = await resolveChain(`http://${trimmed}`, deadline)
+  const httpStart = buildUrl('http', trimmed)
+  if (!httpStart) return httpsResult
+  const httpResult = await resolveChain(httpStart, deadline)
   return httpResult.status === 'OK' ? httpResult : httpsResult // prefer reporting the HTTPS failure if both fail
 }
 

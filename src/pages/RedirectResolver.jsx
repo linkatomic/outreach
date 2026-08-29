@@ -105,7 +105,18 @@ export function RedirectResolver() {
   function copyTsv() {
     if (!results) return
     navigator.clipboard.writeText(buildTsv(results)).then(() => {
-      setCopied(true)
+      setCopied('tsv')
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
+
+  function copyUrlsOnly() {
+    if (!results) return
+    // One line per result, in order — including a placeholder for failed rows, so pasting
+    // this next to the original domain list in a sheet still lines up row-for-row.
+    const text = results.map(r => r.status === 'OK' ? r.finalUrl : '—').join('\n')
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied('urls')
       setTimeout(() => setCopied(false), 2000)
     })
   }
@@ -161,8 +172,11 @@ export function RedirectResolver() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 14, fontSize: 12, marginLeft: 'auto', flexWrap: 'wrap' }}>
             <span style={{ color: 'var(--accent)' }}>✓ {okCount} resolved</span>
             {failCount > 0 && <span style={{ color: '#ff8fa3' }}>⚠ {failCount} failed</span>}
-            <button className="btn accent" onClick={copyTsv} style={{ fontSize: 12, padding: '6px 14px' }}>
-              {copied ? 'Copied!' : 'Copy TSV (Domain, URL, Status)'}
+            <button className="btn accent" onClick={copyUrlsOnly} style={{ fontSize: 12, padding: '6px 14px' }}>
+              {copied === 'urls' ? 'Copied!' : 'Copy URLs Only'}
+            </button>
+            <button className="btn ghost" onClick={copyTsv} style={{ fontSize: 12, padding: '6px 14px' }}>
+              {copied === 'tsv' ? 'Copied!' : 'Copy TSV (Domain, URL, Status)'}
             </button>
             <button className="btn ghost" onClick={clear} style={{ fontSize: 12 }}>Clear</button>
           </div>
