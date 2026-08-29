@@ -7,7 +7,8 @@
     "api/sample-posts.js": { "maxDuration": 60 },
     "api/analyze-post.js": { "maxDuration": 30 },
     "api/email-harvester.js": { "maxDuration": 30 },
-    "api/email-checker.js": { "maxDuration": 30 }
+    "api/email-checker.js": { "maxDuration": 30 },
+    "api/resolve-url.js": { "maxDuration": 45 }
   },
   "crons": [
     {

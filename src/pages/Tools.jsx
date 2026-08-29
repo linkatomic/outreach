@@ -4,6 +4,7 @@ import { loadPriceTable } from '../lib/supabase.js'
 import { SheetParser } from './SheetParser.jsx'
 import { AnchorSync } from './AnchorSync.jsx'
 import { SamplePostFinder } from './SamplePostFinder.jsx'
+import { RedirectResolver } from './RedirectResolver.jsx'
 import { LiveChatClients } from './LiveChat.jsx'
 import { EmailChecker } from './EmailChecker.jsx'
 import { EmailHarvester } from './EmailHarvester.jsx'
@@ -1005,6 +1006,7 @@ const TOOLS = [
   { id: 'email-harvester', title: 'Email Harvester',        desc: 'Paste a list of sites — scrapes contact, about, home & privacy pages and collects every email found. No target needed.', icon: 'inbox',    tag: 'Outreach' },
   { id: 'anchor-sync',     title: 'Anchor Sync',            desc: 'Reads Google Doc links from a sheet column and writes each doc\'s anchor text + URL pairs directly back into that same row', icon: 'link',     tag: 'Sheets'   },
   { id: 'sample-posts',    title: 'Sample Post Finder',     desc: 'Paste a site list — finds post/article URLs via sitemap, RSS/Atom feed, and the WordPress API, with a copy-all button', icon: 'search',   tag: 'Outreach' },
+  { id: 'redirect-resolver', title: 'Redirect Resolver',    desc: 'Paste bare domains — follows every redirect (protocol, www, cross-domain) to the real final URL, TSV output for Sheets', icon: 'refresh',  tag: 'Outreach' },
 ]
 
 // ─── Tools Page ────────────────────────────────────────────────────────────────
@@ -1177,6 +1179,20 @@ export function ToolsPage({ me, role }) {
           </div>
           <div className="card-pad">
             <SamplePostFinder />
+          </div>
+        </div>
+      ) : activeTool === 'redirect-resolver' ? (
+        <div className="card">
+          <div className="card-head">
+            <div>
+              <h3>Redirect Resolver</h3>
+              <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 2 }}>
+                Follows every redirect from a bare domain to the actual final URL a browser would reach
+              </div>
+            </div>
+          </div>
+          <div className="card-pad">
+            <RedirectResolver />
           </div>
         </div>
       ) : null}
