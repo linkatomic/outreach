@@ -15,8 +15,19 @@
 import chromium from '@sparticuz/chromium'
 import { chromium as playwrightChromium } from 'playwright-core'
 
-const NAV_TIMEOUT      = 8000  // per navigation attempt
-const PAGE_CONCURRENCY = 5     // concurrent pages sharing one browser instance
+// This project is on Vercel's Hobby plan, which force-kills a serverless function at 10s
+// no matter what maxDuration is set to. A real browser can genuinely need that long for a
+// single slow site, so instead of a per-navigation timeout we track a wall-clock deadline
+// for the whole request and shrink/skip remaining attempts as it's used up — that way the
+// handler always returns a real JSON response instead of being hard-killed mid-flight,
+// which is what was producing whole-batch NO_RESPONSE failures.
+const HANDLER_DEADLINE_MS = 9000
+const NAV_TIMEOUT_MAX     = 4000 // per navigation attempt, when the deadline allows it
+const PAGE_CONCURRENCY    = 5    // concurrent pages sharing one browser instance
+
+function remaining(deadline) {
+  return deadline - Date.now()
+}
 
 function hasProtocol(raw) {
   return /^https?:\/\//i.test(raw)
@@ -42,9 +53,9 @@ const RETRY_WITH_OTHER_PROTOCOL = new Set(['SSL_ERROR', 'CONNECTION_ERROR', 'TIM
 // cancel the new navigation with "interrupted by another navigation", which isn't a real
 // verdict on the new URL at all. Retry once after a brief settle delay instead of reporting
 // that as a false failure.
-async function attemptGoto(page, url) {
+async function attemptGoto(page, url, timeout) {
   try {
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT })
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout })
     return { status: 'OK', finalUrl: page.url() }
   } catch (err) {
     if (/interrupted by another navigation/.test(err?.message || '')) return null
@@ -52,32 +63,39 @@ async function attemptGoto(page, url) {
   }
 }
 
-async function navigateTo(page, url) {
-  const first = await attemptGoto(page, url)
+async function navigateTo(page, url, deadline) {
+  const budget = remaining(deadline)
+  if (budget <= 300) return { status: 'TIMEOUT' }
+  const first = await attemptGoto(page, url, Math.min(NAV_TIMEOUT_MAX, budget))
   if (first) return first
+
+  if (remaining(deadline) <= 300) return { status: 'NO_RESPONSE' }
   await page.waitForTimeout(150).catch(() => {})
-  const second = await attemptGoto(page, url)
+  const retryBudget = remaining(deadline)
+  if (retryBudget <= 300) return { status: 'NO_RESPONSE' }
+  const second = await attemptGoto(page, url, Math.min(NAV_TIMEOUT_MAX, retryBudget))
   return second || { status: 'NO_RESPONSE' }
 }
 
-async function resolveOne(page, rawInput) {
+async function resolveOne(page, rawInput, deadline) {
   const trimmed = (rawInput || '').trim()
   if (!trimmed) return { input: rawInput, status: 'NO_RESPONSE' }
 
   if (hasProtocol(trimmed)) {
     // Caller gave an explicit protocol — respect it, no fallback testing of the other one.
-    const r = await navigateTo(page, trimmed)
+    const r = await navigateTo(page, trimmed, deadline)
     return { input: rawInput, ...r }
   }
 
-  const httpsResult = await navigateTo(page, `https://${trimmed}`)
+  const httpsResult = await navigateTo(page, `https://${trimmed}`, deadline)
   if (httpsResult.status === 'OK') return { input: rawInput, ...httpsResult }
   if (httpsResult.status === 'DNS_ERROR' || httpsResult.status === 'REDIRECT_LOOP') {
     return { input: rawInput, ...httpsResult } // http:// would fail/loop identically
   }
   if (!RETRY_WITH_OTHER_PROTOCOL.has(httpsResult.status)) return { input: rawInput, ...httpsResult }
+  if (remaining(deadline) <= 300) return { input: rawInput, ...httpsResult }
 
-  const httpResult = await navigateTo(page, `http://${trimmed}`)
+  const httpResult = await navigateTo(page, `http://${trimmed}`, deadline)
   return httpResult.status === 'OK'
     ? { input: rawInput, ...httpResult }
     : { input: rawInput, ...httpsResult } // prefer reporting the HTTPS failure if both fail
@@ -90,6 +108,8 @@ export default async function handler(req, res) {
   if (!Array.isArray(domains) || domains.length === 0) {
     return res.status(400).json({ error: 'domains array is required' })
   }
+
+  const deadline = Date.now() + HANDLER_DEADLINE_MS
 
   let browser
   try {
@@ -114,13 +134,17 @@ export default async function handler(req, res) {
       while (next < domains.length) {
         const idx = next++
         try {
-          results[idx] = await resolveOne(page, domains[idx])
+          results[idx] = await resolveOne(page, domains[idx], deadline)
         } catch {
           results[idx] = { input: domains[idx], status: 'NO_RESPONSE' }
         }
       }
     }
     await Promise.all(pages.map(worker))
+  } catch {
+    for (let i = 0; i < domains.length; i++) {
+      if (!results[i]) results[i] = { input: domains[i], status: 'NO_RESPONSE' }
+    }
   } finally {
     await browser.close()
   }

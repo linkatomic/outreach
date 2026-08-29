@@ -1,11 +1,12 @@
 import { useState, useRef } from 'react'
 
 // The server drives a REAL headless Chrome browser (not a plain fetch) to resolve each domain,
-// so each one takes real navigation time (up to ~16s worst case: 8s timeout x up to 2 protocol
-// attempts) and only PAGE_CONCURRENCY=5 pages run at once per request. Keep batches small so a
-// single request can't run long enough to hit a serverless timeout.
-const BATCH_SIZE        = 10
-const BATCH_CONCURRENCY = 3   // concurrent batch requests in flight
+// and this project's Vercel plan force-kills a serverless function at 10s no matter what — a
+// single slow/dead site can burn most of that on its own. One domain per request means a slow
+// site can only ever cost that one request, instead of dragging every other domain sharing its
+// batch down into the same failed response. BATCH_CONCURRENCY is the real throughput lever now.
+const BATCH_SIZE        = 1
+const BATCH_CONCURRENCY = 8   // concurrent single-domain requests in flight
 const ROW_RENDER_CAP    = 200 // perf guard for huge lists — full data still included in Copy
 
 // Preserves EVERY line exactly, including duplicates and original order — this tool's whole
