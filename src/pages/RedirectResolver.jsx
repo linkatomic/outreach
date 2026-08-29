@@ -1,6 +1,10 @@
 import { useState, useRef } from 'react'
 
-const BATCH_SIZE        = 25  // matches server CONCURRENCY in api/resolve-url.js — single wave
+// The server drives a REAL headless Chrome browser (not a plain fetch) to resolve each domain,
+// so each one takes real navigation time (up to ~16s worst case: 8s timeout x up to 2 protocol
+// attempts) and only PAGE_CONCURRENCY=5 pages run at once per request. Keep batches small so a
+// single request can't run long enough to hit a serverless timeout.
+const BATCH_SIZE        = 10
 const BATCH_CONCURRENCY = 3   // concurrent batch requests in flight
 const ROW_RENDER_CAP    = 200 // perf guard for huge lists — full data still included in Copy
 

@@ -11,6 +11,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@sparticuz/chromium": "^149.0.0",
     "@supabase/supabase-js": "^2.106.2",
     "concurrently": "^10.0.3",
     "cors": "^2.8.6",
@@ -19,6 +20,7 @@
     "googleapis": "^173.0.0",
     "node-html-parser": "^9.0.1",
     "openai": "^6.42.0",
+    "playwright-core": "^1.62.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

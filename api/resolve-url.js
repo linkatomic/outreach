@@ -1,134 +1,86 @@
 // POST /api/resolve-url
 // Body: { domains: string[] }
-// For each domain, discovers the actual final URL a Chrome user would land on: tries HTTPS
-// first (matching modern Chrome's default), falls back to HTTP only if HTTPS can't even
-// connect, and manually follows the redirect chain hop-by-hop (not fetch()'s automatic
-// following) so loops can be detected and every hop's real status/Location header is visible.
+//
+// Uses a REAL headless Chrome browser (not a plain fetch client) to resolve each domain to
+// its actual final URL. This matters because a plain HTTP client — even one sending a Chrome
+// User-Agent header — has a different TLS handshake fingerprint than genuine Chrome, and some
+// sites' security/bot-protection layers detect that mismatch and block or reset the HTTPS
+// connection while leaving plain HTTP (often just an unprotected redirect rule) untouched.
+// That produced false "http://" results for sites that actually serve fine over HTTPS to a
+// real browser. Driving genuine Chromium sidesteps the problem entirely — it IS Chrome, so
+// there's no fingerprint to mismatch. Playwright's own goto()/page.url() also natively follows
+// every redirect and normalizes empty-path URLs with a trailing slash exactly like Chrome's
+// address bar, so no manual redirect-chain or URL-normalization logic is needed at all.
 
-const PER_HOP_TIMEOUT   = 6000
-const DOMAIN_TIME_BUDGET = 20000 // whole chain (incl. HTTP fallback) must finish within this
-const MAX_HOPS           = 15
-const CONCURRENCY         = 25   // matches the frontend's batch size — single-wave processing
+import chromium from '@sparticuz/chromium'
+import { chromium as playwrightChromium } from 'playwright-core'
+
+const NAV_TIMEOUT      = 8000  // per navigation attempt
+const PAGE_CONCURRENCY = 5     // concurrent pages sharing one browser instance
 
 function hasProtocol(raw) {
   return /^https?:\/\//i.test(raw)
 }
 
-async function fetchHop(url, timeoutMs) {
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), timeoutMs)
-  try {
-    const res = await fetch(url, {
-      signal: controller.signal,
-      redirect: 'manual', // we walk the chain ourselves — see file header
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9',
-      },
-    })
-    clearTimeout(timer)
-    return { ok: true, status: res.status, location: res.headers.get('location') }
-  } catch (err) {
-    clearTimeout(timer)
-    return { ok: false, error: err }
-  }
-}
-
-function classifyError(err) {
-  if (err?.name === 'AbortError') return 'TIMEOUT'
-  const code = err?.cause?.code || err?.code || ''
-  if (code === 'ENOTFOUND' || code === 'EAI_AGAIN') return 'DNS_ERROR'
-  if (/CERT|TLS|SSL|EPROTO/i.test(code)) return 'SSL_ERROR'
-  if (code === 'ECONNREFUSED' || code === 'ECONNRESET' || code === 'EHOSTUNREACH' || code === 'ENETUNREACH' || code === 'ETIMEDOUT') {
-    return code === 'ETIMEDOUT' ? 'TIMEOUT' : 'CONNECTION_ERROR'
-  }
+function classifyPlaywrightError(err) {
+  const msg = err?.message || ''
+  if (err?.name === 'TimeoutError' || /Timeout \d+ms exceeded/.test(msg)) return 'TIMEOUT'
+  if (/ERR_NAME_NOT_RESOLVED/.test(msg)) return 'DNS_ERROR'
+  if (/ERR_TOO_MANY_REDIRECTS/.test(msg)) return 'REDIRECT_LOOP'
+  if (/ERR_CERT_|ERR_SSL_|ERR_BAD_SSL_CLIENT_AUTH/.test(msg)) return 'SSL_ERROR'
+  if (/ERR_CONNECTION_REFUSED|ERR_CONNECTION_RESET|ERR_CONNECTION_CLOSED|ERR_ADDRESS_UNREACHABLE|ERR_NETWORK_CHANGED/.test(msg)) return 'CONNECTION_ERROR'
   return 'NO_RESPONSE'
 }
 
-// Walks redirects hop-by-hop from startUrl. Returns { status: 'OK', finalUrl } or
-// { status: <error code> } — never a fabricated URL.
-async function resolveChain(startUrl, deadline) {
-  const visited = new Set()
-  let current = startUrl
-
-  for (let hop = 0; hop <= MAX_HOPS; hop++) {
-    if (visited.has(current)) return { status: 'REDIRECT_LOOP' }
-    visited.add(current)
-
-    const timeLeft = deadline - Date.now()
-    if (timeLeft <= 0) return { status: 'TIMEOUT' }
-
-    const result = await fetchHop(current, Math.min(PER_HOP_TIMEOUT, timeLeft))
-    if (!result.ok) return { status: classifyError(result.error) }
-
-    const isRedirect = result.status >= 300 && result.status < 400
-    if (isRedirect && result.location) {
-      let next
-      try { next = new URL(result.location, current).href } catch { return { status: 'NO_RESPONSE' } }
-      current = next
-      continue
-    }
-
-    // Not a redirect (or a redirect with no Location) — this is where a browser lands
-    return { status: 'OK', finalUrl: current }
-  }
-
-  return { status: 'REDIRECT_LOOP' } // exceeded MAX_HOPS without terminating
-}
-
-// Errors that mean "this protocol couldn't even connect" — worth retrying the other
-// protocol. A DNS failure would fail identically either way, so it short-circuits instead.
+// Errors worth retrying with the other protocol. A DNS failure or a genuine redirect loop
+// would happen identically either way, so those short-circuit instead.
 const RETRY_WITH_OTHER_PROTOCOL = new Set(['SSL_ERROR', 'CONNECTION_ERROR', 'TIMEOUT', 'NO_RESPONSE'])
 
-// Real browsers (and the URL/WHATWG spec) normalize an empty path to "/" — e.g. typing
-// "example.com" actually requests and displays "https://example.com/". Building the start
-// URL as a raw template string skips that normalization; routing it through the URL class
-// applies the same rule a browser's address bar would, so a site with no redirect at all
-// still reports the trailing slash instead of looking different from what Chrome shows.
-function buildUrl(protocol, host) {
-  try { return new URL(`${protocol}://${host}`).href } catch { return null }
+// After a failed navigation, Chromium keeps transitioning internally to its own error page
+// for a moment. If the SAME page is immediately reused for another goto() — the HTTPS-failed
+// -> HTTP retry, or just the next domain in a worker's queue — that pending transition can
+// cancel the new navigation with "interrupted by another navigation", which isn't a real
+// verdict on the new URL at all. Retry once after a brief settle delay instead of reporting
+// that as a false failure.
+async function attemptGoto(page, url) {
+  try {
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT })
+    return { status: 'OK', finalUrl: page.url() }
+  } catch (err) {
+    if (/interrupted by another navigation/.test(err?.message || '')) return null
+    return { status: classifyPlaywrightError(err) }
+  }
 }
 
-async function resolveDomain(rawInput) {
-  const trimmed = (rawInput || '').trim()
-  if (!trimmed) return { status: 'NO_RESPONSE' }
+async function navigateTo(page, url) {
+  const first = await attemptGoto(page, url)
+  if (first) return first
+  await page.waitForTimeout(150).catch(() => {})
+  const second = await attemptGoto(page, url)
+  return second || { status: 'NO_RESPONSE' }
+}
 
-  const deadline = Date.now() + DOMAIN_TIME_BUDGET
+async function resolveOne(page, rawInput) {
+  const trimmed = (rawInput || '').trim()
+  if (!trimmed) return { input: rawInput, status: 'NO_RESPONSE' }
 
   if (hasProtocol(trimmed)) {
     // Caller gave an explicit protocol — respect it, no fallback testing of the other one.
-    let normalized
-    try { normalized = new URL(trimmed).href } catch { return { status: 'NO_RESPONSE' } }
-    return resolveChain(normalized, deadline)
+    const r = await navigateTo(page, trimmed)
+    return { input: rawInput, ...r }
   }
 
-  const httpsStart = buildUrl('https', trimmed)
-  if (!httpsStart) return { status: 'NO_RESPONSE' }
-
-  const httpsResult = await resolveChain(httpsStart, deadline)
-  if (httpsResult.status === 'OK') return httpsResult
-  if (httpsResult.status === 'DNS_ERROR') return httpsResult // http:// would fail identically
-  if (httpsResult.status === 'REDIRECT_LOOP') return httpsResult // not a connectivity issue
-
-  if (!RETRY_WITH_OTHER_PROTOCOL.has(httpsResult.status)) return httpsResult
-  if (Date.now() >= deadline) return httpsResult
-
-  const httpStart = buildUrl('http', trimmed)
-  if (!httpStart) return httpsResult
-  const httpResult = await resolveChain(httpStart, deadline)
-  return httpResult.status === 'OK' ? httpResult : httpsResult // prefer reporting the HTTPS failure if both fail
-}
-
-async function runCapped(items, cap, onItem) {
-  let i = 0
-  async function next() {
-    if (i >= items.length) return
-    const idx = i++
-    await onItem(idx, items[idx])
-    return next()
+  const httpsResult = await navigateTo(page, `https://${trimmed}`)
+  if (httpsResult.status === 'OK') return { input: rawInput, ...httpsResult }
+  if (httpsResult.status === 'DNS_ERROR' || httpsResult.status === 'REDIRECT_LOOP') {
+    return { input: rawInput, ...httpsResult } // http:// would fail/loop identically
   }
-  await Promise.all(Array.from({ length: Math.min(cap, items.length) }, next))
+  if (!RETRY_WITH_OTHER_PROTOCOL.has(httpsResult.status)) return { input: rawInput, ...httpsResult }
+
+  const httpResult = await navigateTo(page, `http://${trimmed}`)
+  return httpResult.status === 'OK'
+    ? { input: rawInput, ...httpResult }
+    : { input: rawInput, ...httpsResult } // prefer reporting the HTTPS failure if both fail
 }
 
 export default async function handler(req, res) {
@@ -139,16 +91,39 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'domains array is required' })
   }
 
-  const results = new Array(domains.length)
+  let browser
+  try {
+    browser = await playwrightChromium.launch({
+      args: chromium.args,
+      executablePath: await chromium.executablePath(),
+      headless: true,
+    })
+  } catch {
+    // Browser failed to launch entirely — report every domain as failed rather than crashing
+    // the whole batch (and every other in-flight batch) with an unhandled error.
+    return res.json({ results: domains.map(d => ({ input: d, status: 'NO_RESPONSE' })) })
+  }
 
-  await runCapped(domains, CONCURRENCY, async (i, domain) => {
-    try {
-      const r = await resolveDomain(domain)
-      results[i] = { input: domain, ...r }
-    } catch (err) {
-      results[i] = { input: domain, status: 'NO_RESPONSE' }
+  const results = new Array(domains.length)
+  try {
+    const pageCount = Math.min(PAGE_CONCURRENCY, domains.length)
+    const pages = await Promise.all(Array.from({ length: pageCount }, () => browser.newPage()))
+
+    let next = 0
+    async function worker(page) {
+      while (next < domains.length) {
+        const idx = next++
+        try {
+          results[idx] = await resolveOne(page, domains[idx])
+        } catch {
+          results[idx] = { input: domains[idx], status: 'NO_RESPONSE' }
+        }
+      }
     }
-  })
+    await Promise.all(pages.map(worker))
+  } finally {
+    await browser.close()
+  }
 
   return res.json({ results })
 }
