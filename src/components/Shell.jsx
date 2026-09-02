@@ -32,6 +32,10 @@ export function Sidebar({ route, setRoute, role, me, allUsers = [], impersonated
     { id: 'lc-guide',   label: 'Guide',       icon: 'list' },
   ];
 
+  // tools-only users get exactly one nav item and nothing in "More" — no settings, no shortcuts
+  const isToolsOnly = me.role === 'tools-only';
+  const visibleNavItems = isToolsOnly ? navItems.filter(it => it.id === 'tools') : navItems;
+
   // Only lead/super (the two specific admin roles) can see Active Users
   const showActiveUsers = (me.role === 'lead' || me.role === 'super') && !impersonatedId;
 
@@ -56,7 +60,8 @@ export function Sidebar({ route, setRoute, role, me, allUsers = [], impersonated
     ? (displayUser.role === 'lead' ? 'Team Lead' : 'Member')
     : me.role === 'super' ? 'Super Admin'
     : me.role === 'hr' ? 'HR'
-    : me.role === 'lead' ? 'Team Lead' : 'Member';
+    : me.role === 'lead' ? 'Team Lead'
+    : me.role === 'tools-only' ? 'Tools Access' : 'Member';
 
   return (
     <aside className="sidebar">
@@ -117,7 +122,7 @@ export function Sidebar({ route, setRoute, role, me, allUsers = [], impersonated
         <>
           <div className="nav-section">
             <div className="nav-section-title">Workspace</div>
-            {navItems.map(it => (
+            {visibleNavItems.map(it => (
               <div key={it.id} className={`nav-item ${route === it.id ? 'active' : ''}`} onClick={() => setRoute(it.id)}>
                 <Icon name={it.icon} size={15} />
                 <span>{it.label}</span>
@@ -157,20 +162,22 @@ export function Sidebar({ route, setRoute, role, me, allUsers = [], impersonated
         </div>
       )}
 
-      <div className="nav-section">
-        <div className="nav-section-title">More</div>
-        <div className={`nav-item ${route === 'shortcuts' ? 'active' : ''}`} onClick={() => setRoute('shortcuts')}>
-          <Icon name="keyboard" size={15} /><span>Shortcuts</span><span className="kbd" style={{ marginLeft: 'auto' }}>?</span>
-        </div>
-        <div className={`nav-item ${route === 'settings' ? 'active' : ''}`} onClick={() => setRoute('settings')}>
-          <Icon name="settings" size={15} /><span>Settings</span>
-        </div>
-        {['lead', 'super'].includes(role) && (
-          <div className={`nav-item ${route === 'admin' ? 'active' : ''}`} onClick={() => setRoute('admin')}>
-            <Icon name="shield" size={15} /><span>Admin</span>
+      {!isToolsOnly && (
+        <div className="nav-section">
+          <div className="nav-section-title">More</div>
+          <div className={`nav-item ${route === 'shortcuts' ? 'active' : ''}`} onClick={() => setRoute('shortcuts')}>
+            <Icon name="keyboard" size={15} /><span>Shortcuts</span><span className="kbd" style={{ marginLeft: 'auto' }}>?</span>
           </div>
-        )}
-      </div>
+          <div className={`nav-item ${route === 'settings' ? 'active' : ''}`} onClick={() => setRoute('settings')}>
+            <Icon name="settings" size={15} /><span>Settings</span>
+          </div>
+          {['lead', 'super'].includes(role) && (
+            <div className={`nav-item ${route === 'admin' ? 'active' : ''}`} onClick={() => setRoute('admin')}>
+              <Icon name="shield" size={15} /><span>Admin</span>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="sidebar-foot">
         {impersonatedId && (
@@ -200,6 +207,7 @@ export function Topbar({ route, role, theme, toggleTheme, openCmdK, notifOpen, s
     home: ['Home'], report: ['Daily Report'], emails: ['Email Log'],
     analytics: ['Analytics'], team: ['Team'], review: ['Manage', 'Review Queue'],
     leaderboard: ['Manage', 'Leaderboard'], settings: ['Settings'], admin: ['Admin'],
+    tools: ['Tools'], ideas: ['Ideas Board'], tasks: ['Tasks'],
     shortcuts: ['Shortcuts'], brief: ['Design Brief'],
     'lc-home': ['Live Chat', 'Home'], 'lc-team': ['Live Chat', 'Team'],
     'lc-clients': ['Live Chat', 'Clients'], 'lc-orders': ['Live Chat', 'Order Sheet'],

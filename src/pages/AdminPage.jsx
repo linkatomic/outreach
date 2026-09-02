@@ -180,6 +180,7 @@ VALUES ('${uid || '<UID>'}', '${memberId || '<member_id>'}', '${dbRole}', '${nam
                 <option value="lead">Lead</option>
                 {team === 'outreach' && <option value="hr">HR</option>}
                 {team === 'outreach' && <option value="super">Super</option>}
+                {team === 'outreach' && <option value="tools-only">Tools Only (no other page access)</option>}
               </select>
             </Field>
             <Field label="Joined date">

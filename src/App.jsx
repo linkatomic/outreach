@@ -290,6 +290,12 @@ export default function App() {
       return <LiveChatHome me={m} />;
     }
 
+    // tools-only users get exactly the Tools page and nothing else — no exceptions, regardless
+    // of what `route` holds (stale state, a keyboard shortcut, the command palette, etc.)
+    if (m.role === 'tools-only') {
+      return <ToolsPage me={m} role={role} />;
+    }
+
     switch (route) {
       case 'home':       return isManager ? <LeadHome me={m} setRoute={setRoute} /> : <MemberHome me={m} setRoute={setRoute} />;
       case 'report':     return <DailyReportPage me={m} setRoute={setRoute} showToast={showToast} />;
