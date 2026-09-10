@@ -641,7 +641,12 @@ export async function createOutputSheet(title, headers, rows, numPriceCols) {
 // which cells are "cheaper"/"tied"/disabled — so this function just materializes whatever
 // buildFormatRequests(sheetId) returns, chunked to stay well under the Sheets API's per-call
 // request-count ceiling on very large sheets.
-export async function createUltimateOutputSheet(title, headers, rows, buildFormatRequests) {
+// Generic primitive — the caller (UltimateSheetParser.jsx) owns every formatting decision
+// (column widths, merges, colors, alignment) via buildRequests(sheetId), since that's where
+// the column layout and comparison-outcome logic already lives. `valueRows` is the full grid
+// including however many header rows the caller wants (e.g. a grouped 2-row header) followed
+// by the data rows.
+export async function createUltimateOutputSheet(title, valueRows, buildRequests) {
   const created = await gsheets('/spreadsheets', {
     method: 'POST',
     body: JSON.stringify({
@@ -654,41 +659,10 @@ export async function createUltimateOutputSheet(title, headers, rows, buildForma
 
   await gsheets(`/spreadsheets/${newId}/values/Websites!A1?valueInputOption=USER_ENTERED`, {
     method: 'PUT',
-    body: JSON.stringify({ values: [headers, ...rows] }),
+    body: JSON.stringify({ values: valueRows }),
   })
 
-  const baseRequests = [
-    {
-      repeatCell: {
-        range: { sheetId, startRowIndex: 0, endRowIndex: 1 },
-        cell: { userEnteredFormat: { textFormat: { bold: true, foregroundColor: { red: 1, green: 1, blue: 1 } }, backgroundColor: { red: 0.11, green: 0.11, blue: 0.15 } } },
-        fields: 'userEnteredFormat.textFormat,userEnteredFormat.backgroundColor',
-      },
-    },
-    {
-      updateSheetProperties: {
-        properties: { sheetId, gridProperties: { frozenRowCount: 1, frozenColumnCount: 2 } },
-        fields: 'gridProperties.frozenRowCount,gridProperties.frozenColumnCount',
-      },
-    },
-    {
-      repeatCell: {
-        range: { sheetId },
-        cell: { userEnteredFormat: { horizontalAlignment: 'CENTER', verticalAlignment: 'MIDDLE' } },
-        fields: 'userEnteredFormat.horizontalAlignment,userEnteredFormat.verticalAlignment',
-      },
-    },
-    {
-      repeatCell: {
-        range: { sheetId, startColumnIndex: 1, endColumnIndex: 2 },
-        cell: { userEnteredFormat: { horizontalAlignment: 'LEFT' } },
-        fields: 'userEnteredFormat.horizontalAlignment',
-      },
-    },
-    { updateDimensionProperties: { range: { sheetId, dimension: 'COLUMNS', startIndex: 1, endIndex: 2 }, properties: { pixelSize: 220 }, fields: 'pixelSize' } },
-  ]
-
-  const allRequests = [...baseRequests, ...buildFormatRequests(sheetId)]
+  const allRequests = buildRequests(sheetId)
   const CHUNK = 400
   for (let i = 0; i < allRequests.length; i += CHUNK) {
     await gsheets(`/spreadsheets/${newId}:batchUpdate`, {

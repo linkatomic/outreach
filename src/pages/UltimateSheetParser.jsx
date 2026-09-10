@@ -23,6 +23,73 @@ const NICHE_CATEGORIES = [
 ]
 const NICHE_BY_KEY = Object.fromEntries(NICHE_CATEGORIES.map(n => [n.key, n]))
 
+// Each niche shares a color family with its /LI variant, so the two read as clearly related
+// at a glance rather than as unrelated columns.
+const NICHE_FAMILY = {
+  general: 'blue', general_li: 'blue',
+  casino: 'purple', casino_li: 'purple',
+  cbd: 'green', cbd_li: 'green',
+  crypto: 'amber', crypto_li: 'amber',
+}
+function rgb(red, green, blue) { return { red, green, blue } }
+const FAMILY = {
+  blue:    { header: rgb(0.176, 0.322, 0.573), tint: rgb(0.933, 0.949, 0.980) },
+  purple:  { header: rgb(0.396, 0.263, 0.573), tint: rgb(0.953, 0.933, 0.980) },
+  green:   { header: rgb(0.176, 0.435, 0.263), tint: rgb(0.925, 0.957, 0.929) },
+  amber:   { header: rgb(0.588, 0.404, 0.086), tint: rgb(0.996, 0.949, 0.878) },
+  neutral: { header: rgb(0.11, 0.11, 0.15),    tint: rgb(0.965, 0.965, 0.968) },
+}
+const HEADER_DARK = rgb(0.11, 0.11, 0.15)
+const WHITE = rgb(1, 1, 1)
+const WINS_BG = rgb(0.816, 0.925, 0.827)
+const TIE_BG  = rgb(0.925, 0.925, 0.929)
+const NA_BG   = rgb(0.965, 0.965, 0.965)
+const CHEAPER_BG = { existing: FAMILY.blue.tint, added: WINS_BG, same: TIE_BG, na: NA_BG }
+const DISABLED_BG = rgb(0.98, 0.867, 0.867)
+
+// ── Column plan ──────────────────────────────────────────────────────────────
+// Single source of truth for header text, column widths, merges, and where every value/
+// format request lands — everything downstream reads column positions from `colStart`
+// instead of hardcoded arithmetic, so reordering or resizing columns only ever happens here.
+function buildColumnPlan(activeNicheKeys, additionalNames) {
+  const descriptors = [
+    { type: 'simple', key: 'tabName', label: 'Tab Name', width: 130 },
+    { type: 'simple', key: 'website', label: 'Website', width: 230, align: 'LEFT' },
+    { type: 'simple', key: 'status', label: 'Status', width: 110 },
+    { type: 'simple', key: 'disableReason', label: 'Disable Reason', width: 280, wrap: true, align: 'LEFT' },
+    ...activeNicheKeys.map(key => ({
+      type: 'group', key, family: NICHE_FAMILY[key],
+      groupLabel: NICHE_BY_KEY[key].label.toUpperCase().replace('/', ' / '),
+      subLabels: ['Sheet', 'Buyer', 'Existing', 'Cheaper'],
+      widths: [120, 110, 120, 170],
+    })),
+    { type: 'group', key: 'metrics', family: 'neutral', groupLabel: 'SITE METRICS', subLabels: ['DA', 'PA', 'Ascore'], widths: [75, 75, 85] },
+    { type: 'group', key: 'vendor', family: 'neutral', groupLabel: 'VENDOR INFO', subLabels: ['Name', 'Type', 'Currency'], widths: [180, 130, 120] },
+    ...additionalNames.map(name => ({ type: 'simple', key: `additional:${name}`, label: name, width: 170 })),
+  ]
+
+  let col = 0
+  const colStart = {}
+  const groupHeaderRow = []
+  const subHeaderRow = []
+  const widths = []
+  for (const d of descriptors) {
+    colStart[d.key] = col
+    if (d.type === 'simple') {
+      groupHeaderRow.push(d.label)
+      subHeaderRow.push('')
+      widths.push(d.width)
+      col += 1
+    } else {
+      groupHeaderRow.push(d.groupLabel, ...Array(d.subLabels.length - 1).fill(''))
+      subHeaderRow.push(...d.subLabels)
+      widths.push(...d.widths)
+      col += d.subLabels.length
+    }
+  }
+  return { descriptors, colStart, groupHeaderRow, subHeaderRow, widths, totalCols: col }
+}
+
 const ROLE_OPTIONS = [
   { key: 'ignore',     label: '— Ignore —' },
   { key: 'domain',     label: 'Domain' },
@@ -282,27 +349,33 @@ export function UltimateSheetParser({ priceMap, me }) {
 
       setProcessingMsg('Comparing prices and building the sheet…')
 
-      const headers = [
-        'Tab Name', 'Website',
-        ...activeNicheKeys.flatMap(key => {
-          const label = NICHE_BY_KEY[key].label
-          return [`${label} (Sheet)`, `${label} Buyer`, `${label} (Existing)`, `${label} Cheaper`]
-        }),
-        'Status', 'Disable Reason', 'DA', 'PA', 'Ascore', 'Vendor Name', 'Vendor Type', 'Vendor Currency',
-        ...additionalNames,
-      ]
+      const plan = buildColumnPlan(activeNicheKeys, additionalNames)
+      const { colStart } = plan
 
       const outputRows = []
       const disabledRowIndexes = [] // 0-indexed into outputRows, for status highlight
-      const nicheCellFormats = [] // { rowIdx, colIdx, kind: 'sheet-wins'|'existing-wins'|'same' }
+      const nicheCellFormats = [] // { rowIdx, colIdx, kind: 'wins'|'tie' }
       const cheaperCellFormats = [] // { rowIdx, colIdx, outcome }
 
       parsedRows.forEach((pr, rowIdx) => {
         const info = gplMap.get(pr.domain)
         const vendor = info?.vendor || null
 
-        const nicheCells = []
-        activeNicheKeys.forEach((key, ni) => {
+        const row = new Array(plan.totalCols).fill('')
+        row[colStart.tabName] = pr.tabName
+        row[colStart.website] = pr.domain
+        row[colStart.status] = info ? (STATUS_LABELS[info.status] || info.status) : 'Not in GPL'
+        row[colStart.disableReason] = info?.disableReason || ''
+        row[colStart.metrics + 0] = info?.da ?? ''
+        row[colStart.metrics + 1] = info?.pa ?? ''
+        row[colStart.metrics + 2] = info?.ascore ?? ''
+        row[colStart.vendor + 0] = vendor?.name || ''
+        row[colStart.vendor + 1] = vendor?.vendorType || ''
+        row[colStart.vendor + 2] = vendor?.currency || ''
+        for (const name of additionalNames) row[colStart[`additional:${name}`]] = pr.additionalByName[name] ?? ''
+
+        activeNicheKeys.forEach(key => {
+          const base = colStart[key]
           const sheetPrice = pr.sheetPrices[key]
           const gplLabel = NICHE_BY_KEY[key].gplLabel
           const existingAddon = vendor?.addonsByLabel.get(gplLabel) || null
@@ -310,61 +383,120 @@ export function UltimateSheetParser({ priceMap, me }) {
           const outcome = compareNiche(sheetPrice, existingPrice, vendor?.currency)
           const buyerPrice = sheetPrice != null ? (priceMap.get(Math.round(sheetPrice))?.buyer ?? null) : null
 
-          const baseCol = 2 + ni * 4
-          if (outcome === 'added') nicheCellFormats.push({ rowIdx, colIdx: baseCol, kind: 'wins' })
-          if (outcome === 'existing') nicheCellFormats.push({ rowIdx, colIdx: baseCol + 2, kind: 'wins' })
-          if (outcome === 'same') { nicheCellFormats.push({ rowIdx, colIdx: baseCol, kind: 'tie' }); nicheCellFormats.push({ rowIdx, colIdx: baseCol + 2, kind: 'tie' }) }
-          cheaperCellFormats.push({ rowIdx, colIdx: baseCol + 3, outcome })
+          if (outcome === 'added') nicheCellFormats.push({ rowIdx, colIdx: base, kind: 'wins' })
+          if (outcome === 'existing') nicheCellFormats.push({ rowIdx, colIdx: base + 2, kind: 'wins' })
+          if (outcome === 'same') { nicheCellFormats.push({ rowIdx, colIdx: base, kind: 'tie' }); nicheCellFormats.push({ rowIdx, colIdx: base + 2, kind: 'tie' }) }
+          cheaperCellFormats.push({ rowIdx, colIdx: base + 3, outcome })
 
-          nicheCells.push(
-            sheetPrice ?? '',
-            buyerPrice ?? '',
-            existingPrice ?? '',
-            CHEAPER_LABELS[outcome],
-          )
+          row[base + 0] = sheetPrice ?? ''
+          row[base + 1] = buyerPrice ?? ''
+          row[base + 2] = existingPrice ?? ''
+          row[base + 3] = CHEAPER_LABELS[outcome]
         })
 
         if (info?.status === 'disable') disabledRowIndexes.push(rowIdx)
-
-        const row = [
-          pr.tabName, pr.domain,
-          ...nicheCells,
-          info ? (STATUS_LABELS[info.status] || info.status) : 'Not in GPL',
-          info?.disableReason || '',
-          info?.da ?? '', info?.pa ?? '', info?.ascore ?? '',
-          vendor?.name || '', vendor?.vendorType || '', vendor?.currency || '',
-          ...additionalNames.map(name => pr.additionalByName[name] ?? ''),
-        ]
         outputRows.push(row)
       })
 
-      const statusColIdx = 2 + activeNicheKeys.length * 4
-
+      // Header rows occupy grid rows 0-1, so every data-row format request offsets by 2.
+      const HEADER_ROWS = 2
       const buildFormatRequests = (sid) => {
-        const GREEN = { red: 0.851, green: 0.918, blue: 0.827 }
-        const GRAY  = { red: 0.90, green: 0.90, blue: 0.90 }
-        const RED   = { red: 0.98, green: 0.86, blue: 0.86 }
-        const CHEAPER_BG = { existing: { red: 0.878, green: 0.918, blue: 0.980 }, added: GREEN, same: GRAY, na: { red: 0.96, green: 0.96, blue: 0.96 } }
-
-        const cellReq = (rowIdx, colIdx, bg) => ({
+        const cellBg = (rowIdx, colIdx, bg) => ({
           repeatCell: {
-            range: { sheetId: sid, startRowIndex: rowIdx + 1, endRowIndex: rowIdx + 2, startColumnIndex: colIdx, endColumnIndex: colIdx + 1 },
+            range: { sheetId: sid, startRowIndex: rowIdx + HEADER_ROWS, endRowIndex: rowIdx + HEADER_ROWS + 1, startColumnIndex: colIdx, endColumnIndex: colIdx + 1 },
             cell: { userEnteredFormat: { backgroundColor: bg } },
             fields: 'userEnteredFormat.backgroundColor',
           },
         })
+        const rangeBg = (r0, r1, c0, c1, bg) => ({
+          repeatCell: {
+            range: { sheetId: sid, startRowIndex: r0, endRowIndex: r1, startColumnIndex: c0, endColumnIndex: c1 },
+            cell: { userEnteredFormat: { backgroundColor: bg } },
+            fields: 'userEnteredFormat.backgroundColor',
+          },
+        })
+        const merge = (r0, r1, c0, c1) => ({ mergeCells: { range: { sheetId: sid, startRowIndex: r0, endRowIndex: r1, startColumnIndex: c0, endColumnIndex: c1 }, mergeType: 'MERGE_ALL' } })
+        const colWidth = (ci, px) => ({ updateDimensionProperties: { range: { sheetId: sid, dimension: 'COLUMNS', startIndex: ci, endIndex: ci + 1 }, properties: { pixelSize: px }, fields: 'pixelSize' } })
+        const align = (c0, c1, horizontalAlignment) => ({
+          repeatCell: {
+            range: { sheetId: sid, startColumnIndex: c0, endColumnIndex: c1 },
+            cell: { userEnteredFormat: { horizontalAlignment } },
+            fields: 'userEnteredFormat.horizontalAlignment',
+          },
+        })
 
+        const totalRows = HEADER_ROWS + outputRows.length
         const reqs = []
-        for (const f of nicheCellFormats) reqs.push(cellReq(f.rowIdx, f.colIdx, f.kind === 'tie' ? GRAY : GREEN))
-        for (const f of cheaperCellFormats) reqs.push(cellReq(f.rowIdx, f.colIdx, CHEAPER_BG[f.outcome]))
-        for (const rowIdx of disabledRowIndexes) reqs.push(cellReq(rowIdx, statusColIdx, RED))
+
+        // Base sheet-wide look: dark header, frozen header + Website, centered numeric-leaning
+        // body, comfortable row height, wrapped/vertically-centered header text so long compound
+        // headers (e.g. "Casino / LI") never get visually clipped.
+        reqs.push(rangeBg(0, totalRows, 0, plan.totalCols, WHITE))
+        reqs.push({
+          repeatCell: {
+            range: { sheetId: sid },
+            cell: { userEnteredFormat: { horizontalAlignment: 'CENTER', verticalAlignment: 'MIDDLE', textFormat: { fontSize: 10 } } },
+            fields: 'userEnteredFormat.horizontalAlignment,userEnteredFormat.verticalAlignment,userEnteredFormat.textFormat.fontSize',
+          },
+        })
+        reqs.push({
+          repeatCell: {
+            range: { sheetId: sid, startRowIndex: 0, endRowIndex: HEADER_ROWS },
+            cell: { userEnteredFormat: {
+              backgroundColor: HEADER_DARK,
+              textFormat: { bold: true, foregroundColor: WHITE, fontSize: 10 },
+              wrapStrategy: 'WRAP',
+              verticalAlignment: 'MIDDLE',
+            } },
+            fields: 'userEnteredFormat(backgroundColor,textFormat,wrapStrategy,verticalAlignment)',
+          },
+        })
+        reqs.push({ updateDimensionProperties: { range: { sheetId: sid, dimension: 'ROWS', startIndex: 0, endIndex: HEADER_ROWS }, properties: { pixelSize: 34 }, fields: 'pixelSize' } })
+        reqs.push({
+          updateSheetProperties: {
+            properties: { sheetId: sid, gridProperties: { frozenRowCount: HEADER_ROWS, frozenColumnCount: 2 } },
+            fields: 'gridProperties.frozenRowCount,gridProperties.frozenColumnCount',
+          },
+        })
+
+        // Per-column widths, merges, and (for niche groups) a colored group header + a very
+        // light tint carried down through the data rows so each niche's 4 columns stay visually
+        // grouped without competing with the stronger comparison-outcome colors layered on top.
+        for (const d of plan.descriptors) {
+          const start = colStart[d.key]
+          if (d.type === 'simple') {
+            reqs.push(merge(0, HEADER_ROWS, start, start + 1))
+            reqs.push(colWidth(start, d.width))
+            if (d.align) reqs.push(align(start, start + 1, d.align))
+            if (d.wrap) reqs.push({ repeatCell: { range: { sheetId: sid, startColumnIndex: start, endColumnIndex: start + 1 }, cell: { userEnteredFormat: { wrapStrategy: 'WRAP' } }, fields: 'userEnteredFormat.wrapStrategy' } })
+          } else {
+            const span = d.subLabels.length
+            reqs.push(merge(0, 1, start, start + span))
+            const fam = FAMILY[d.family] || FAMILY.neutral
+            reqs.push({
+              repeatCell: {
+                range: { sheetId: sid, startRowIndex: 0, endRowIndex: 1, startColumnIndex: start, endColumnIndex: start + span },
+                cell: { userEnteredFormat: { backgroundColor: fam.header, textFormat: { bold: true, foregroundColor: WHITE, fontSize: 10 } } },
+                fields: 'userEnteredFormat(backgroundColor,textFormat)',
+              },
+            })
+            if (fam !== FAMILY.neutral) reqs.push(rangeBg(HEADER_ROWS, totalRows, start, start + span, fam.tint))
+            d.widths.forEach((w, i) => reqs.push(colWidth(start + i, w)))
+          }
+        }
+
+        // Comparison-outcome highlights — applied after the base/group tints above so they win.
+        for (const f of nicheCellFormats) reqs.push(cellBg(f.rowIdx, f.colIdx, f.kind === 'tie' ? TIE_BG : WINS_BG))
+        for (const f of cheaperCellFormats) reqs.push(cellBg(f.rowIdx, f.colIdx, CHEAPER_BG[f.outcome]))
+        for (const rowIdx of disabledRowIndexes) reqs.push(cellBg(rowIdx, colStart.status, DISABLED_BG))
+
         return reqs
       }
 
       const date = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
       const title = sheetName.trim() || `Ultimate Parsed Sites — ${date}`
       setProcessingMsg('Writing to Google Sheets…')
-      const sheetUrl = await createUltimateOutputSheet(title, headers, outputRows, buildFormatRequests)
+      const sheetUrl = await createUltimateOutputSheet(title, [plan.groupHeaderRow, plan.subHeaderRow, ...outputRows], buildFormatRequests)
 
       const outputData = {
         sheetUrl, totalSites: outputRows.length, tabsProcessed: enabledTabs.length,
