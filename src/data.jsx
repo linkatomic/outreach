@@ -7,6 +7,7 @@ export const TEAM = [
   { id: 'keyur',  name: 'Keyur D',     short: 'KD', role: 'member', color: 'd', email: 'keyur.d@amrytt.com',  joined: '2024-11-18' },
   { id: 'arjun',  name: 'Arjun M',     short: 'AM', role: 'member', color: 'e', email: 'arjun.m@amrytt.com',  joined: '2025-03-02' },
   { id: 'yaksh',  name: 'Yaksh B',     short: 'YB', role: 'member', color: 'g', email: 'yaksh.b@amrytt.com',  joined: '2026-07-15' },
+  { id: 'vanita', name: 'Vanita N',    short: 'VN', role: 'member', color: 'j', email: 'vanita.n@amrytt.com', joined: '2026-09-10' },
 ];
 
 // Members whose primary role is 'livechat' but who ALSO get outreach access via the
