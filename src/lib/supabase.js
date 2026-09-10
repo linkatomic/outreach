@@ -317,11 +317,22 @@ export async function deleteTask(id) {
 }
 
 export async function loadPriceTable() {
-  const { data, error } = await supabase
-    .from('price_table')
-    .select('*')
-  if (error) throw error
-  return (data || []).map(r => ({
+  // Supabase's REST API caps a single query at 1000 rows by default — price_table now has
+  // 5000+ rows, so a plain select('*') silently truncated the result and dropped most of the
+  // higher price tiers. Page through with .range() until a page comes back short.
+  const PAGE_SIZE = 1000
+  const all = []
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from('price_table')
+      .select('*')
+      .order('Admin', { ascending: true })
+      .range(from, from + PAGE_SIZE - 1)
+    if (error) throw error
+    all.push(...(data || []))
+    if (!data || data.length < PAGE_SIZE) break
+  }
+  return all.map(r => ({
     admin: r.Admin ?? r.admin,
     buyer: r.Buyer ?? r.buyer,
     reseller: r.Reseller ?? r.reseller,
