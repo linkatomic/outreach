@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { Icon } from '../data.jsx'
 import { loadPriceTable } from '../lib/supabase.js'
+import { extractSheetId, getSheetTabs, getSheetRows, batchWriteRangeValues } from '../lib/sheetParserAPI.js'
 import { SheetParser } from './SheetParser.jsx'
 import { AnchorSync } from './AnchorSync.jsx'
 import { SamplePostFinder } from './SamplePostFinder.jsx'
@@ -752,7 +753,7 @@ function PriceCalc({ priceMap, loading, error }) {
 // integer like "34" almost certainly means "34.9" — only respect an explicit decimal typed by
 // the searcher (e.g. "34.5") as-is.
 function interpretBuyerSearch(raw) {
-  const s = raw.trim()
+  const s = String(raw).trim()
   if (!s) return null
   const n = Number(s)
   if (isNaN(n)) return null
@@ -780,11 +781,16 @@ function findClosestByBuyer(sortedRows, target) {
   return { ...best, exact: bestDist < 0.001 }
 }
 
-function BuyerPriceLookup({ priceMap, loading, error }) {
+function colLetterToIndex(letter) {
+  let n = 0
+  for (const ch of (letter || '').toUpperCase()) n = n * 26 + (ch.charCodeAt(0) - 64)
+  return n - 1
+}
+
+function ManualBuyerSearch({ priceMap, loading, error, sortedRows }) {
   const [query, setQuery] = useState('')
   const [copied, setCopied] = useState(false)
 
-  const sortedRows = useMemo(() => buildBuyerIndex(priceMap), [priceMap])
   const target = interpretBuyerSearch(query)
   const result = target != null && sortedRows.length > 0 ? findClosestByBuyer(sortedRows, target) : null
   const invalid = query.trim() !== '' && target == null
@@ -854,6 +860,227 @@ function BuyerPriceLookup({ priceMap, loading, error }) {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+const SHEET_SYNC_BATCH = 200 // rows per batchWriteRangeValues call — plenty of headroom under Sheets API limits
+
+function BuyerSheetSync({ sortedRows }) {
+  const [sheetUrl,  setSheetUrl]  = useState('')
+  const [sheetId,   setSheetId]   = useState(null)
+  const [tabs,      setTabs]      = useState([])
+  const [tabName,   setTabName]   = useState('')
+  const [tabsLoading, setTabsLoading] = useState(false)
+  const [tabsError,   setTabsError]   = useState('')
+
+  const [sourceCol, setSourceCol] = useState('B')
+  const [outputCol, setOutputCol] = useState('C')
+
+  const [scanning,  setScanning]  = useState(false)
+  const [scanError, setScanError] = useState('')
+  const [pending,   setPending]   = useState(null) // [{ sheetRow, buyerRaw, admin, buyer, reseller, exact }]
+  const [skippedInvalid, setSkippedInvalid] = useState(0)
+
+  const [running,  setRunning]  = useState(false)
+  const [progress, setProgress] = useState(null)
+  const [writeError, setWriteError] = useState('')
+  const [writeDone, setWriteDone] = useState(0)
+
+  // Fetch tabs automatically as soon as the pasted URL resolves to a spreadsheet ID —
+  // "suggests" the sheet names rather than making the user type one in.
+  useEffect(() => {
+    const id = extractSheetId(sheetUrl.trim())
+    setSheetId(id)
+    setTabs([])
+    setTabName('')
+    setTabsError('')
+    setPending(null)
+    if (!id) return
+
+    let cancelled = false
+    setTabsLoading(true)
+    getSheetTabs(id)
+      .then(result => {
+        if (cancelled) return
+        setTabs(result)
+        if (result.length) setTabName(result[0].name)
+      })
+      .catch(err => { if (!cancelled) setTabsError(err.message) })
+      .finally(() => { if (!cancelled) setTabsLoading(false) })
+    return () => { cancelled = true }
+  }, [sheetUrl])
+
+  async function scan() {
+    if (!sheetId || !tabName) return
+    setScanning(true)
+    setScanError('')
+    setPending(null)
+    setWriteError('')
+    setWriteDone(0)
+    try {
+      const srcIdx = colLetterToIndex(sourceCol)
+      const outIdx = colLetterToIndex(outputCol)
+      if (srcIdx < 0 || outIdx < 0) throw new Error('Enter valid column letters (e.g. B, C)')
+
+      const rows = await getSheetRows(sheetId, tabName)
+      const found = []
+      let invalidCount = 0
+
+      rows.forEach((row, i) => {
+        const buyerRaw = String(row[srcIdx] ?? '').trim()
+        const existing = String(row[outIdx] ?? '').trim()
+        if (!buyerRaw || existing) return // nothing to look up, or already filled in — skip
+
+        const target = interpretBuyerSearch(buyerRaw)
+        if (target == null) { invalidCount++; return }
+
+        const match = findClosestByBuyer(sortedRows, target)
+        if (!match) { invalidCount++; return }
+
+        found.push({ sheetRow: i + 1, buyerRaw, target, ...match })
+      })
+
+      setPending(found)
+      setSkippedInvalid(invalidCount)
+    } catch (err) {
+      setScanError(err.message)
+    } finally {
+      setScanning(false)
+    }
+  }
+
+  async function writeToSheet() {
+    if (!pending || pending.length === 0 || running) return
+    setRunning(true)
+    setWriteError('')
+    setProgress({ done: 0, total: pending.length })
+
+    const batches = []
+    for (let start = 0; start < pending.length; start += SHEET_SYNC_BATCH) {
+      batches.push(pending.slice(start, start + SHEET_SYNC_BATCH))
+    }
+
+    for (const batch of batches) {
+      const data = batch.map(p => ({
+        range: `'${tabName}'!${outputCol}${p.sheetRow}`,
+        values: [[p.admin]],
+      }))
+      try {
+        await batchWriteRangeValues(sheetId, data)
+        setWriteDone(prev => prev + batch.length)
+      } catch (err) {
+        setWriteError(`Write failed partway through (row ${batch[0].sheetRow} onward): ${err.message}. Rows already written are safe — re-scan and re-run to pick up the rest.`)
+        break
+      }
+      setProgress(prev => ({ ...prev, done: Math.min(pending.length, (prev?.done || 0) + batch.length) }))
+    }
+
+    setRunning(false)
+  }
+
+  const exactCount   = pending ? pending.filter(p => p.exact).length : 0
+  const closestCount = pending ? pending.length - exactCount : 0
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div style={{ fontSize: 12, color: 'var(--text-faint)', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: '10px 14px', lineHeight: 1.6 }}>
+        Reads buyer prices from Column {sourceCol}, looks up the best matching admin price for each
+        (same rule as manual search — bare integers assume ".9"), and writes it into Column {outputCol} on
+        that <b>same row</b>. Rows that already have something in Column {outputCol}, or an empty Column {sourceCol},
+        are skipped — safe to re-run. Nothing is written until you click "Write to Sheet".
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1.4fr 0.8fr 0.8fr', gap: 12 }}>
+        <div>
+          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6, display: 'block' }}>Sheet URL (editor access)</label>
+          <input className="input" value={sheetUrl} onChange={e => setSheetUrl(e.target.value)} placeholder="https://docs.google.com/spreadsheets/d/..." style={{ fontFamily: 'var(--font-mono)', fontSize: 12, width: '100%' }} />
+        </div>
+        <div>
+          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6, display: 'block' }}>Sheet Name</label>
+          <select className="input" value={tabName} onChange={e => setTabName(e.target.value)} disabled={!tabs.length} style={{ fontSize: 13, width: '100%', cursor: tabs.length ? 'pointer' : 'default' }}>
+            {tabsLoading && <option>Loading…</option>}
+            {!tabsLoading && !tabs.length && <option>Paste a sheet URL first</option>}
+            {tabs.map(t => <option key={t.sheetId} value={t.name}>{t.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6, display: 'block' }}>Buyer col</label>
+          <input className="input" value={sourceCol} onChange={e => setSourceCol(e.target.value.toUpperCase())} style={{ fontFamily: 'var(--font-mono)', fontSize: 13, width: '100%', textAlign: 'center' }} />
+        </div>
+        <div>
+          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6, display: 'block' }}>Admin col</label>
+          <input className="input" value={outputCol} onChange={e => setOutputCol(e.target.value.toUpperCase())} style={{ fontFamily: 'var(--font-mono)', fontSize: 13, width: '100%', textAlign: 'center' }} />
+        </div>
+      </div>
+
+      {tabsError && (
+        <div style={{ background: 'rgba(255,92,124,.08)', border: '1px solid rgba(255,92,124,.2)', color: '#ff8fa3', borderRadius: 8, padding: '10px 14px', fontSize: 13 }}>{tabsError}</div>
+      )}
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <button className="btn accent" onClick={scan} disabled={!sheetId || !tabName || scanning || running}>
+          {scanning ? 'Scanning…' : 'Scan Sheet'}
+        </button>
+
+        {pending !== null && !running && (
+          <button className="btn accent" onClick={writeToSheet} disabled={pending.length === 0}>
+            {`Write ${pending.length} Row${pending.length !== 1 ? 's' : ''} to Sheet`}
+          </button>
+        )}
+
+        {running && (
+          <>
+            <div style={{ height: 4, background: 'var(--surface-3, var(--surface))', borderRadius: 2, overflow: 'hidden', width: 160, border: '1px solid var(--border)' }}>
+              <div style={{ height: '100%', background: 'var(--accent)', borderRadius: 2, width: `${progress?.total ? Math.round((progress.done / progress.total) * 100) : 0}%`, transition: 'width .3s' }} />
+            </div>
+            <span style={{ fontSize: 12, color: 'var(--text-faint)', fontFamily: 'var(--font-mono)' }}>{progress?.done || 0}/{progress?.total || 0}</span>
+          </>
+        )}
+
+        {sheetUrl && <a href={sheetUrl} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: 'var(--accent)', marginLeft: 'auto' }}>↗ Open Sheet</a>}
+      </div>
+
+      {scanError && (
+        <div style={{ background: 'rgba(255,92,124,.08)', border: '1px solid rgba(255,92,124,.2)', color: '#ff8fa3', borderRadius: 8, padding: '10px 14px', fontSize: 13 }}>{scanError}</div>
+      )}
+      {writeError && (
+        <div style={{ background: 'rgba(255,92,124,.08)', border: '1px solid rgba(255,92,124,.2)', color: '#ff8fa3', borderRadius: 8, padding: '10px 14px', fontSize: 13 }}>{writeError}</div>
+      )}
+
+      {pending !== null && !scanError && (
+        <div style={{ fontSize: 13, color: 'var(--text-dim)', display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {pending.length === 0 ? (
+            <span>Nothing to write — every row with a buyer price in Column {sourceCol} already has a value in Column {outputCol}, or there's nothing new to scan.</span>
+          ) : (
+            <span>
+              Found <strong>{pending.length}</strong> row{pending.length !== 1 ? 's' : ''} to write:{' '}
+              <span style={{ color: 'var(--accent)' }}>{exactCount} exact match{exactCount !== 1 ? 'es' : ''}</span>
+              {closestCount > 0 && <>, <span style={{ color: '#f59e0b' }}>{closestCount} closest match{closestCount !== 1 ? 'es' : ''}</span></>}.
+            </span>
+          )}
+          {skippedInvalid > 0 && <span style={{ color: 'var(--text-faint)' }}>{skippedInvalid} row{skippedInvalid !== 1 ? 's' : ''} skipped — buyer cell wasn't a usable number.</span>}
+          {writeDone > 0 && !running && <span style={{ color: 'var(--accent)' }}>✓ {writeDone} row{writeDone !== 1 ? 's' : ''} written to the sheet.</span>}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function BuyerPriceLookup({ priceMap, loading, error }) {
+  const [tab, setTab] = useState('search') // 'search' | 'sheet'
+  const sortedRows = useMemo(() => buildBuyerIndex(priceMap), [priceMap])
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <span className="seg" style={{ width: 'fit-content' }}>
+        <button className={tab === 'search' ? 'on' : ''} onClick={() => setTab('search')}>Manual Search</button>
+        <button className={tab === 'sheet' ? 'on' : ''} onClick={() => setTab('sheet')}>Sheet Sync</button>
+      </span>
+
+      {tab === 'search'
+        ? <ManualBuyerSearch priceMap={priceMap} loading={loading} error={error} sortedRows={sortedRows} />
+        : <BuyerSheetSync sortedRows={sortedRows} />}
     </div>
   )
 }
