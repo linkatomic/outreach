@@ -3,6 +3,7 @@ import { Icon } from '../data.jsx'
 import { loadPriceTable } from '../lib/supabase.js'
 import { extractSheetId, getSheetTabs, getSheetRows, batchWriteRangeValues } from '../lib/sheetParserAPI.js'
 import { SheetParser } from './SheetParser.jsx'
+import { UltimateSheetParser } from './UltimateSheetParser.jsx'
 import { AnchorSync } from './AnchorSync.jsx'
 import { SamplePostFinder } from './SamplePostFinder.jsx'
 import { LiveChatClients } from './LiveChat.jsx'
@@ -1089,6 +1090,7 @@ function BuyerPriceLookup({ priceMap, loading, error }) {
 
 const TOOLS = [
   { id: 'sheet-parser',   title: 'Sheet Parser',            desc: 'Paste a reseller Google Sheet URL — AI detects columns and creates a clean output sheet with buyer prices', icon: 'download', tag: 'Sheets'   },
+  { id: 'ultimate-sheet-parser', title: 'Ultimate Sheet Parser', desc: 'AI + manual column assignment, GPL vendor price comparison, and DA/PA/Ascore enrichment — separate from Sheet Parser', icon: 'zap', tag: 'Sheets' },
   { id: 'combined-calc',  title: 'Currency & % Calculator', desc: 'Apply % discount/markup, convert currency, get post price with buyer/reseller lookup',                       icon: 'globe',    tag: 'Pricing'  },
   { id: 'price-calc',     title: 'Price Calculator',        desc: 'Convert admin price to buyer & reseller price instantly',                                                     icon: 'tool',     tag: 'Pricing'  },
   { id: 'buyer-lookup',   title: 'Buyer → Admin Lookup',    desc: 'Search a buyer price (e.g. 34 for 34.9) and get the best matching admin price instantly',                       icon: 'search',   tag: 'Pricing'  },
@@ -1182,6 +1184,20 @@ export function ToolsPage({ me, role }) {
           </div>
           <div className="card-pad">
             <SheetParser priceMap={priceMap} me={me} />
+          </div>
+        </div>
+      ) : activeTool === 'ultimate-sheet-parser' ? (
+        <div className="card">
+          <div className="card-head">
+            <div>
+              <h3>Ultimate Sheet Parser</h3>
+              <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 2 }}>
+                Manual column-letter assignment, GPL existing-vendor price comparison, DA/PA/Ascore — separate tool, Sheet Parser is untouched
+              </div>
+            </div>
+          </div>
+          <div className="card-pad">
+            <UltimateSheetParser priceMap={priceMap} me={me} />
           </div>
         </div>
       ) : activeTool === 'price-calc' ? (

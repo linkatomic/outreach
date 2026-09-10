@@ -458,6 +458,78 @@ export async function lookupPublisherData(domains, onProgress) {
   return result
 }
 
+// ── GPL publisher data lookup (full detail, for Ultimate Sheet Parser) ────
+// Separate from lookupPublisherData above (which the existing Sheet Parser depends on and
+// which stays untouched) — this pulls the full vendors array, admin/buyer/reseller price per
+// addon, vendor-level disable state, corrected contact fields (the old function's `email`
+// lookup doesn't match the current API schema at all), and site-level DA/PA/Ascore.
+export async function lookupPublisherDataFull(domains, onProgress) {
+  const result = new Map()
+  if (!GPL_API_TOKEN || !domains.length) return result
+
+  const BATCH = 100
+  const CONCURRENCY = 5
+  const batches = []
+  for (let i = 0; i < domains.length; i += BATCH) batches.push(domains.slice(i, i + BATCH))
+
+  let done = 0
+  for (let i = 0; i < batches.length; i += CONCURRENCY) {
+    const chunk = batches.slice(i, i + CONCURRENCY)
+    await Promise.allSettled(chunk.map(async batch => {
+      try {
+        const res = await fetch('https://api.records.guestpostlinks.net/v2/publisher/website/gpl/search-publishers', {
+          method: 'POST',
+          headers: { 'Authorization': GPL_API_TOKEN, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ websites: batch }),
+        })
+        if (!res.ok) return
+        const data = await res.json()
+        if (data.success && data.data?.websites) {
+          for (const site of data.data.websites) {
+            // "Existing vendor" = whichever vendor is currently active for the site — the one
+            // marked is_primary, falling back to the first listed vendor if none is marked.
+            // Vendor type (admin/reseller) doesn't matter for this — only "is it the active one".
+            const vendor = site.vendors?.find(v => v.is_primary) || site.vendors?.[0] || null
+
+            const addonsByLabel = new Map(
+              (vendor?.addons || []).map(a => [a.label, {
+                name: a.name,
+                adminPrice: a.admin_price ?? null,
+                buyerPrice: a.buyer_price ?? null,
+                resellerPrice: a.reseller_price ?? null,
+                actualPrice: a.actualPrice ?? null,
+              }])
+            )
+
+            result.set(site.website, {
+              status: site.status || '',
+              disableReason: site.disable_reason || '',
+              da: site.da ?? null,
+              pa: site.pa ?? null,
+              ascore: site.ascore ?? null,
+              vendor: vendor ? {
+                name: vendor.name || '',
+                vendorType: vendor.vendorType || '',
+                isDisable: !!vendor.is_disable,
+                disableReason: vendor.disable_reason || '',
+                currency: vendor.actualCurrency?.cc || '',
+                phone: vendor.phone || '',
+                skype: vendor.skype || '',
+                whatsapp: vendor.whatsapp || '',
+                addonsByLabel,
+              } : null,
+            })
+          }
+        }
+      } catch { /* skip failed batches */ }
+      done++
+      onProgress?.(done, batches.length)
+    }))
+  }
+
+  return result
+}
+
 // ── Google Drive API ─────────────────────────────────────
 
 async function gdrive(path, opts = {}) {
@@ -555,6 +627,77 @@ export async function createOutputSheet(title, headers, rows, numPriceCols) {
   })
 
   // Share with anyone as editor
+  await gdrive(`/files/${newId}/permissions`, {
+    method: 'POST',
+    body: JSON.stringify({ role: 'writer', type: 'anyone' }),
+  })
+
+  return `https://docs.google.com/spreadsheets/d/${newId}/edit`
+}
+
+// ── Ultimate Sheet Parser output ──────────────────────────
+// Separate from createOutputSheet above (existing Sheet Parser depends on that one and it
+// stays untouched). Conditional formatting here is driven by the caller — it already knows
+// which cells are "cheaper"/"tied"/disabled — so this function just materializes whatever
+// buildFormatRequests(sheetId) returns, chunked to stay well under the Sheets API's per-call
+// request-count ceiling on very large sheets.
+export async function createUltimateOutputSheet(title, headers, rows, buildFormatRequests) {
+  const created = await gsheets('/spreadsheets', {
+    method: 'POST',
+    body: JSON.stringify({
+      properties: { title },
+      sheets: [{ properties: { title: 'Websites' } }],
+    }),
+  })
+  const newId   = created.spreadsheetId
+  const sheetId = created.sheets[0].properties.sheetId
+
+  await gsheets(`/spreadsheets/${newId}/values/Websites!A1?valueInputOption=USER_ENTERED`, {
+    method: 'PUT',
+    body: JSON.stringify({ values: [headers, ...rows] }),
+  })
+
+  const baseRequests = [
+    {
+      repeatCell: {
+        range: { sheetId, startRowIndex: 0, endRowIndex: 1 },
+        cell: { userEnteredFormat: { textFormat: { bold: true, foregroundColor: { red: 1, green: 1, blue: 1 } }, backgroundColor: { red: 0.11, green: 0.11, blue: 0.15 } } },
+        fields: 'userEnteredFormat.textFormat,userEnteredFormat.backgroundColor',
+      },
+    },
+    {
+      updateSheetProperties: {
+        properties: { sheetId, gridProperties: { frozenRowCount: 1, frozenColumnCount: 2 } },
+        fields: 'gridProperties.frozenRowCount,gridProperties.frozenColumnCount',
+      },
+    },
+    {
+      repeatCell: {
+        range: { sheetId },
+        cell: { userEnteredFormat: { horizontalAlignment: 'CENTER', verticalAlignment: 'MIDDLE' } },
+        fields: 'userEnteredFormat.horizontalAlignment,userEnteredFormat.verticalAlignment',
+      },
+    },
+    {
+      repeatCell: {
+        range: { sheetId, startColumnIndex: 1, endColumnIndex: 2 },
+        cell: { userEnteredFormat: { horizontalAlignment: 'LEFT' } },
+        fields: 'userEnteredFormat.horizontalAlignment',
+      },
+    },
+    { updateDimensionProperties: { range: { sheetId, dimension: 'COLUMNS', startIndex: 1, endIndex: 2 }, properties: { pixelSize: 220 }, fields: 'pixelSize' } },
+  ]
+
+  const allRequests = [...baseRequests, ...buildFormatRequests(sheetId)]
+  const CHUNK = 400
+  for (let i = 0; i < allRequests.length; i += CHUNK) {
+    await gsheets(`/spreadsheets/${newId}:batchUpdate`, {
+      method: 'POST',
+      body: JSON.stringify({ requests: allRequests.slice(i, i + CHUNK) }),
+    })
+  }
+
+  // Share with anyone as editor (matches existing Sheet Parser's default)
   await gdrive(`/files/${newId}/permissions`, {
     method: 'POST',
     body: JSON.stringify({ role: 'writer', type: 'anyone' }),
