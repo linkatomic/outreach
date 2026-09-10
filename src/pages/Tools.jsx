@@ -4,16 +4,13 @@ import { loadPriceTable } from '../lib/supabase.js'
 import { SheetParser } from './SheetParser.jsx'
 import { AnchorSync } from './AnchorSync.jsx'
 import { SamplePostFinder } from './SamplePostFinder.jsx'
-import { RedirectResolver } from './RedirectResolver.jsx'
 import { LiveChatClients } from './LiveChat.jsx'
-import { EmailChecker } from './EmailChecker.jsx'
 import { EmailHarvester } from './EmailHarvester.jsx'
 
 // ─── shared helpers ────────────────────────────────────────────────────────────
 
 function uid() { return Math.random().toString(36).slice(2) }
 function mkFwdRow() { return { id: uid(), admin: '', buyer: null, reseller: null, notFound: false } }
-function mkRevRow() { return { id: uid(), input: '', admins: null, notFound: false } }
 
 // sel stores anchor (ar,ac) + cursor (cr,cc) separately so Shift+Arrow always
 // extends from the anchor, never collapses it
@@ -401,222 +398,6 @@ function ForwardGrid({ priceMap }) {
   )
 }
 
-// ─── Reverse grid (Buyer/Reseller → Admin) ─────────────────────────────────────
-
-const REV_COLS = 2
-
-function ReverseGrid({ reverseMap, inputLabel }) {
-  const [rows, setRows] = useState(() => Array.from({ length: 12 }, mkRevRow))
-  const [copied, setCopied] = useState(false)
-  const gridRef = useRef(null)
-
-  function resolve(val) {
-    const n = parseFloat(val)
-    if (!val.trim() || isNaN(n)) return { admins: null, notFound: false }
-    const m = reverseMap.get(n)
-    return m ? { admins: [...m].sort((a, b) => a - b), notFound: false } : { admins: null, notFound: true }
-  }
-
-  function getCellText(rows, r, c) {
-    const row = rows[r]; if (!row) return ''
-    if (c === 0) return row.input
-    if (c === 1) return row.admins ? row.admins.join(', ') : ''
-    return ''
-  }
-
-  const { sel, setSel, containerRef, onMouseDown, onMouseMove, navigate, buildTSV } = useGridSelection(rows, getCellText)
-
-  function focusInput(idx, delay = 10) {
-    setTimeout(() => {
-      gridRef.current?.querySelectorAll('input[data-row]')?.[idx]?.focus()
-      scrollRowIntoView(gridRef, idx)
-    }, delay)
-  }
-
-  function onContainerKeyDown(e) {
-    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'c' && sel) {
-      e.preventDefault()
-      navigator.clipboard.writeText(buildTSV(sel)).catch(() => {})
-      return
-    }
-
-    // Delete/Backspace: clear selected rows (skip when an input is focused)
-    if ((e.key === 'Delete' || e.key === 'Backspace') && sel && e.target.tagName !== 'INPUT') {
-      e.preventDefault()
-      const n = normSel(sel)
-      setRows(prev => prev.map((row, idx) =>
-        idx >= n.r1 && idx <= n.r2 ? { ...row, input: '', admins: null, notFound: false } : row
-      ))
-      return
-    }
-
-    const ARROWS = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']
-    if (!ARROWS.includes(e.key) || !sel) return
-    e.preventDefault()
-
-    const { cr, cc } = sel
-    const ctrl = e.ctrlKey || e.metaKey
-
-    // Smart Ctrl+Down: go to last data row; if already there, go to absolute end
-    const lastFilledRow = rows.reduce((last, row, i) => row.input.trim() ? i : last, -1)
-    const ctrlDownTarget = lastFilledRow < 0 || cr >= lastFilledRow ? rows.length - 1 : lastFilledRow
-
-    const addingRow = e.key === 'ArrowDown' && cr === rows.length - 1 && !e.shiftKey && !ctrl
-    if (addingRow) setRows(prev => [...prev, mkRevRow()])
-    const effectiveRows = addingRow ? rows.length + 1 : rows.length
-
-    const newPos = navigate(cr, cc, e.key, e.shiftKey, ctrl, REV_COLS, effectiveRows, ctrlDownTarget)
-    if (!newPos) return
-
-    if (newPos.c === 0 && !e.shiftKey) {
-      focusInput(newPos.r, addingRow ? 40 : 10)
-    } else {
-      scrollRowIntoView(gridRef, newPos.r)
-    }
-  }
-
-  function onInputKeyDown(e, idx) {
-    const ctrl = e.ctrlKey || e.metaKey
-    if (e.key === 'ArrowRight') {
-      e.preventDefault()
-      setSel({ ar: idx, ac: 1, cr: idx, cc: 1 })
-      containerRef.current?.focus()
-      return
-    }
-    if (e.key === 'ArrowDown' || e.key === 'Enter' || (e.key === 'Tab' && !e.shiftKey)) {
-      e.preventDefault()
-      const isLast = idx === rows.length - 1
-      if (isLast && !ctrl && !e.shiftKey) setRows(prev => [...prev, mkRevRow()])
-      const target = e.shiftKey ? Math.max(0, idx - 1)
-        : ctrl ? rows.length - 1
-        : Math.min(idx + 1, (isLast ? rows.length : rows.length - 1))
-      navigate(idx, 0, e.shiftKey ? 'ArrowUp' : 'ArrowDown', false, ctrl, REV_COLS, isLast && !ctrl && !e.shiftKey ? rows.length + 1 : rows.length)
-      focusInput(target, isLast && !ctrl && !e.shiftKey ? 40 : 10)
-      return
-    }
-    if (e.key === 'ArrowUp' || (e.key === 'Tab' && e.shiftKey)) {
-      e.preventDefault()
-      navigate(idx, 0, 'ArrowUp', false, ctrl, REV_COLS, rows.length)
-      focusInput(Math.max(0, idx - 1))
-    }
-  }
-
-  function setInput(id, val) {
-    setRows(prev => prev.map(r => r.id !== id ? r : { ...r, input: val, ...resolve(val) }))
-  }
-  function deleteRow(id) {
-    setRows(prev => prev.length > 1 ? prev.filter(r => r.id !== id) : [mkRevRow()])
-  }
-  function addRow() { setRows(prev => [...prev, mkRevRow()]) }
-
-  function onPaste(e) {
-    const target = e.target
-    if (!target.hasAttribute('data-row')) return
-    const text = e.clipboardData.getData('text')
-    const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean)
-    if (lines.length <= 1) return
-    e.preventDefault()
-    const start = Number(target.getAttribute('data-row'))
-    const newRows = lines.map(line => { const v = line.split(/\t/)[0].trim(); return { id: uid(), input: v, ...resolve(v) } })
-    setRows(prev => {
-      const r = [...prev]
-      newRows.forEach((row, i) => { if (start + i < r.length) r[start + i] = row; else r.push(row) })
-      return r
-    })
-  }
-
-  function copyAll() {
-    const filled = rows.filter(r => r.input.trim())
-    if (!filled.length) return
-    const text = [`${inputLabel}\tAdmin Price(s)`, ...filled.map(r => `${r.input}\t${r.admins ? r.admins.join(', ') : ''}`)].join('\n')
-    navigator.clipboard.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500) })
-  }
-
-  function clearAll() { setRows(Array.from({ length: 12 }, mkRevRow)); setSel(null) }
-
-  const matchedCount = rows.filter(r => r.admins != null).length
-  const notFoundCount = rows.filter(r => r.notFound).length
-
-  function cellBg(r, c) {
-    if (isCursor(sel, r, c)) return CURSOR_BG
-    if (inSel(sel, r, c)) return SEL_BG
-    return 'transparent'
-  }
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <div style={{ display: 'flex', gap: 12, fontSize: 12, color: 'var(--text-faint)', minHeight: 18 }}>
-        {matchedCount > 0 && <span style={{ color: 'var(--accent)' }}>{matchedCount} matched</span>}
-        {notFoundCount > 0 && <span style={{ color: '#f87171' }}>{notFoundCount} not found</span>}
-        {sel && <span style={{ marginLeft: 'auto' }}>
-          {(() => { const n = normSel(sel); return n && (n.r2 > n.r1 || n.c2 > n.c1) ? `${(n.r2-n.r1+1)}×${(n.c2-n.c1+1)} · ` : '' })()}
-          Ctrl+C to copy
-        </span>}
-      </div>
-
-      <div
-        ref={containerRef}
-        tabIndex={0}
-        style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', userSelect: 'none', outline: 'none' }}
-        onPaste={onPaste}
-        onMouseDown={onMouseDown}
-        onMouseMove={onMouseMove}
-        onKeyDown={onContainerKeyDown}
-      >
-        <div style={{ display: 'grid', gridTemplateColumns: '36px 1fr 1fr 32px', background: 'var(--surface)', borderBottom: '2px solid var(--border)' }}>
-          {['#', inputLabel, 'Admin Price(s)', ''].map((h, i) => (
-            <div key={i} style={{ ...TH, textAlign: i === 0 ? 'center' : 'left' }}>{h}</div>
-          ))}
-        </div>
-
-        <div ref={gridRef} style={{ maxHeight: 480, overflowY: 'auto' }}>
-          {rows.map((row, idx) => (
-            <div key={row.id} data-row-idx={idx} style={{ display: 'grid', gridTemplateColumns: '36px 1fr 1fr 32px', borderBottom: idx < rows.length - 1 ? '1px solid var(--border)' : 'none', background: idx % 2 ? 'rgba(255,255,255,.013)' : 'transparent' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: 'var(--text-faint)', borderRight: '1px solid var(--border)' }}>
-                {idx + 1}
-              </div>
-
-              <div data-cr={`${idx},0`} style={{ borderRight: '1px solid var(--border)', background: cellBg(idx, 0) }}>
-                <input
-                  data-row={idx}
-                  type="number"
-                  step="0.1"
-                  value={row.input}
-                  onChange={e => setInput(row.id, e.target.value)}
-                  onKeyDown={e => onInputKeyDown(e, idx)}
-                  onFocus={() => setSel({ ar: idx, ac: 0, cr: idx, cc: 0 })}
-                  placeholder={idx === 0 ? 'Enter price or paste…' : ''}
-                  style={INPUT_STYLE}
-                />
-              </div>
-
-              <div data-cr={`${idx},1`} style={{ ...MONO, padding: '0 12px', display: 'flex', alignItems: 'center', height: 36, color: row.admins ? 'var(--accent)' : row.notFound ? '#f87171' : 'var(--text-faint)', background: cellBg(idx, 1) }}>
-                {row.admins ? row.admins.join(', ') : row.notFound ? '—' : ''}
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                {row.input.trim() && (
-                  <button onClick={() => deleteRow(row.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-faint)', padding: '4px 6px', borderRadius: 4, display: 'flex', lineHeight: 1 }}>
-                    <Icon name="x" size={11} />
-                  </button>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div style={{ display: 'flex', gap: 8 }}>
-        <button className="btn ghost" onClick={addRow} style={{ fontSize: 12, height: 30 }}><Icon name="plus" size={13} /> Add Row</button>
-        <button className="btn ghost" onClick={copyAll} style={{ fontSize: 12, height: 30, ...(copied ? { color: 'var(--accent)' } : {}) }}>
-          <Icon name="copy" size={13} /> {copied ? 'Copied!' : 'Copy All'}
-        </button>
-        <button className="btn ghost" onClick={clearAll} style={{ fontSize: 12, height: 30, marginLeft: 'auto', color: 'var(--text-faint)' }}>Clear</button>
-      </div>
-    </div>
-  )
-}
-
 // ─── Searchable currency picker ────────────────────────────────────────────────
 
 function CurrencyDropdown({ value, onChange }) {
@@ -950,26 +731,6 @@ function CombinedCalc({ priceMap, fxRates, fxLoading, fxError, fxUpdatedAt, onRe
 // ─── Price Calculator wrapper ──────────────────────────────────────────────────
 
 function PriceCalc({ priceMap, loading, error }) {
-  const [mode, setMode] = useState('forward')
-
-  const { buyerMap, resellerMap } = useMemo(() => {
-    const buyerMap = new Map()
-    const resellerMap = new Map()
-    priceMap.forEach(({ buyer, reseller }, admin) => {
-      if (!buyerMap.has(buyer)) buyerMap.set(buyer, [])
-      buyerMap.get(buyer).push(admin)
-      if (!resellerMap.has(reseller)) resellerMap.set(reseller, [])
-      resellerMap.get(reseller).push(admin)
-    })
-    return { buyerMap, resellerMap }
-  }, [priceMap])
-
-  const MODES = [
-    { id: 'forward',      label: 'Admin → Price' },
-    { id: 'rev-buyer',    label: 'Buyer → Admin' },
-    { id: 'rev-reseller', label: 'Reseller → Admin' },
-  ]
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
@@ -978,19 +739,9 @@ function PriceCalc({ priceMap, loading, error }) {
           {!loading && !error && `${priceMap.size.toLocaleString()} prices loaded`}
           {error && <span style={{ color: '#f87171' }}>Error: {error}</span>}
         </span>
-        <div style={{ display: 'flex', gap: 3, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 7, padding: 3 }}>
-          {MODES.map(m => (
-            <button key={m.id} onClick={() => setMode(m.id)} style={{ fontSize: 11, height: 26, padding: '0 10px', borderRadius: 5, border: 'none', cursor: 'pointer', fontWeight: mode === m.id ? 600 : 400, background: mode === m.id ? 'var(--accent)' : 'transparent', color: mode === m.id ? 'var(--accent-ink)' : 'var(--text-faint)', transition: 'background .15s, color .15s' }}>
-              {m.label}
-            </button>
-          ))}
-        </div>
       </div>
 
-      {mode === 'forward'
-        ? <ForwardGrid key="fwd" priceMap={priceMap} />
-        : <ReverseGrid key={mode} reverseMap={mode === 'rev-buyer' ? buyerMap : resellerMap} inputLabel={mode === 'rev-buyer' ? 'Buyer Price' : 'Reseller Price'} />
-      }
+      <ForwardGrid priceMap={priceMap} />
     </div>
   )
 }
@@ -1002,11 +753,9 @@ const TOOLS = [
   { id: 'combined-calc',  title: 'Currency & % Calculator', desc: 'Apply % discount/markup, convert currency, get post price with buyer/reseller lookup',                       icon: 'globe',    tag: 'Pricing'  },
   { id: 'price-calc',     title: 'Price Calculator',        desc: 'Convert admin price to buyer & reseller price instantly',                                                     icon: 'tool',     tag: 'Pricing'  },
   { id: 'livechat-clients', title: 'Live Chat Clients',     desc: 'Manage live chat team clients — order sheets, article costs, discounts, buyer/reseller types',               icon: 'users',    tag: 'LiveChat', roles: ['livechat', 'lead', 'super'] },
-  { id: 'email-checker',   title: 'Email Checker',          desc: 'Enter an email + paste a site list — checks contact, about, footer & privacy pages for that email across all sites', icon: 'mail',     tag: 'Outreach' },
   { id: 'email-harvester', title: 'Email Harvester',        desc: 'Paste a list of sites — scrapes contact, about, home & privacy pages and collects every email found. No target needed.', icon: 'inbox',    tag: 'Outreach' },
   { id: 'anchor-sync',     title: 'Anchor Sync',            desc: 'Reads Google Doc links from a sheet column and writes each doc\'s anchor text + URL pairs directly back into that same row', icon: 'link',     tag: 'Sheets'   },
   { id: 'sample-posts',    title: 'Sample Post Finder',     desc: 'Paste a site list — finds post/article URLs via sitemap, RSS/Atom feed, and the WordPress API, with a copy-all button', icon: 'search',   tag: 'Outreach' },
-  { id: 'redirect-resolver', title: 'Redirect Resolver',    desc: 'Paste bare domains — follows every redirect (protocol, www, cross-domain) to the real final URL, TSV output for Sheets', icon: 'refresh',  tag: 'Outreach' },
 ]
 
 // ─── Tools Page ────────────────────────────────────────────────────────────────
@@ -1125,20 +874,6 @@ export function ToolsPage({ me, role }) {
         </div>
       ) : activeTool === 'livechat-clients' ? (
         <LiveChatClients me={me} />
-      ) : activeTool === 'email-checker' ? (
-        <div className="card">
-          <div className="card-head">
-            <div>
-              <h3>Email Checker</h3>
-              <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 2 }}>
-                Checks contact, about, privacy &amp; home pages for a specific email — shows all other emails found too
-              </div>
-            </div>
-          </div>
-          <div className="card-pad">
-            <EmailChecker />
-          </div>
-        </div>
       ) : activeTool === 'email-harvester' ? (
         <div className="card">
           <div className="card-head">
@@ -1179,20 +914,6 @@ export function ToolsPage({ me, role }) {
           </div>
           <div className="card-pad">
             <SamplePostFinder />
-          </div>
-        </div>
-      ) : activeTool === 'redirect-resolver' ? (
-        <div className="card">
-          <div className="card-head">
-            <div>
-              <h3>Redirect Resolver</h3>
-              <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 2 }}>
-                Follows every redirect from a bare domain to the actual final URL a browser would reach
-              </div>
-            </div>
-          </div>
-          <div className="card-pad">
-            <RedirectResolver />
           </div>
         </div>
       ) : null}
