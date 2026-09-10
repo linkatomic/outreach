@@ -746,12 +746,125 @@ function PriceCalc({ priceMap, loading, error }) {
   )
 }
 
+// ─── Buyer Price Lookup ─────────────────────────────────────────────────────────
+
+// Buyer/reseller prices in this pricing sheet always end in .9 (14.9, 299.9, ...). So a bare
+// integer like "34" almost certainly means "34.9" — only respect an explicit decimal typed by
+// the searcher (e.g. "34.5") as-is.
+function interpretBuyerSearch(raw) {
+  const s = raw.trim()
+  if (!s) return null
+  const n = Number(s)
+  if (isNaN(n)) return null
+  return s.includes('.') ? n : n + 0.9
+}
+
+// Sorted ascending by buyer, ties broken by admin ascending — so among duplicate buyer prices
+// (the same buyer price appearing at multiple admin values), a strict "<" comparison during the
+// scan below naturally keeps the first one encountered, i.e. the lowest admin.
+function buildBuyerIndex(priceMap) {
+  const rows = []
+  priceMap.forEach(({ buyer, reseller }, admin) => rows.push({ admin, buyer, reseller }))
+  rows.sort((a, b) => a.buyer - b.buyer || a.admin - b.admin)
+  return rows
+}
+
+function findClosestByBuyer(sortedRows, target) {
+  let best = null
+  let bestDist = Infinity
+  for (const row of sortedRows) {
+    const dist = Math.abs(row.buyer - target)
+    if (dist < bestDist) { best = row; bestDist = dist }
+  }
+  if (!best) return null
+  return { ...best, exact: bestDist < 0.001 }
+}
+
+function BuyerPriceLookup({ priceMap, loading, error }) {
+  const [query, setQuery] = useState('')
+  const [copied, setCopied] = useState(false)
+
+  const sortedRows = useMemo(() => buildBuyerIndex(priceMap), [priceMap])
+  const target = interpretBuyerSearch(query)
+  const result = target != null && sortedRows.length > 0 ? findClosestByBuyer(sortedRows, target) : null
+  const invalid = query.trim() !== '' && target == null
+
+  function copyResult() {
+    if (!result) return
+    navigator.clipboard.writeText(String(result.admin)).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    })
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div style={{ fontSize: 12, color: 'var(--text-faint)' }}>
+        {loading && 'Loading prices…'}
+        {!loading && !error && `${priceMap.size.toLocaleString()} prices loaded`}
+        {error && <span style={{ color: '#f87171' }}>Error: {error}</span>}
+      </div>
+
+      <input
+        className="input"
+        style={{ fontSize: 16, padding: '12px 14px', fontFamily: 'var(--font-mono)' }}
+        placeholder="Search a buyer price… e.g. 34"
+        value={query}
+        onChange={e => setQuery(e.target.value)}
+        autoFocus
+      />
+
+      {invalid && (
+        <div style={{ fontSize: 12, color: '#f87171' }}>Enter a valid number.</div>
+      )}
+
+      {!invalid && target != null && (
+        <div style={{ fontSize: 12, color: 'var(--text-faint)' }}>
+          Searching for buyer price <strong style={{ color: 'var(--text-dim)', fontFamily: 'var(--font-mono)' }}>{target.toFixed(2)}</strong>
+          {!query.includes('.') && <> (assumed — you typed "{query.trim()}")</>}
+        </div>
+      )}
+
+      {result && (
+        <div style={{
+          border: '1px solid var(--border)', borderRadius: 10, padding: '18px 20px',
+          background: 'var(--surface)', display: 'flex', alignItems: 'center', gap: 24,
+        }}>
+          <div>
+            <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Admin Price</div>
+            <div style={{ fontSize: 28, fontWeight: 700, color: 'var(--accent)', fontFamily: 'var(--font-mono)' }}>{result.admin}</div>
+          </div>
+          <div style={{ display: 'flex', gap: 20, flex: 1 }}>
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Buyer</div>
+              <div style={{ fontSize: 15, fontFamily: 'var(--font-mono)', color: 'var(--text)' }}>{result.buyer.toFixed(2)}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Reseller</div>
+              <div style={{ fontSize: 15, fontFamily: 'var(--font-mono)', color: 'var(--text)' }}>{result.reseller.toFixed(2)}</div>
+            </div>
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: result.exact ? 'var(--accent)' : '#f59e0b', marginBottom: 8 }}>
+              {result.exact ? '✓ Exact match' : `≈ Closest match`}
+            </div>
+            <button className="btn ghost" onClick={copyResult} style={{ fontSize: 11, padding: '4px 10px' }}>
+              {copied ? 'Copied!' : 'Copy Admin'}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Tool registry ─────────────────────────────────────────────────────────────
 
 const TOOLS = [
   { id: 'sheet-parser',   title: 'Sheet Parser',            desc: 'Paste a reseller Google Sheet URL — AI detects columns and creates a clean output sheet with buyer prices', icon: 'download', tag: 'Sheets'   },
   { id: 'combined-calc',  title: 'Currency & % Calculator', desc: 'Apply % discount/markup, convert currency, get post price with buyer/reseller lookup',                       icon: 'globe',    tag: 'Pricing'  },
   { id: 'price-calc',     title: 'Price Calculator',        desc: 'Convert admin price to buyer & reseller price instantly',                                                     icon: 'tool',     tag: 'Pricing'  },
+  { id: 'buyer-lookup',   title: 'Buyer → Admin Lookup',    desc: 'Search a buyer price (e.g. 34 for 34.9) and get the best matching admin price instantly',                       icon: 'search',   tag: 'Pricing'  },
   { id: 'livechat-clients', title: 'Live Chat Clients',     desc: 'Manage live chat team clients — order sheets, article costs, discounts, buyer/reseller types',               icon: 'users',    tag: 'LiveChat', roles: ['livechat', 'lead', 'super'] },
   { id: 'email-harvester', title: 'Email Harvester',        desc: 'Paste a list of sites — scrapes contact, about, home & privacy pages and collects every email found. No target needed.', icon: 'inbox',    tag: 'Outreach' },
   { id: 'anchor-sync',     title: 'Anchor Sync',            desc: 'Reads Google Doc links from a sheet column and writes each doc\'s anchor text + URL pairs directly back into that same row', icon: 'link',     tag: 'Sheets'   },
@@ -850,12 +963,26 @@ export function ToolsPage({ me, role }) {
             <div>
               <h3>Price Calculator</h3>
               <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 2 }}>
-                Enter or paste prices — use the toggle to switch lookup direction
+                Enter or paste admin prices to get buyer &amp; reseller prices instantly
               </div>
             </div>
           </div>
           <div className="card-pad">
             <PriceCalc priceMap={priceMap} loading={loading} error={error} />
+          </div>
+        </div>
+      ) : activeTool === 'buyer-lookup' ? (
+        <div className="card">
+          <div className="card-head">
+            <div>
+              <h3>Buyer → Admin Lookup</h3>
+              <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 2 }}>
+                Search a buyer price — bare numbers like "34" are assumed to mean 34.9
+              </div>
+            </div>
+          </div>
+          <div className="card-pad">
+            <BuyerPriceLookup priceMap={priceMap} loading={loading} error={error} />
           </div>
         </div>
       ) : activeTool === 'combined-calc' ? (
