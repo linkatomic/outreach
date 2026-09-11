@@ -2,25 +2,12 @@ import { useState, useEffect, useCallback } from 'react'
 import { Icon, TEAM } from '../data.jsx'
 import { saveUltimateSheetParserHistory, loadUltimateSheetParserHistory } from '../lib/supabase.js'
 import {
-  extractSheetId, getSheetTabs, getSheetRows,
+  NICHE_CATEGORIES, extractSheetId, getSheetTabs, getSheetRows,
   detectColumns, createUltimateOutputSheet,
   cleanDomain, parsePrice, normalizeColumnLabels,
   lookupPublisherDataFull,
 } from '../lib/sheetParserAPI.js'
 
-// ── Fixed niche categories ──────────────────────────────────────────────────
-// Matches GPL's own addon `label` field exactly, so comparison lookups are a direct match —
-// no fuzzy mapping needed. Confirmed against the GPL API sample response.
-const NICHE_CATEGORIES = [
-  { key: 'general',    label: 'General',     gplLabel: 'general' },
-  { key: 'general_li', label: 'General/LI',  gplLabel: 'link insertion' },
-  { key: 'casino',     label: 'Casino',      gplLabel: 'casino' },
-  { key: 'casino_li',  label: 'Casino/LI',   gplLabel: 'casino link insertion' },
-  { key: 'cbd',        label: 'CBD',         gplLabel: 'cbd' },
-  { key: 'cbd_li',     label: 'CBD/LI',      gplLabel: 'cbd link insertion' },
-  { key: 'crypto',     label: 'Crypto',      gplLabel: 'crypto' },
-  { key: 'crypto_li',  label: 'Crypto/LI',   gplLabel: 'crypto link insertion' },
-]
 const NICHE_BY_KEY = Object.fromEntries(NICHE_CATEGORIES.map(n => [n.key, n]))
 
 // Each niche shares a color family with its /LI variant, so the two read as clearly related

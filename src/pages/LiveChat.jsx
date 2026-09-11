@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react'
 import { Icon } from '../data.jsx'
+import { LiveChatPriceFinder } from './LiveChatPriceFinder.jsx'
 const LC_TOOLS = [
   { id: 'clients', title: 'Client Manager', desc: 'Add and manage live chat clients — order sheets, article costs, discounts, buyer/reseller types', icon: 'users', tag: 'CRM' },
+  { id: 'price-finder', title: 'Price Finder', desc: 'Paste a list of sites, pick niches, get current buyer prices (with an optional discount) written to a sheet', icon: 'zap', tag: 'Pricing' },
 ]
 
 export function LiveChatToolsPage({ me }) {
@@ -45,6 +47,8 @@ export function LiveChatToolsPage({ me }) {
         </div>
       ) : activeTool === 'clients' ? (
         <LiveChatClients me={me} />
+      ) : activeTool === 'price-finder' ? (
+        <LiveChatPriceFinder />
       ) : null}
     </div>
   )

@@ -16,6 +16,7 @@ import { ToolsPage } from './pages/Tools.jsx'
 import { LiveChatHome } from './pages/LiveChatHome.jsx'
 import { LiveChatTeam } from './pages/LiveChatTeam.jsx'
 import { LiveChatToolsPage, LiveChatClients } from './pages/LiveChat.jsx'
+import { LiveChatPriceFinder } from './pages/LiveChatPriceFinder.jsx'
 import { LiveChatOrderSheet } from './pages/LiveChatOrderSheet.jsx'
 import { OnlinePage } from './pages/OnlinePage.jsx'
 import { LcHistory } from './pages/LcHistory.jsx'
@@ -312,6 +313,7 @@ export default function App() {
       case 'tools':      return <ToolsPage me={m} role={role} />;
       case 'lc-home':    return <LiveChatHome me={m} />;
       case 'lc-clients': return <LiveChatClients me={m} />;
+      case 'lc-price-finder': return <LiveChatPriceFinder />;
       case 'lc-orders':  return <LiveChatOrderSheet me={m} />;
       case 'lc-notion':         return <LcNotion me={m} />;
       case 'lc-notion-history': return <LcNotionHistory />;

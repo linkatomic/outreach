@@ -406,6 +406,22 @@ Respond with ONLY valid JSON, no markdown, no explanation outside the JSON:
   return JSON.parse(text)
 }
 
+// ── Fixed niche categories ─────────────────────────────────
+// Matches GPL's own addon `label` field exactly (confirmed against the GPL API sample
+// response), so any lookup against addonsByLabel is a direct match — no fuzzy mapping needed.
+// Shared by every tool that offers niche-based pricing (Ultimate Sheet Parser, Live Chat's
+// Niche Price Finder) so the taxonomy can't drift between them.
+export const NICHE_CATEGORIES = [
+  { key: 'general',    label: 'General',     gplLabel: 'general' },
+  { key: 'general_li', label: 'General/LI',  gplLabel: 'link insertion' },
+  { key: 'casino',     label: 'Casino',      gplLabel: 'casino' },
+  { key: 'casino_li',  label: 'Casino/LI',   gplLabel: 'casino link insertion' },
+  { key: 'cbd',        label: 'CBD',         gplLabel: 'cbd' },
+  { key: 'cbd_li',     label: 'CBD/LI',      gplLabel: 'cbd link insertion' },
+  { key: 'crypto',     label: 'Crypto',      gplLabel: 'crypto' },
+  { key: 'crypto_li',  label: 'Crypto/LI',   gplLabel: 'crypto link insertion' },
+]
+
 // ── GPL publisher data lookup ─────────────────────────────
 
 export async function lookupPublisherData(domains, onProgress) {

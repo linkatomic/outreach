@@ -22,6 +22,7 @@ export function Sidebar({ route, setRoute, role, me, allUsers = [], impersonated
   const lcNavItems = [
     { id: 'lc-home',    label: 'Home',        icon: 'home' },
     { id: 'lc-clients', label: 'Clients',     icon: 'users' },
+    { id: 'lc-price-finder', label: 'Price Finder', icon: 'zap' },
     { id: 'lc-orders',  label: 'Order Sheet', icon: 'download', children: [
       { id: 'lc-history', label: 'Sheet History', icon: 'clock' },
     ]},
@@ -210,6 +211,7 @@ export function Topbar({ route, role, theme, toggleTheme, openCmdK, notifOpen, s
     tools: ['Tools'], ideas: ['Ideas Board'], tasks: ['Tasks'],
     shortcuts: ['Shortcuts'], brief: ['Design Brief'],
     'lc-home': ['Live Chat', 'Home'], 'lc-team': ['Live Chat', 'Team'],
+    'lc-price-finder': ['Live Chat', 'Price Finder'],
     'lc-clients': ['Live Chat', 'Clients'], 'lc-orders': ['Live Chat', 'Order Sheet'],
     'lc-notion':         ['Live Chat', 'Notion Cards'],
     'lc-notion-history': ['Live Chat', 'Notion History'],
