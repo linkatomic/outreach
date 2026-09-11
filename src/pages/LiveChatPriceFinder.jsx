@@ -26,21 +26,23 @@ const BAND_SECOND = { red: 0.965, green: 0.969, blue: 0.976 }
 const GRID_BORDER = { red: 0.85, green: 0.85, blue: 0.87 }
 const HEADER_DARK_CSS = 'rgb(28, 28, 38)'
 
-function fmtMoney(n) { return Number(n.toFixed(2)) }
-function fmtMoneyStr(n) { return n.toFixed(2) }
+const CURRENCY_FORMAT = { type: 'CURRENCY', pattern: '$#,##0.00' }
 
-// A single cell holding both prices as one rich-text string — the struck-through original
-// followed by the discounted price in bold green — instead of two separate columns, so the
-// sheet stays one column per niche no matter what.
+function fmtMoney(n) { return Number(n.toFixed(2)) }
+function fmtDollar(n) { return `$${n.toFixed(2)}` }
+
+// A single cell holding both prices, stacked on two lines — the struck-through original
+// price small and muted on top, the discounted price large and bold underneath — instead of
+// two separate columns or a hard-to-scan "old → new" run-on, so the sheet stays one column
+// per niche and the number that actually matters is the one that visually pops.
 function discountRichText(oldPrice, newPrice) {
-  const oldStr = fmtMoneyStr(oldPrice)
-  const newStr = fmtMoneyStr(newPrice)
-  const sep = '  →  '
+  const oldStr = fmtDollar(oldPrice)
+  const newStr = fmtDollar(newPrice)
   return {
-    userEnteredValue: { stringValue: `${oldStr}${sep}${newStr}` },
+    userEnteredValue: { stringValue: `${oldStr}\n${newStr}` },
     textFormatRuns: [
-      { startIndex: 0, format: { strikethrough: true, foregroundColor: OLD_PRICE_GRAY } },
-      { startIndex: oldStr.length + sep.length, format: { bold: true, foregroundColor: DISCOUNT_GREEN, strikethrough: false } },
+      { startIndex: 0, format: { strikethrough: true, fontSize: 9, foregroundColor: OLD_PRICE_GRAY } },
+      { startIndex: oldStr.length + 1, format: { bold: true, fontSize: 12, foregroundColor: DISCOUNT_GREEN, strikethrough: false } },
     ],
   }
 }
@@ -143,11 +145,12 @@ export function LiveChatPriceFinder() {
         ...extra,
       })
       const headerFmt = { userEnteredFormat: { textFormat: { bold: true, fontSize: 10, foregroundColor: WHITE }, backgroundColor: HEADER_DARK, horizontalAlignment: 'CENTER', verticalAlignment: 'MIDDLE' } }
-      const bodyAlign = { userEnteredFormat: { horizontalAlignment: 'CENTER', verticalAlignment: 'MIDDLE' } }
+      const priceAlign = { horizontalAlignment: 'CENTER', verticalAlignment: 'MIDDLE', wrapStrategy: 'WRAP' }
       const domainAlign = { userEnteredFormat: { horizontalAlignment: 'LEFT', verticalAlignment: 'MIDDLE' } }
 
       const numCols = 1 + activeNiches.length
       const numRows = 1 + results.length
+      const dataRowHeight = hasDiscount ? 44 : 30
 
       const headerRow = {
         values: [
@@ -160,10 +163,10 @@ export function LiveChatPriceFinder() {
           cellData(r.domain, domainAlign),
           ...activeNiches.map(n => {
             const price = r.prices[n.key]
-            if (price == null) return cellData('—', bodyAlign)
-            if (!hasDiscount) return cellData(fmtMoney(price), bodyAlign)
+            if (price == null) return cellData('—', { userEnteredFormat: priceAlign })
+            if (!hasDiscount) return cellData(fmtMoney(price), { userEnteredFormat: { ...priceAlign, numberFormat: CURRENCY_FORMAT } })
             const rich = discountRichText(price, price * (1 - discount / 100))
-            return { ...rich, userEnteredFormat: bodyAlign.userEnteredFormat }
+            return { ...rich, userEnteredFormat: priceAlign }
           }),
         ],
       }))
@@ -174,12 +177,15 @@ export function LiveChatPriceFinder() {
 
       await batchFormatSheet(sheetId, [
         { updateCells: { rows: [headerRow, ...dataRows], start, fields: 'userEnteredValue,userEnteredFormat,textFormatRuns' } },
-        { updateDimensionProperties: { range: { sheetId: realSheetId, dimension: 'COLUMNS', startIndex: cell.colIndex, endIndex: cell.colIndex + 1 }, properties: { pixelSize: 190 }, fields: 'pixelSize' } },
-        { updateDimensionProperties: { range: { sheetId: realSheetId, dimension: 'COLUMNS', startIndex: cell.colIndex + 1, endIndex: cell.colIndex + numCols }, properties: { pixelSize: hasDiscount ? 180 : 130 }, fields: 'pixelSize' } },
+        { updateDimensionProperties: { range: { sheetId: realSheetId, dimension: 'COLUMNS', startIndex: cell.colIndex, endIndex: cell.colIndex + 1 }, properties: { pixelSize: 180 }, fields: 'pixelSize' } },
+        { updateDimensionProperties: { range: { sheetId: realSheetId, dimension: 'COLUMNS', startIndex: cell.colIndex + 1, endIndex: cell.colIndex + numCols }, properties: { pixelSize: 120 }, fields: 'pixelSize' } },
         { updateDimensionProperties: { range: { sheetId: realSheetId, dimension: 'ROWS', startIndex: cell.rowIndex, endIndex: cell.rowIndex + 1 }, properties: { pixelSize: 34 }, fields: 'pixelSize' } },
+        { updateDimensionProperties: { range: { sheetId: realSheetId, dimension: 'ROWS', startIndex: cell.rowIndex + 1, endIndex: cell.rowIndex + numRows }, properties: { pixelSize: dataRowHeight }, fields: 'pixelSize' } },
+        // Outer border + vertical column dividers only — banding below already separates rows,
+        // so skipping horizontal gridlines keeps the grid from feeling busy.
         { updateBorders: {
           range: range(0, numRows, 0, numCols),
-          top: border, bottom: border, left: border, right: border, innerHorizontal: border, innerVertical: border,
+          top: border, bottom: border, left: border, right: border, innerVertical: border,
         } },
         { addBanding: { bandedRange: {
           range: range(1, numRows, 0, numCols),
@@ -280,14 +286,15 @@ export function LiveChatPriceFinder() {
                         <td key={n.key} style={{ padding: '8px 16px', textAlign: 'center', color: 'var(--text-ghost)', borderTop: '1px solid var(--border)' }}>—</td>
                       )
                       if (!hasDiscount) return (
-                        <td key={n.key} style={{ padding: '8px 16px', textAlign: 'center', fontFamily: 'var(--font-mono)', borderTop: '1px solid var(--border)' }}>${fmtMoney(price)}</td>
+                        <td key={n.key} style={{ padding: '8px 16px', textAlign: 'center', fontFamily: 'var(--font-mono)', borderTop: '1px solid var(--border)' }}>{fmtDollar(price)}</td>
                       )
                       const discounted = price * (1 - discount / 100)
                       return (
-                        <td key={n.key} style={{ padding: '8px 16px', textAlign: 'center', fontFamily: 'var(--font-mono)', borderTop: '1px solid var(--border)', whiteSpace: 'nowrap' }}>
-                          <span style={{ textDecoration: 'line-through', color: 'var(--text-ghost)' }}>${fmtMoney(price)}</span>
-                          <span style={{ color: 'var(--text-ghost)' }}>  →  </span>
-                          <span style={{ fontWeight: 700, color: 'var(--accent)' }}>${fmtMoney(discounted)}</span>
+                        <td key={n.key} style={{ padding: '6px 16px', textAlign: 'center', fontFamily: 'var(--font-mono)', borderTop: '1px solid var(--border)' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+                            <span style={{ fontSize: 11, textDecoration: 'line-through', color: 'var(--text-ghost)' }}>{fmtDollar(price)}</span>
+                            <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)' }}>{fmtDollar(discounted)}</span>
+                          </div>
                         </td>
                       )
                     })}
