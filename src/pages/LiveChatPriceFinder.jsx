@@ -19,9 +19,31 @@ function parseCellRef(ref) {
 
 const HEADER_DARK = { red: 0.11, green: 0.11, blue: 0.15 }
 const WHITE = { red: 1, green: 1, blue: 1 }
-const DISCOUNT_GREEN = { red: 0.145, green: 0.396, blue: 0.239 }
+const DISCOUNT_GREEN = { red: 0.129, green: 0.435, blue: 0.259 }
+const OLD_PRICE_GRAY = { red: 0.55, green: 0.55, blue: 0.58 }
+const BAND_FIRST = { red: 1, green: 1, blue: 1 }
+const BAND_SECOND = { red: 0.965, green: 0.969, blue: 0.976 }
+const GRID_BORDER = { red: 0.85, green: 0.85, blue: 0.87 }
+const HEADER_DARK_CSS = 'rgb(28, 28, 38)'
 
 function fmtMoney(n) { return Number(n.toFixed(2)) }
+function fmtMoneyStr(n) { return n.toFixed(2) }
+
+// A single cell holding both prices as one rich-text string — the struck-through original
+// followed by the discounted price in bold green — instead of two separate columns, so the
+// sheet stays one column per niche no matter what.
+function discountRichText(oldPrice, newPrice) {
+  const oldStr = fmtMoneyStr(oldPrice)
+  const newStr = fmtMoneyStr(newPrice)
+  const sep = '  →  '
+  return {
+    userEnteredValue: { stringValue: `${oldStr}${sep}${newStr}` },
+    textFormatRuns: [
+      { startIndex: 0, format: { strikethrough: true, foregroundColor: OLD_PRICE_GRAY } },
+      { startIndex: oldStr.length + sep.length, format: { bold: true, foregroundColor: DISCOUNT_GREEN, strikethrough: false } },
+    ],
+  }
+}
 
 export function LiveChatPriceFinder() {
   const [domainsText, setDomainsText] = useState('')
@@ -116,42 +138,58 @@ export function LiveChatPriceFinder() {
       const existing = tabs.find(t => t.name === targetTab)
       const realSheetId = existing ? existing.sheetId : await addSheetTab(sheetId, targetTab)
 
-      const cellData = (value, format) => ({
+      const cellData = (value, extra) => ({
         userEnteredValue: typeof value === 'number' ? { numberValue: value } : { stringValue: String(value) },
-        ...(format ? { userEnteredFormat: format } : {}),
+        ...extra,
       })
-      const headerFmt = { textFormat: { bold: true, foregroundColor: WHITE }, backgroundColor: HEADER_DARK }
-      const strikeFmt = { textFormat: { strikethrough: true } }
-      const discountFmt = { textFormat: { bold: true, foregroundColor: DISCOUNT_GREEN } }
+      const headerFmt = { userEnteredFormat: { textFormat: { bold: true, fontSize: 10, foregroundColor: WHITE }, backgroundColor: HEADER_DARK, horizontalAlignment: 'CENTER', verticalAlignment: 'MIDDLE' } }
+      const bodyAlign = { userEnteredFormat: { horizontalAlignment: 'CENTER', verticalAlignment: 'MIDDLE' } }
+      const domainAlign = { userEnteredFormat: { horizontalAlignment: 'LEFT', verticalAlignment: 'MIDDLE' } }
+
+      const numCols = 1 + activeNiches.length
+      const numRows = 1 + results.length
 
       const headerRow = {
         values: [
           cellData('Domain', headerFmt),
-          ...activeNiches.flatMap(n => hasDiscount
-            ? [cellData(`${n.label} Price`, headerFmt), cellData(`${n.label} Discounted`, headerFmt)]
-            : [cellData(`${n.label} Price`, headerFmt)]),
+          ...activeNiches.map(n => cellData(`${n.label} Price`, headerFmt)),
         ],
       }
       const dataRows = results.map(r => ({
         values: [
-          cellData(r.domain),
-          ...activeNiches.flatMap(n => {
+          cellData(r.domain, domainAlign),
+          ...activeNiches.map(n => {
             const price = r.prices[n.key]
-            if (price == null) return hasDiscount ? [cellData('—'), cellData('—')] : [cellData('—')]
-            if (!hasDiscount) return [cellData(fmtMoney(price))]
-            const discounted = price * (1 - discount / 100)
-            return [cellData(fmtMoney(price), strikeFmt), cellData(fmtMoney(discounted), discountFmt)]
+            if (price == null) return cellData('—', bodyAlign)
+            if (!hasDiscount) return cellData(fmtMoney(price), bodyAlign)
+            const rich = discountRichText(price, price * (1 - discount / 100))
+            return { ...rich, userEnteredFormat: bodyAlign.userEnteredFormat }
           }),
         ],
       }))
 
-      await batchFormatSheet(sheetId, [{
-        updateCells: {
-          rows: [headerRow, ...dataRows],
-          start: { sheetId: realSheetId, rowIndex: cell.rowIndex, columnIndex: cell.colIndex },
-          fields: 'userEnteredValue,userEnteredFormat',
-        },
-      }])
+      const start = { sheetId: realSheetId, rowIndex: cell.rowIndex, columnIndex: cell.colIndex }
+      const range = (r0, r1, c0, c1) => ({ sheetId: realSheetId, startRowIndex: cell.rowIndex + r0, endRowIndex: cell.rowIndex + r1, startColumnIndex: cell.colIndex + c0, endColumnIndex: cell.colIndex + c1 })
+      const border = { style: 'SOLID', color: GRID_BORDER }
+
+      await batchFormatSheet(sheetId, [
+        { updateCells: { rows: [headerRow, ...dataRows], start, fields: 'userEnteredValue,userEnteredFormat,textFormatRuns' } },
+        { updateDimensionProperties: { range: { sheetId: realSheetId, dimension: 'COLUMNS', startIndex: cell.colIndex, endIndex: cell.colIndex + 1 }, properties: { pixelSize: 190 }, fields: 'pixelSize' } },
+        { updateDimensionProperties: { range: { sheetId: realSheetId, dimension: 'COLUMNS', startIndex: cell.colIndex + 1, endIndex: cell.colIndex + numCols }, properties: { pixelSize: hasDiscount ? 180 : 130 }, fields: 'pixelSize' } },
+        { updateDimensionProperties: { range: { sheetId: realSheetId, dimension: 'ROWS', startIndex: cell.rowIndex, endIndex: cell.rowIndex + 1 }, properties: { pixelSize: 34 }, fields: 'pixelSize' } },
+        { updateBorders: {
+          range: range(0, numRows, 0, numCols),
+          top: border, bottom: border, left: border, right: border, innerHorizontal: border, innerVertical: border,
+        } },
+        { addBanding: { bandedRange: {
+          range: range(1, numRows, 0, numCols),
+          rowProperties: { firstBandColor: BAND_FIRST, secondBandColor: BAND_SECOND },
+        } } },
+        { updateSheetProperties: {
+          properties: { sheetId: realSheetId, gridProperties: { frozenRowCount: cell.rowIndex + 1, frozenColumnCount: cell.colIndex + 1 } },
+          fields: 'gridProperties.frozenRowCount,gridProperties.frozenColumnCount',
+        } },
+      ])
 
       setWriteDone(results.length)
     } catch (err) {
@@ -225,30 +263,30 @@ export function LiveChatPriceFinder() {
           <div style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
               <thead>
-                <tr style={{ background: 'var(--surface-3, var(--surface))' }}>
-                  <th style={{ padding: '9px 14px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: 'var(--text-faint)', textTransform: 'uppercase' }}>Site</th>
+                <tr style={{ background: HEADER_DARK_CSS }}>
+                  <th style={{ padding: '10px 16px', textAlign: 'left', fontSize: 10.5, fontWeight: 700, color: '#fff', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Site</th>
                   {activeNiches.map(n => (
-                    <th key={n.key} colSpan={hasDiscount ? 2 : 1} style={{ padding: '9px 14px', textAlign: 'center', fontSize: 10, fontWeight: 700, color: 'var(--text-faint)', textTransform: 'uppercase' }}>{n.label}</th>
+                    <th key={n.key} style={{ padding: '10px 16px', textAlign: 'center', fontSize: 10.5, fontWeight: 700, color: '#fff', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{n.label} Price</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {results.map((r, i) => (
-                  <tr key={r.domain} style={{ borderTop: i > 0 ? '1px solid var(--border)' : 'none' }}>
-                    <td style={{ padding: '7px 14px', fontFamily: 'var(--font-mono)', color: 'var(--text-dim)' }}>{r.domain}</td>
+                  <tr key={r.domain} style={{ background: i % 2 === 1 ? 'var(--surface-2, rgba(0,0,0,.02))' : 'transparent' }}>
+                    <td style={{ padding: '8px 16px', fontFamily: 'var(--font-mono)', color: 'var(--text-dim)', fontWeight: 600, borderTop: '1px solid var(--border)' }}>{r.domain}</td>
                     {activeNiches.map(n => {
                       const price = r.prices[n.key]
                       if (price == null) return (
-                        <td key={n.key} colSpan={hasDiscount ? 2 : 1} style={{ padding: '7px 14px', textAlign: 'center', color: 'var(--text-ghost)' }}>—</td>
+                        <td key={n.key} style={{ padding: '8px 16px', textAlign: 'center', color: 'var(--text-ghost)', borderTop: '1px solid var(--border)' }}>—</td>
                       )
                       if (!hasDiscount) return (
-                        <td key={n.key} style={{ padding: '7px 14px', textAlign: 'center', fontFamily: 'var(--font-mono)' }}>${fmtMoney(price)}</td>
+                        <td key={n.key} style={{ padding: '8px 16px', textAlign: 'center', fontFamily: 'var(--font-mono)', borderTop: '1px solid var(--border)' }}>${fmtMoney(price)}</td>
                       )
                       const discounted = price * (1 - discount / 100)
                       return (
-                        <td key={n.key} colSpan={2} style={{ padding: '7px 14px', textAlign: 'center', fontFamily: 'var(--font-mono)' }}>
+                        <td key={n.key} style={{ padding: '8px 16px', textAlign: 'center', fontFamily: 'var(--font-mono)', borderTop: '1px solid var(--border)', whiteSpace: 'nowrap' }}>
                           <span style={{ textDecoration: 'line-through', color: 'var(--text-ghost)' }}>${fmtMoney(price)}</span>
-                          {' '}
+                          <span style={{ color: 'var(--text-ghost)' }}>  →  </span>
                           <span style={{ fontWeight: 700, color: 'var(--accent)' }}>${fmtMoney(discounted)}</span>
                         </td>
                       )
