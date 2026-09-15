@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
-import { TEAM, ACCENT_PRESETS, reportToday, hasDualAccess } from './data.jsx'
+import { TEAM, ACCENT_PRESETS, hasDualAccess, todayISO } from './data.jsx'
 import { LC_STAFF } from './pages/LiveChatTeam.jsx'
-import { supabase, getProfile, getProfileByMemberId, saveUserAccent } from './lib/supabase.js'
+import { supabase, getProfile, getProfileByMemberId, saveUserAccent, loadReport } from './lib/supabase.js'
+import { loadAndApplyRoster } from './lib/roster.js'
 import { useTweaks, TweaksPanel, TweakSection, TweakToggle } from './components/TweaksPanel.jsx'
 import { Sidebar, Topbar, CommandPalette, Toast, ShortcutsPage } from './components/Shell.jsx'
 import { MemberHome, LeadHome } from './pages/Home.jsx'
@@ -85,7 +86,17 @@ export default function App() {
 
   // Role used for nav guards (reflects effectiveMe when impersonating)
   const role = effectiveMe?.role || 'member';
-  const todayDone = effectiveMe ? !!reportToday(effectiveMe.id) : false;
+
+  // Whether effectiveMe has already filed today's daily report (sidebar badge)
+  const [todayDone, setTodayDone] = useState(false);
+  useEffect(() => {
+    if (!effectiveMe) { setTodayDone(false); return; }
+    let cancelled = false;
+    loadReport(effectiveMe.id, todayISO())
+      .then(r => { if (!cancelled) setTodayDone(!!r); })
+      .catch(() => { if (!cancelled) setTodayDone(false); });
+    return () => { cancelled = true; };
+  }, [effectiveMe?.id, route]);
 
   // livechat-only users always land in the livechat department
   useEffect(() => {
@@ -177,7 +188,18 @@ export default function App() {
 
   async function loadProfile(uid) {
     try {
-      const profile = await getProfile(uid);
+      const [profile] = await Promise.all([
+        getProfile(uid),
+        loadAndApplyRoster().catch(() => {}), // populates TEAM/LC_STAFF/DUAL_ACCESS_IDS; degrade gracefully if it fails
+      ]);
+      if (profile.active === false) {
+        // Belt-and-suspenders: the admin API also bans the auth account on
+        // deactivation, but an already-issued session token stays valid
+        // until it next expires — this catches that window immediately.
+        await supabase.auth.signOut();
+        throw new Error('Your account has been deactivated. Contact your admin.');
+      }
+
       // Resolve base member info — fall back for HR/super users not in TEAM array
       let base = TEAM.find(m => m.id === profile.member_id);
       if (!base) {

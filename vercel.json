@@ -6,7 +6,8 @@
     "api/doc-links.js": { "maxDuration": 30 },
     "api/sample-posts.js": { "maxDuration": 60 },
     "api/analyze-post.js": { "maxDuration": 30 },
-    "api/email-harvester.js": { "maxDuration": 30 }
+    "api/email-harvester.js": { "maxDuration": 30 },
+    "api/admin-users.js": { "maxDuration": 15 }
   },
   "crons": [
     {

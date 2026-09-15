@@ -1,8 +1,13 @@
-import { useState, useRef } from 'react'
-import { TEAM } from '../data.jsx'
-import { LC_STAFF } from './LiveChatTeam.jsx'
+import { useState, useEffect } from 'react'
+import { Icon, CORE_TASK_ICONS } from '../data.jsx'
+import {
+  loadFullRoster, adminCreateUser, adminUpdateProfile, adminSetActive,
+  adminDeleteUser, adminResetPassword,
+} from '../lib/supabase.js'
+import { loadAndApplyRoster } from '../lib/roster.js'
 
-// All avatar color slots with their visual hex
+// ─────────── Shared bits ───────────
+
 const COLOR_SLOTS = [
   { id: 'a', from: '#2A4858', to: '#1A2C36', label: 'Teal' },
   { id: 'b', from: '#4C3A66', to: '#2A1F3A', label: 'Purple' },
@@ -16,16 +21,48 @@ const COLOR_SLOTS = [
   { id: 'j', from: '#5C1E4A', to: '#38102A', label: 'Magenta' },
 ]
 
-function usedColors() {
-  const all = [...TEAM, ...LC_STAFF]
-  return new Set(all.map(m => m.color))
-}
+const ROLE_OPTIONS = [
+  { id: 'member',     label: 'Member' },
+  { id: 'lead',       label: 'Lead' },
+  { id: 'hr',         label: 'HR' },
+  { id: 'super',      label: 'Super' },
+  { id: 'livechat',   label: 'Live Chat Agent' },
+  { id: 'tools-only', label: 'Tools Only (no other page access)' },
+]
+const ROLE_LABEL = Object.fromEntries(ROLE_OPTIONS.map(r => [r.id, r.label]))
 
 function derivedFields(name) {
   const parts = name.trim().split(/\s+/).filter(Boolean)
   const short = parts.map(w => w[0]?.toUpperCase() || '').join('').slice(0, 3)
-  const memberId = parts[0]?.toLowerCase().replace(/[^a-z0-9]/g, '') || ''
-  return { short, memberId }
+  return { short }
+}
+
+function usedColors(rows, excludeId) {
+  return new Set(rows.filter(r => r.id !== excludeId).map(r => r.color))
+}
+
+function genPassword() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%'
+  let out = ''
+  for (let i = 0; i < 14; i++) out += chars[Math.floor(Math.random() * chars.length)]
+  return out
+}
+
+const inputStyle = {
+  padding: '9px 12px', border: '1px solid var(--border-strong)', borderRadius: 8,
+  background: 'var(--surface)', color: 'var(--text)', fontSize: 13,
+  fontFamily: 'var(--font-sans)', outline: 'none', width: '100%', boxSizing: 'border-box',
+}
+const selStyle = { ...inputStyle, cursor: 'pointer' }
+const labelStyle = { fontSize: 11, fontWeight: 700, color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.06em' }
+
+function Field({ label, children }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <label style={labelStyle}>{label}</label>
+      {children}
+    </div>
+  )
 }
 
 function CopyBox({ label, value }) {
@@ -34,9 +71,9 @@ function CopyBox({ label, value }) {
     navigator.clipboard.writeText(value).then(() => { setOk(true); setTimeout(() => setOk(false), 2000) })
   }
   return (
-    <div style={{ marginBottom: 16 }}>
+    <div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-        <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</span>
+        <span style={labelStyle}>{label}</span>
         <button onClick={copy} style={{ fontSize: 11, fontWeight: 700, background: ok ? 'rgba(92,255,161,.15)' : 'var(--surface-3)', color: ok ? 'var(--ok)' : 'var(--text-dim)', border: 'none', borderRadius: 5, padding: '3px 10px', cursor: 'pointer', fontFamily: 'var(--font-sans)' }}>
           {ok ? '✓ Copied' : 'Copy'}
         </button>
@@ -48,215 +85,574 @@ function CopyBox({ label, value }) {
   )
 }
 
-function Field({ label, children }) {
+function ColorPicker({ value, onChange, rows, excludeId }) {
+  const used = usedColors(rows, excludeId)
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-      <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</label>
-      {children}
+    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', paddingTop: 2 }}>
+      {COLOR_SLOTS.map(c => {
+        const isUsed = used.has(c.id) && c.id !== value
+        const isActive = c.id === value
+        return (
+          <button
+            key={c.id} type="button"
+            title={`${c.label} (${c.id})${isUsed ? ' — in use' : ''}`}
+            onClick={() => onChange(c.id)}
+            style={{
+              width: 34, height: 34, borderRadius: 8, border: 'none', cursor: 'pointer',
+              background: `linear-gradient(135deg, ${c.from}, ${c.to})`,
+              outline: isActive ? '2px solid var(--accent)' : '2px solid transparent',
+              outlineOffset: 2, opacity: isUsed ? 0.4 : 1,
+              fontSize: 11, fontWeight: 800, color: 'rgba(255,255,255,.8)',
+            }}
+          >{c.id.toUpperCase()}</button>
+        )
+      })}
     </div>
   )
 }
 
-const inputStyle = {
-  padding: '9px 12px', border: '1px solid var(--border-strong)', borderRadius: 8,
-  background: 'var(--surface)', color: 'var(--text)', fontSize: 13,
-  fontFamily: 'var(--font-sans)', outline: 'none', width: '100%', boxSizing: 'border-box',
+function TeamCheckboxes({ value, onChange }) {
+  const opts = [{ id: 'outreach', label: 'Outreach' }, { id: 'livechat', label: 'Live Chat' }]
+  function toggle(id) {
+    onChange(value.includes(id) ? value.filter(t => t !== id) : [...value, id])
+  }
+  return (
+    <div style={{ display: 'flex', gap: 14 }}>
+      {opts.map(o => (
+        <label key={o.id} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer' }}>
+          <input type="checkbox" checked={value.includes(o.id)} onChange={() => toggle(o.id)} />
+          {o.label}
+        </label>
+      ))}
+    </div>
+  )
 }
 
-const selStyle = { ...inputStyle, cursor: 'pointer' }
+// ─────────── Responsibilities (core_tasks) editor ───────────
+
+function slugify(label) {
+  return 'core_' + label.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40)
+}
+
+function ResponsibilityRow({ task, onChange, onRemove }) {
+  function set(field, val) { onChange({ ...task, [field]: val }) }
+  return (
+    <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 10 }}>
+        <Field label="Label">
+          <input style={inputStyle} value={task.label}
+                 onChange={e => { const label = e.target.value; onChange({ ...task, label, key: task._autoKey === true ? slugify(label || 'task') : task.key }) }}
+                 placeholder="e.g. Client Requirements Outreach" />
+        </Field>
+        <Field label="Icon">
+          <select style={selStyle} value={task.icon || 'mail'} onChange={e => set('icon', e.target.value)}>
+            {CORE_TASK_ICONS.map(i => <option key={i} value={i}>{i}</option>)}
+          </select>
+        </Field>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
+        <Field label="Priority">
+          <select style={selStyle} value={task.role} onChange={e => set('role', e.target.value)}>
+            <option value="primary">Primary (hard target)</option>
+            <option value="secondary">Secondary (backup)</option>
+          </select>
+        </Field>
+        <Field label="Type">
+          <select style={selStyle} value={task.type || 'number'} onChange={e => set('type', e.target.value === 'checkbox' ? 'checkbox' : undefined)}>
+            <option value="number">Numeric target</option>
+            <option value="checkbox">Checkbox (done/not done)</option>
+          </select>
+        </Field>
+        {task.type === 'checkbox' ? (
+          <Field label="Must complete">
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, height: 36 }}>
+              <input type="checkbox" checked={!!task.mustComplete} onChange={e => set('mustComplete', e.target.checked)} />
+              Counts as missed if unchecked
+            </label>
+          </Field>
+        ) : (
+          <Field label="Target">
+            <input style={inputStyle} type="number" min="0" value={task.target ?? 0} onChange={e => set('target', Number(e.target.value) || 0)} />
+          </Field>
+        )}
+        <Field label="Target label">
+          <input style={inputStyle} value={task.targetLabel || ''} onChange={e => set('targetLabel', e.target.value)} placeholder="e.g. 25 responses" />
+        </Field>
+      </div>
+
+      <Field label="Description">
+        <input style={inputStyle} value={task.desc || ''} onChange={e => set('desc', e.target.value)} placeholder="What this responsibility covers" />
+      </Field>
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span style={{ fontSize: 11, color: 'var(--text-faint)', fontFamily: 'var(--font-mono)' }}>{task.key}</span>
+        <button type="button" onClick={onRemove} style={{ fontSize: 12, fontWeight: 700, color: '#fb7185', background: 'none', border: 'none', cursor: 'pointer' }}>
+          Remove
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function ResponsibilitiesEditor({ tasks, onChange }) {
+  function update(i, task) { const next = [...tasks]; next[i] = task; onChange(next) }
+  function remove(i) { onChange(tasks.filter((_, idx) => idx !== i)) }
+  function add() {
+    onChange([...tasks, { key: `core_task_${Date.now()}`, label: '', unit: '', target: 0, targetLabel: '', role: 'primary', icon: 'mail', desc: '', _autoKey: true }])
+  }
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {tasks.length === 0 && (
+        <div style={{ fontSize: 12, color: 'var(--text-faint)', padding: '8px 0' }}>
+          No responsibilities assigned. Members with none only see the standard daily metrics.
+        </div>
+      )}
+      {tasks.map((t, i) => (
+        <ResponsibilityRow key={i} task={t} onChange={task => update(i, task)} onRemove={() => remove(i)} />
+      ))}
+      <button type="button" onClick={add} className="btn ghost" style={{ alignSelf: 'flex-start' }}>
+        <Icon name="plus" size={12} />Add responsibility
+      </button>
+    </div>
+  )
+}
+
+// ─────────── Create user modal ───────────
+
+function CreateUserModal({ rows, onClose, onCreated }) {
+  const [name, setName]     = useState('')
+  const [email, setEmail]   = useState('')
+  const [password, setPassword] = useState(genPassword())
+  const [role, setRole]     = useState('member')
+  const [teams, setTeams]   = useState(['outreach'])
+  const [dualAccess, setDualAccess] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [error, setError]   = useState('')
+  const [created, setCreated] = useState(null)
+
+  const canSubmit = name.trim() && email.trim() && password.trim().length >= 8 && teams.length > 0
+
+  async function handleCreate() {
+    setSaving(true); setError('')
+    try {
+      const { profile } = await adminCreateUser({ name: name.trim(), email: email.trim(), password, role, teams, dualAccess })
+      await loadAndApplyRoster()
+      setCreated(profile)
+      onCreated()
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (created) {
+    return (
+      <div className="modal-back" onClick={onClose}>
+        <div className="modal" style={{ maxWidth: 480 }} onClick={e => e.stopPropagation()}>
+          <div className="modal-head"><h2>User created</h2><button className="btn ghost" onClick={onClose}><Icon name="x" size={13} /></button></div>
+          <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div className={`avatar ${created.color}`}>{created.short}</div>
+              <div>
+                <div style={{ fontWeight: 600 }}>{created.name}</div>
+                <div style={{ fontSize: 12, color: 'var(--text-faint)' }}>{created.email} · {ROLE_LABEL[created.role]}</div>
+              </div>
+            </div>
+            <CopyBox label="Password — share with them securely, then have them sign in and change it" value={password} />
+          </div>
+          <div className="modal-foot"><button className="btn primary" onClick={onClose}>Done</button></div>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="modal-back" onClick={onClose}>
+      <div className="modal" style={{ maxWidth: 560 }} onClick={e => e.stopPropagation()}>
+        <div className="modal-head"><h2>New user</h2><button className="btn ghost" onClick={onClose}><Icon name="x" size={13} /></button></div>
+        <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+            <Field label="Full name">
+              <input style={inputStyle} value={name} onChange={e => setName(e.target.value)} placeholder="Yaksh B" />
+            </Field>
+            <Field label="Email (login)">
+              <input style={inputStyle} type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="yaksh.b@amrytt.com" />
+            </Field>
+          </div>
+
+          <Field label="Password">
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input style={inputStyle} value={password} onChange={e => setPassword(e.target.value)} />
+              <button type="button" className="btn ghost" onClick={() => setPassword(genPassword())}>Generate</button>
+            </div>
+          </Field>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+            <Field label="Role">
+              <select style={selStyle} value={role} onChange={e => setRole(e.target.value)}>
+                {ROLE_OPTIONS.map(r => <option key={r.id} value={r.id}>{r.label}</option>)}
+              </select>
+            </Field>
+            <Field label="Teams">
+              <TeamCheckboxes value={teams} onChange={setTeams} />
+            </Field>
+          </div>
+
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
+            <input type="checkbox" checked={dualAccess} onChange={e => setDualAccess(e.target.checked)} />
+            Dual access — unlock the other department's navigation for this person (without changing their role)
+          </label>
+
+          {name.trim() && (
+            <div style={{ padding: '10px 14px', background: 'var(--surface-2)', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div className="avatar a">{derivedFields(name).short || '?'}</div>
+              <div style={{ fontSize: 12, color: 'var(--text-faint)' }}>Short name and avatar color are assigned automatically.</div>
+            </div>
+          )}
+
+          {error && <div style={{ fontSize: 12, color: '#fb7185' }}>{error}</div>}
+        </div>
+        <div className="modal-foot">
+          <button className="btn ghost" onClick={onClose}>Cancel</button>
+          <button className="btn primary" disabled={!canSubmit || saving} onClick={handleCreate}>
+            {saving ? 'Creating…' : 'Create user'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─────────── Edit user modal ───────────
+
+function EditUserModal({ user, rows, onClose, onSaved }) {
+  const [name, setName]   = useState(user.name)
+  const [email, setEmail] = useState(user.email || '')
+  const [role, setRole]   = useState(user.role)
+  const [teams, setTeams] = useState(user.teams || [])
+  const [color, setColor] = useState(user.color)
+  const [joinedDate, setJoinedDate] = useState(user.joined_date || '')
+  const [dualAccess, setDualAccess] = useState(!!user.dual_access)
+  const [coreTasks, setCoreTasks] = useState(user.core_tasks || [])
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const [tab, setTab] = useState('profile')
+
+  const canSubmit = name.trim() && email.trim() && teams.length > 0
+
+  async function handleSave() {
+    setSaving(true); setError('')
+    try {
+      const cleanTasks = coreTasks.map(({ _autoKey, ...t }) => t)
+      const trimmedName = name.trim()
+      await adminUpdateProfile(user.id, {
+        name: trimmedName, short: derivedFields(trimmedName).short, email: email.trim(), role, teams, color,
+        joined_date: joinedDate, dual_access: dualAccess, core_tasks: cleanTasks,
+      })
+      await loadAndApplyRoster()
+      onSaved()
+      onClose()
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="modal-back" onClick={onClose}>
+      <div className="modal" style={{ maxWidth: 680 }} onClick={e => e.stopPropagation()}>
+        <div className="modal-head">
+          <h2>Edit {user.name}</h2>
+          <button className="btn ghost" onClick={onClose}><Icon name="x" size={13} /></button>
+        </div>
+
+        <div style={{ display: 'flex', gap: 4, padding: '10px 20px 0' }}>
+          {[['profile', 'Profile'], ['responsibilities', 'Responsibilities']].map(([id, label]) => (
+            <button key={id} type="button" onClick={() => setTab(id)}
+                    style={{
+                      padding: '7px 12px', borderRadius: '8px 8px 0 0', border: 'none', cursor: 'pointer',
+                      fontSize: 12, fontWeight: 700, fontFamily: 'var(--font-sans)',
+                      background: tab === id ? 'var(--surface-2)' : 'transparent',
+                      color: tab === id ? 'var(--text)' : 'var(--text-faint)',
+                    }}>
+              {label}
+            </button>
+          ))}
+        </div>
+
+        <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 16, maxHeight: '60vh', overflowY: 'auto' }}>
+          {tab === 'profile' ? (
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                <Field label="Full name">
+                  <input style={inputStyle} value={name} onChange={e => setName(e.target.value)} />
+                </Field>
+                <Field label="Email (login)">
+                  <input style={inputStyle} type="email" value={email} onChange={e => setEmail(e.target.value)} />
+                </Field>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                <Field label="Role">
+                  <select style={selStyle} value={role} onChange={e => setRole(e.target.value)}>
+                    {ROLE_OPTIONS.map(r => <option key={r.id} value={r.id}>{r.label}</option>)}
+                  </select>
+                </Field>
+                <Field label="Teams">
+                  <TeamCheckboxes value={teams} onChange={setTeams} />
+                </Field>
+              </div>
+
+              <Field label="Joined date">
+                <input style={inputStyle} type="date" value={joinedDate} onChange={e => setJoinedDate(e.target.value)} />
+              </Field>
+
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
+                <input type="checkbox" checked={dualAccess} onChange={e => setDualAccess(e.target.checked)} />
+                Dual access — unlock the other department's navigation for this person
+              </label>
+
+              <Field label="Avatar color">
+                <ColorPicker value={color} onChange={setColor} rows={rows} excludeId={user.id} />
+              </Field>
+            </>
+          ) : (
+            <ResponsibilitiesEditor tasks={coreTasks} onChange={setCoreTasks} />
+          )}
+
+          {error && <div style={{ fontSize: 12, color: '#fb7185' }}>{error}</div>}
+        </div>
+
+        <div className="modal-foot">
+          <button className="btn ghost" onClick={onClose}>Cancel</button>
+          <button className="btn primary" disabled={!canSubmit || saving} onClick={handleSave}>
+            {saving ? 'Saving…' : 'Save changes'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─────────── Reset password modal ───────────
+
+function ResetPasswordModal({ user, onClose }) {
+  const [password, setPassword] = useState(genPassword())
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const [done, setDone] = useState(false)
+
+  async function handleReset() {
+    setSaving(true); setError('')
+    try {
+      const { password: finalPassword } = await adminResetPassword(user.id, password)
+      setPassword(finalPassword)
+      setDone(true)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="modal-back" onClick={onClose}>
+      <div className="modal" style={{ maxWidth: 460 }} onClick={e => e.stopPropagation()}>
+        <div className="modal-head"><h2>Reset password — {user.name}</h2><button className="btn ghost" onClick={onClose}><Icon name="x" size={13} /></button></div>
+        <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {done ? (
+            <CopyBox label="New password — share with them securely" value={password} />
+          ) : (
+            <Field label="New password">
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input style={inputStyle} value={password} onChange={e => setPassword(e.target.value)} />
+                <button type="button" className="btn ghost" onClick={() => setPassword(genPassword())}>Generate</button>
+              </div>
+            </Field>
+          )}
+          {error && <div style={{ fontSize: 12, color: '#fb7185' }}>{error}</div>}
+        </div>
+        <div className="modal-foot">
+          <button className="btn ghost" onClick={onClose}>{done ? 'Close' : 'Cancel'}</button>
+          {!done && <button className="btn primary" disabled={saving || password.length < 8} onClick={handleReset}>{saving ? 'Resetting…' : 'Reset password'}</button>}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─────────── Delete confirm modal ───────────
+
+function DeleteConfirmModal({ user, onClose, onDeleted }) {
+  const [confirmText, setConfirmText] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  async function handleDelete() {
+    setSaving(true); setError('')
+    try {
+      await adminDeleteUser(user.id)
+      await loadAndApplyRoster()
+      onDeleted()
+      onClose()
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="modal-back" onClick={onClose}>
+      <div className="modal" style={{ maxWidth: 460 }} onClick={e => e.stopPropagation()}>
+        <div className="modal-head"><h2>Delete {user.name}?</h2><button className="btn ghost" onClick={onClose}><Icon name="x" size={13} /></button></div>
+        <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div style={{ fontSize: 13, color: 'var(--text-dim)', lineHeight: 1.6 }}>
+            This permanently removes their login and roster entry. Their historical daily reports,
+            emails and tasks are <strong>not</strong> deleted — those stay under their member ID.
+            This can't be undone. Consider <strong>Deactivate</strong> instead if you just want to
+            block access.
+          </div>
+          <Field label={`Type "${user.name}" to confirm`}>
+            <input style={inputStyle} value={confirmText} onChange={e => setConfirmText(e.target.value)} />
+          </Field>
+          {error && <div style={{ fontSize: 12, color: '#fb7185' }}>{error}</div>}
+        </div>
+        <div className="modal-foot">
+          <button className="btn ghost" onClick={onClose}>Cancel</button>
+          <button className="btn" style={{ background: '#fb7185', color: '#fff' }}
+                  disabled={confirmText !== user.name || saving} onClick={handleDelete}>
+            {saving ? 'Deleting…' : 'Permanently delete'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─────────── User row ───────────
+
+function UserRow({ user, onEdit, onResetPassword, onToggleActive, onDelete }) {
+  return (
+    <div className="card" style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '12px 16px', opacity: user.active ? 1 : 0.55 }}>
+      <div className={`avatar ${user.color}`}>{user.short}</div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 13, fontWeight: 600 }}>{user.name}</span>
+          <span className={`chip ${user.role === 'lead' || user.role === 'super' ? 'accent' : ''}`}>{ROLE_LABEL[user.role] || user.role}</span>
+          {(user.teams || []).map(t => <span key={t} className="chip">{t}</span>)}
+          {user.dual_access && <span className="chip info">dual access</span>}
+          {!user.active && <span className="chip danger">deactivated</span>}
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {user.email} · joined {user.joined_date}
+        </div>
+      </div>
+      <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+        <button className="btn ghost" onClick={onEdit}>Edit</button>
+        <button className="btn ghost" onClick={onResetPassword}>Reset password</button>
+        <button className="btn ghost" onClick={onToggleActive}>{user.active ? 'Deactivate' : 'Reactivate'}</button>
+        <button className="btn ghost" onClick={onDelete} style={{ color: '#fb7185' }}>Delete</button>
+      </div>
+    </div>
+  )
+}
+
+// ─────────── Page ───────────
 
 export function AdminPage() {
-  const [name,   setName]   = useState('')
-  const [email,  setEmail]  = useState('')
-  const [uid,    setUid]    = useState('')
-  const [team,   setTeam]   = useState('outreach')
-  const [role,   setRole]   = useState('member')
-  const [color,  setColor]  = useState('')
-  const [joined, setJoined] = useState(new Date().toISOString().slice(0, 10))
-  const [showResult, setShowResult] = useState(false)
+  const [rows, setRows]     = useState([])
+  const [loading, setLoading] = useState(true)
+  const [loadErr, setLoadErr] = useState('')
+  const [search, setSearch] = useState('')
+  const [teamFilter, setTeamFilter] = useState('all')
+  const [showInactive, setShowInactive] = useState(false)
+  const [showCreate, setShowCreate] = useState(false)
+  const [editUser, setEditUser] = useState(null)
+  const [resetUser, setResetUser] = useState(null)
+  const [deleteUser, setDeleteUser] = useState(null)
 
-  const { short, memberId } = derivedFields(name)
-  const used = usedColors()
+  async function refresh() {
+    setLoading(true); setLoadErr('')
+    try {
+      setRows(await loadFullRoster())
+    } catch (err) {
+      setLoadErr(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+  useEffect(() => { refresh() }, [])
 
-  // Pick first unused color as default suggestion
-  const suggestedColor = COLOR_SLOTS.find(c => !used.has(c.id))?.id || 'a'
-  const activeColor = color || suggestedColor
+  async function toggleActive(user) {
+    await adminSetActive(user.id, !user.active)
+    await loadAndApplyRoster()
+    refresh()
+  }
 
-  // Effective role: livechat members get role 'livechat' in DB
-  const dbRole = team === 'livechat' && role === 'member' ? 'livechat' : role
-
-  const sql = `INSERT INTO user_profiles (id, member_id, role, name, short, color)
-VALUES ('${uid || '<UID>'}', '${memberId || '<member_id>'}', '${dbRole}', '${name || '<Name>'}', '${short || '<Short>'}', '${activeColor}');`
-
-  const codeFile = team === 'outreach' ? 'src/data.jsx' : 'src/pages/LiveChatTeam.jsx'
-  const codeArray = team === 'outreach' ? 'TEAM' : 'LC_STAFF'
-  const codeSnippet = `// Add to ${codeArray} array in ${codeFile}:\n{ id: '${memberId || '<id>'}', name: '${name || '<Name>'}', short: '${short || '<Short>'}', role: '${dbRole}', color: '${activeColor}', email: '${email || '<email>'}', joined: '${joined}' },`
-
-  const canGenerate = name.trim() && uid.trim() && email.trim()
-
-  const allOutreach = TEAM
-  const allLc = LC_STAFF
+  const filtered = rows.filter(r => {
+    if (!showInactive && !r.active) return false
+    if (teamFilter !== 'all' && !(r.teams || []).includes(teamFilter)) return false
+    if (search.trim()) {
+      const q = search.toLowerCase()
+      if (!r.name.toLowerCase().includes(q) && !(r.email || '').toLowerCase().includes(q)) return false
+    }
+    return true
+  })
 
   return (
     <div className="page">
       <div className="page-head">
         <div>
           <h1>Admin</h1>
-          <div className="sub">Manage team members across Outreach and Live Chat.</div>
+          <div className="sub">{rows.filter(r => r.active).length} active · {rows.length} total across Outreach and Live Chat</div>
+        </div>
+        <div className="actions">
+          <button className="btn primary" onClick={() => setShowCreate(true)}><Icon name="plus" size={12} />New user</button>
         </div>
       </div>
 
-      {/* Current members */}
-      <section style={{ marginBottom: 36 }}>
-        <h2 style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-dim)', marginBottom: 14, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-          Outreach Team · {allOutreach.length} members
-        </h2>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 8, marginBottom: 28 }}>
-          {allOutreach.map(m => (
-            <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10 }}>
-              <div className={`avatar ${m.color}`}>{m.short}</div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{m.name}</div>
-                <div style={{ fontSize: 11, color: 'var(--text-faint)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.email}</div>
-              </div>
-              <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 5, background: m.role === 'lead' ? 'rgba(210,254,92,.15)' : 'var(--surface-3)', color: m.role === 'lead' ? 'var(--accent)' : 'var(--text-faint)' }}>
-                {m.role}
-              </span>
-            </div>
+      <div style={{ display: 'flex', gap: 10, marginBottom: 18, flexWrap: 'wrap', alignItems: 'center' }}>
+        <input style={{ ...inputStyle, maxWidth: 260 }} placeholder="Search name or email…" value={search} onChange={e => setSearch(e.target.value)} />
+        <select style={{ ...selStyle, maxWidth: 160 }} value={teamFilter} onChange={e => setTeamFilter(e.target.value)}>
+          <option value="all">All teams</option>
+          <option value="outreach">Outreach</option>
+          <option value="livechat">Live Chat</option>
+        </select>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-dim)', cursor: 'pointer' }}>
+          <input type="checkbox" checked={showInactive} onChange={e => setShowInactive(e.target.checked)} />
+          Show deactivated
+        </label>
+      </div>
+
+      {loading ? (
+        <div className="card" style={{ padding: 48, textAlign: 'center' }}><span className="muted">Loading…</span></div>
+      ) : loadErr ? (
+        <div className="card" style={{ padding: 24, color: '#fb7185' }}>{loadErr}</div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {filtered.map(user => (
+            <UserRow
+              key={user.id} user={user}
+              onEdit={() => setEditUser(user)}
+              onResetPassword={() => setResetUser(user)}
+              onToggleActive={() => toggleActive(user)}
+              onDelete={() => setDeleteUser(user)}
+            />
           ))}
-        </div>
-
-        <h2 style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-dim)', marginBottom: 14, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-          Live Chat Team · {allLc.length} members
-        </h2>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 8 }}>
-          {allLc.map(m => (
-            <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10 }}>
-              <div className={`avatar ${m.color}`}>{m.short}</div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{m.name}</div>
-                <div style={{ fontSize: 11, color: 'var(--text-faint)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.email}</div>
-              </div>
-              <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 5, background: 'var(--surface-3)', color: 'var(--text-faint)' }}>
-                {m.role}
-              </span>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* Add member form */}
-      <section style={{ maxWidth: 680 }}>
-        <h2 style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-dim)', marginBottom: 20, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-          Add New Member
-        </h2>
-
-        <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: 24 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
-            <Field label="Full name">
-              <input style={inputStyle} value={name} onChange={e => { setName(e.target.value); setShowResult(false) }} placeholder="Yaksh B" />
-            </Field>
-            <Field label="Email">
-              <input style={inputStyle} value={email} onChange={e => { setEmail(e.target.value); setShowResult(false) }} placeholder="yaksh.b@amrytt.com" />
-            </Field>
-          </div>
-
-          <div style={{ marginBottom: 16 }}>
-            <Field label="Supabase UID (from Supabase → Auth → Users)">
-              <input style={{ ...inputStyle, fontFamily: 'var(--font-mono)', fontSize: 12 }} value={uid} onChange={e => { setUid(e.target.value.trim()); setShowResult(false) }} placeholder="b0df62b0-47fd-41ca-9d13-655b088cbf30" />
-            </Field>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16, marginBottom: 20 }}>
-            <Field label="Team">
-              <select style={selStyle} value={team} onChange={e => { setTeam(e.target.value); setRole(e.target.value === 'livechat' ? 'member' : 'member'); setShowResult(false) }}>
-                <option value="outreach">Outreach</option>
-                <option value="livechat">Live Chat</option>
-              </select>
-            </Field>
-            <Field label="Role">
-              <select style={selStyle} value={role} onChange={e => { setRole(e.target.value); setShowResult(false) }}>
-                <option value="member">Member</option>
-                <option value="lead">Lead</option>
-                {team === 'outreach' && <option value="hr">HR</option>}
-                {team === 'outreach' && <option value="super">Super</option>}
-                {team === 'outreach' && <option value="tools-only">Tools Only (no other page access)</option>}
-              </select>
-            </Field>
-            <Field label="Joined date">
-              <input style={inputStyle} type="date" value={joined} onChange={e => { setJoined(e.target.value); setShowResult(false) }} />
-            </Field>
-          </div>
-
-          {/* Color picker */}
-          <Field label={`Avatar color · "${activeColor}" selected`}>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', paddingTop: 2 }}>
-              {COLOR_SLOTS.map(c => {
-                const isUsed = used.has(c.id) && c.id !== activeColor
-                const isActive = c.id === activeColor
-                return (
-                  <button
-                    key={c.id}
-                    title={`${c.label} (${c.id})${isUsed ? ' — in use' : ''}`}
-                    onClick={() => { setColor(c.id); setShowResult(false) }}
-                    style={{
-                      width: 36, height: 36, borderRadius: 8, border: 'none', cursor: 'pointer',
-                      background: `linear-gradient(135deg, ${c.from}, ${c.to})`,
-                      outline: isActive ? '2px solid var(--accent)' : '2px solid transparent',
-                      outlineOffset: 2, opacity: isUsed ? 0.35 : 1,
-                      position: 'relative', fontSize: 11, fontWeight: 800, color: 'rgba(255,255,255,.8)',
-                    }}
-                  >
-                    {c.id.toUpperCase()}
-                    {isUsed && <span style={{ position: 'absolute', bottom: 2, right: 3, fontSize: 8, color: 'rgba(255,255,255,.5)' }}>✓</span>}
-                  </button>
-                )
-              })}
-            </div>
-            <div style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 4 }}>Faded = already assigned. Suggestion: <strong>{suggestedColor.toUpperCase()}</strong></div>
-          </Field>
-
-          {/* Derived preview */}
-          {name.trim() && (
-            <div style={{ marginTop: 16, padding: '10px 14px', background: 'var(--surface-2)', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 12 }}>
-              <div className={`avatar ${activeColor}`}>{short || '?'}</div>
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 600 }}>{name}</div>
-                <div style={{ fontSize: 11, color: 'var(--text-faint)' }}>id: <code style={{ fontFamily: 'var(--font-mono)' }}>{memberId || '—'}</code> · short: <code style={{ fontFamily: 'var(--font-mono)' }}>{short || '—'}</code> · team: {team} · role: {dbRole}</div>
-              </div>
-            </div>
+          {filtered.length === 0 && (
+            <div className="card" style={{ padding: 24, textAlign: 'center', color: 'var(--text-faint)', fontSize: 13 }}>No users match.</div>
           )}
-
-          <button
-            disabled={!canGenerate}
-            onClick={() => setShowResult(true)}
-            style={{
-              marginTop: 20, width: '100%', padding: '11px', border: 'none', borderRadius: 8,
-              background: canGenerate ? 'var(--accent)' : 'var(--surface-3)',
-              color: canGenerate ? 'var(--accent-ink)' : 'var(--text-ghost)',
-              fontWeight: 700, fontSize: 14, cursor: canGenerate ? 'pointer' : 'default',
-              fontFamily: 'var(--font-sans)', transition: 'background .15s',
-            }}
-          >
-            Generate SQL + Code Snippet
-          </button>
         </div>
+      )}
 
-        {showResult && (
-          <div style={{ marginTop: 24, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: 24 }}>
-            <div style={{ marginBottom: 20 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>Two steps to complete:</div>
-              <ol style={{ margin: '8px 0 0', padding: '0 0 0 18px', fontSize: 13, color: 'var(--text-dim)', lineHeight: 2 }}>
-                <li>Run the SQL in <strong>Supabase → SQL Editor</strong></li>
-                <li>Add the code line to <strong>{codeFile}</strong> inside the {codeArray} array, then push to GitHub (Vercel auto-deploys)</li>
-              </ol>
-            </div>
-
-            <CopyBox label="Step 1 · Supabase SQL" value={sql} />
-            <CopyBox label={`Step 2 · Code line for ${codeFile}`} value={codeSnippet} />
-          </div>
-        )}
-      </section>
+      {showCreate && <CreateUserModal rows={rows} onClose={() => setShowCreate(false)} onCreated={refresh} />}
+      {editUser && <EditUserModal user={editUser} rows={rows} onClose={() => setEditUser(null)} onSaved={refresh} />}
+      {resetUser && <ResetPasswordModal user={resetUser} onClose={() => setResetUser(null)} />}
+      {deleteUser && <DeleteConfirmModal user={deleteUser} onClose={() => setDeleteUser(null)} onDeleted={refresh} />}
     </div>
   )
 }

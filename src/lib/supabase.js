@@ -156,6 +156,50 @@ export async function incrementEmailReplies(id, currentReplies) {
   if (error) throw error;
 }
 
+// ── Roster (team members, DB-driven) ─────────────────
+// Active profiles only — this feeds TEAM/LC_TEAM/LC_STAFF for the whole app.
+export async function loadRoster() {
+  const { data, error } = await supabase
+    .from('user_profiles')
+    .select('id, member_id, role, name, short, color, email, teams, joined_date, dual_access, core_tasks')
+    .eq('active', true)
+  if (error) throw error
+  return data || []
+}
+
+// Full roster including inactive users — Admin page only (needs to show/reactivate
+// deactivated accounts). Everywhere else in the app should use loadRoster() above.
+export async function loadFullRoster() {
+  const { data, error } = await supabase
+    .from('user_profiles')
+    .select('id, member_id, role, name, short, color, email, teams, joined_date, active, dual_access, core_tasks')
+    .order('joined_date', { ascending: true })
+  if (error) throw error
+  return data || []
+}
+
+// ── Admin actions ─────────────────────────────────────
+// All go through api/admin-users.js, which re-verifies the caller is an
+// admin (lead/super) server-side using their session token — the client-side
+// role check that gates the Admin page is a UX convenience, not security.
+async function adminCall(action, payload) {
+  const { data: { session } } = await supabase.auth.getSession()
+  const res = await fetch('/api/admin-users', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token || ''}` },
+    body: JSON.stringify({ action, payload }),
+  })
+  const body = await res.json()
+  if (!res.ok) throw new Error(body.error || `Request failed (${res.status})`)
+  return body
+}
+
+export function adminCreateUser(payload) { return adminCall('create', payload) }
+export function adminUpdateProfile(id, updates) { return adminCall('updateProfile', { id, updates }) }
+export function adminSetActive(id, active) { return adminCall('setActive', { id, active }) }
+export function adminDeleteUser(id) { return adminCall('deleteUser', { id }) }
+export function adminResetPassword(id, password) { return adminCall('resetPassword', { id, password }) }
+
 export async function saveUserAccent(userId, accent) {
   const { error } = await supabase
     .from('user_profiles')

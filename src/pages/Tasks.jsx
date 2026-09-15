@@ -20,7 +20,9 @@ const PRIORITY_CFG = {
 
 const STATUS_ORDER   = ['todo', 'in_progress', 'review', 'done']
 const PRIORITY_ORDER = ['urgent', 'high', 'medium', 'low']
-const ASSIGNABLE     = TEAM.filter(m => ['member', 'lead'].includes(m.role))
+// A function, not a module-level constant: TEAM is populated asynchronously
+// at app boot (from Supabase), so reading it at import time would always see it empty.
+function assignableMembers() { return TEAM.filter(m => ['member', 'lead'].includes(m.role)) }
 
 const LBL = { display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }
 
@@ -124,7 +126,7 @@ function TaskModal({ task, me, onClose, onSave, onDelete }) {
             <div>
               <label style={LBL}>Assign to</label>
               <select className="input" value={assigneeId} onChange={e => setAssigneeId(e.target.value)} style={{ width: '100%' }}>
-                {ASSIGNABLE.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                {assignableMembers().map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
               </select>
             </div>
             <div>
@@ -347,7 +349,7 @@ function ListView({ tasks, me, onTaskClick,
                 style={{ width: 'auto', fontSize: 12, height: 30, padding: '0 10px' }}>
           <option value="all">All members</option>
           <option value={me.id}>My tasks</option>
-          {ASSIGNABLE.filter(m => m.id !== me.id).map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+          {assignableMembers().filter(m => m.id !== me.id).map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
         </select>
 
         <select className="input" value={sortBy} onChange={e => setSortBy(e.target.value)}

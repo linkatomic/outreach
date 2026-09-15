@@ -1,23 +1,12 @@
 import { Icon } from '../data.jsx'
 
-// LC_TEAM is managed here — add members as the team grows
-// LC_TEAM: displayed on the Team page
-export const LC_TEAM = [
-  { id: 'dev',     name: 'Dev Pandya', short: 'DP', role: 'livechat', color: 'a', email: 'dev.p@amrytt.com',     joined: '2026-06-01' },
-  { id: 'bhavan',  name: 'Bhavan C',   short: 'BC', role: 'livechat', color: 'b', email: 'bhavan.c@amrytt.com',  joined: '2026-06-01' },
-  { id: 'nagji',   name: 'Nagji R',    short: 'NR', role: 'livechat', color: 'e', email: 'nagji.r@amrytt.com',   joined: '2026-06-01' },
-  { id: 'kanaiya', name: 'Kanaiya K',  short: 'KK', role: 'livechat', color: 'd', email: 'kanaiya.k@amrytt.com', joined: '2026-06-16' },
-  { id: 'nilesh',  name: 'Nilesh P',   short: 'NP', role: 'livechat', color: 'f', email: 'nilesh.p@amrytt.com',  joined: '2026-06-16' },
-  { id: 'shailesh', name: 'Shailesh C', short: 'SC', role: 'livechat', color: 'g', email: 'shailesh.c@amrytt.com', joined: '2026-06-20' },
-  { id: 'amit',     name: 'Amit G',     short: 'AG', role: 'livechat', color: 'h', email: 'amit.g@amrytt.com',     joined: '2026-06-24' },
-  { id: 'jigar',    name: 'Jigar P',    short: 'JP', role: 'livechat', color: 'i', email: 'jigar.p@amrytt.com',    joined: '2026-07-16' },
-]
-
-// LC_STAFF: all LC-side users including non-team roles (HR etc.) — used for super admin impersonation
-export const LC_STAFF = [
-  ...LC_TEAM,
-  { id: 'kirti', name: 'Kirti P', short: 'KP', role: 'hr', color: 'c', email: 'kirti.p@amrytt.com', joined: '2026-06-01' },
-]
+// LC_TEAM and LC_STAFF are mutable containers populated at runtime from
+// Supabase (src/lib/roster.js) — there is no hardcoded roster anymore.
+// LC_TEAM: livechat-role agents only, displayed on the Team page.
+// LC_STAFF: all livechat-department users including non-agent roles (HR etc.)
+// — used for super admin impersonation.
+export const LC_TEAM = []
+export const LC_STAFF = []
 
 const ROLE_LABEL = { lead: 'Team Lead', member: 'Member', livechat: 'Agent', hr: 'HR' }
 const COLOR_MAP  = { a: '#a3e635', b: '#60a5fa', c: '#f472b6', d: '#fb923c', e: '#a78bfa', f: '#34d399', g: '#fbbf24', h: '#38bdf8', i: '#2dd4bf' }

@@ -1,20 +1,18 @@
-// data.jsx — seed data + shared utilities
-
-export const TEAM = [
-  { id: 'dev',    name: 'Dev Pandya',  short: 'DP', role: 'lead',   color: 'a', email: 'dev.p@amrytt.com',    joined: '2024-04-01' },
-  { id: 'neha',   name: 'Neha M',      short: 'NM', role: 'member', color: 'b', email: 'neha.m@amrytt.com',   joined: '2024-08-12' },
-  { id: 'preeti', name: 'Preeti S',    short: 'PS', role: 'member', color: 'c', email: 'preeti.s@amrytt.com', joined: '2025-01-06' },
-  { id: 'keyur',  name: 'Keyur D',     short: 'KD', role: 'member', color: 'd', email: 'keyur.d@amrytt.com',  joined: '2024-11-18' },
-  { id: 'arjun',  name: 'Arjun M',     short: 'AM', role: 'member', color: 'e', email: 'arjun.m@amrytt.com',  joined: '2025-03-02' },
-  { id: 'yaksh',  name: 'Yaksh B',     short: 'YB', role: 'member', color: 'g', email: 'yaksh.b@amrytt.com',  joined: '2026-07-15' },
-  { id: 'vanita', name: 'Vanita N',    short: 'VN', role: 'member', color: 'j', email: 'vanita.n@amrytt.com', joined: '2026-09-10' },
-];
+// data.jsx — shared data model + utilities
+//
+// TEAM and DUAL_ACCESS_IDS are mutable containers populated at runtime from
+// Supabase (src/lib/roster.js) — there is no hardcoded roster anymore. They
+// start empty and are filled in before the authenticated app ever renders
+// (see App.jsx's auth effect), so every consumer that reads them at render
+// time (TEAM.find/.filter, DUAL_ACCESS_IDS.has) always sees current data.
+export const TEAM = [];
 
 // Members whose primary role is 'livechat' but who ALSO get outreach access via the
 // department switcher (same mechanism lead/super/hr use), without becoming a lead/super/hr
 // themselves. They are NOT enrolled in outreach daily-report tracking/targets/analytics —
 // this only unlocks navigation into the outreach side of the app.
-export const DUAL_ACCESS_IDS = new Set(['jigar']);
+// Backed by each profile's `dual_access` column — set from the Admin page.
+export const DUAL_ACCESS_IDS = new Set();
 export function hasDualAccess(id) {
   return DUAL_ACCESS_IDS.has(id);
 }
@@ -43,14 +41,6 @@ export const METRIC_GROUPS = [
   { id: 'comms',   label: 'Comms' },
 ];
 
-export const VENDORS = [
-  'Northwind Apparel', 'Acme Imports', 'Globex Wholesale', 'Initech Goods',
-  'Umbrella Trade Co', 'Stark Industries', 'Wayne Supply', 'Hooli Mart',
-  'Pied Piper Goods', 'Cyberdyne Wholesale', 'Tyrell Distribution', 'Nakatomi Trade',
-  'Soylent Foods', 'Massive Dynamic', 'Vehement Capital', 'Vandelay Industries',
-  'Sterling Cooper', 'Dunder Mifflin', 'Pendant Publishing', 'Bluth Co',
-];
-
 export function teamMembers() {
   return TEAM.filter(m => m.role === 'member');
 }
@@ -76,44 +66,22 @@ const COMMON_TASKS = [
   { key: 'core_followups',      label: 'Email Follow Ups',              unit: '', target: 0, targetLabel: 'All pending follow-ups', group: 'core_common', role: 'common', icon: 'mail',   type: 'checkbox', mustComplete: true, desc: 'Clear all pending email follow-ups' },
 ];
 
-export const CORE_TASKS = {
-  preeti: [
-    { key: 'core_ai_health',        label: 'AI Tools Health Check & Categories', unit: 'checks',  target: 500, targetLabel: '500 checks · all categories', group: 'core_primary',   role: 'primary',   icon: 'shield',   desc: 'Monitor AI/automation workflows and verify outputs are running correctly' },
-    { key: 'core_order_issues',     label: 'Order Issue Resolution',             unit: 'issues',  target: 0,   targetLabel: 'As raised',                   group: 'core_primary',   role: 'primary',   icon: 'alert',    desc: 'Track, escalate and resolve pending order issues' },
-    { key: 'core_site_audit',       label: 'New Website Audit & Addition',       unit: 'sites',   target: 50,  targetLabel: '50 sites',                    group: 'core_primary',   role: 'primary',   icon: 'search',   desc: 'Audit newly sourced websites and add approved ones to the network' },
-    { key: 'core_data_updates',     label: 'Website Data Updates',               unit: 'updates', target: 0,   targetLabel: 'As required',                 group: 'core_primary',   role: 'primary',   icon: 'edit',     desc: 'Keep website records (price, guidelines etc.) up to date' },
-    { key: 'core_teams_comm',       label: 'Teams Communication',                unit: '',        target: 0,   targetLabel: 'Same-day response',           group: 'core_primary',   role: 'primary',   icon: 'chat',     type: 'checkbox', mustComplete: true, desc: 'Respond to and coordinate messages on Microsoft Teams' },
-    { key: 'core_reseller_replace', label: 'Reseller Replacement Outreach',      unit: 'emails',  target: 25,  targetLabel: '25 responses',                group: 'core_secondary', role: 'secondary', icon: 'swap',     desc: 'Backup for Arjun — contact direct sources to replace reseller links' },
-  ],
-  keyur: [
-    { key: 'core_client_outreach',  label: 'Client Requirements Outreach',       unit: 'emails',  target: 25,  targetLabel: '25 responses',                group: 'core_primary',   role: 'primary',   icon: 'mail',     desc: 'Work on active client requirements via outreach and follow-ups' },
-    { key: 'core_inbox_alloc',      label: 'Team Inbox Email Allocation',        unit: '',        target: 0,   targetLabel: 'Inbox empty at all times',    group: 'core_primary',   role: 'primary',   icon: 'inbox',    type: 'checkbox', mustComplete: true, desc: 'Allocate team inbox emails — inbox should be empty all the time' },
-    { key: 'core_ai_health',        label: 'AI Tools Health Check & Categories', unit: 'checks',  target: 500, targetLabel: '500 checks · all categories', group: 'core_secondary', role: 'secondary', icon: 'shield',   desc: 'Backup for Preeti — monitor AI/automation workflows' },
-    { key: 'core_site_audit',       label: 'New Website Audit & Addition',       unit: 'sites',   target: 50,  targetLabel: '50 sites',                    group: 'core_secondary', role: 'secondary', icon: 'search',   desc: 'Backup for Preeti — audit and add new websites' },
-    { key: 'core_data_updates',     label: 'Website Data Updates',               unit: 'updates', target: 0,   targetLabel: 'As required',                 group: 'core_secondary', role: 'secondary', icon: 'edit',     desc: 'Backup for Preeti — keep website records up to date' },
-    { key: 'core_teams_comm',       label: 'Teams Communication',                unit: '',        target: 0,   targetLabel: 'Same-day response',           group: 'core_secondary', role: 'secondary', icon: 'chat',     type: 'checkbox', desc: 'Backup for Preeti — Microsoft Teams coordination' },
-  ],
-  arjun: [
-    { key: 'core_vendor_outreach',  label: 'Existing Vendor Site Outreach',      unit: 'vendors', target: 5,   targetLabel: '5 existing vendors',          group: 'core_primary',   role: 'primary',   icon: 'building', desc: "Reach out to existing vendors' sites for new opportunities" },
-    { key: 'core_reseller_replace', label: 'Reseller Replacement Outreach',      unit: 'emails',  target: 25,  targetLabel: '25 responses',                group: 'core_primary',   role: 'primary',   icon: 'swap',     desc: 'Identify and contact direct sources to replace reseller links' },
-    { key: 'core_db_addition',      label: 'Website Database Addition',          unit: 'sites',   target: 0,   targetLabel: 'As received',                 group: 'core_primary',   role: 'primary',   icon: 'plus',     desc: 'Add websites received via Email, WhatsApp & JasaBacklink' },
-  ],
-  neha: [
-    { key: 'core_marketplace',      label: 'Marketplace Outreach',               unit: 'emails',  target: 25,  targetLabel: '25 responses',                group: 'core_primary',   role: 'primary',   icon: 'globe',    desc: 'Prospect and reach out on marketplaces for new inventory' },
-    { key: 'core_teams_comm',       label: 'Teams Communication',                unit: '',        target: 0,   targetLabel: 'Same-day response',           group: 'core_secondary', role: 'secondary', icon: 'chat',     type: 'checkbox', desc: 'Backup for Preeti — Microsoft Teams coordination' },
-  ],
-  yaksh: [
-    { key: 'core_client_outreach',  label: 'Client Requirements Outreach',       unit: 'emails',  target: 25,  targetLabel: '25 responses',                group: 'core_secondary', role: 'secondary', icon: 'mail',     desc: 'Backup for Keyur — client requirements outreach' },
-    { key: 'core_vendor_outreach',  label: 'Existing Vendor Site Outreach',      unit: 'vendors', target: 5,   targetLabel: '25 responses · 5 vendors',    group: 'core_secondary', role: 'secondary', icon: 'building', desc: 'Backup for Arjun — existing vendor outreach' },
-    { key: 'core_marketplace',      label: 'Marketplace Outreach',               unit: 'emails',  target: 25,  targetLabel: '25 responses',                group: 'core_secondary', role: 'secondary', icon: 'globe',    desc: 'Backup for Neha — marketplace outreach' },
-  ],
-};
-
+// Per-member task assignments ("responsibilities") — set from the Admin page
+// and stored on each profile's `core_tasks` column. No hardcoded per-person
+// data here anymore; TEAM members carry their own core_tasks from Supabase.
 export function coreTasksFor(memberId) {
-  const own = CORE_TASKS[memberId];
-  if (!own) return [];
+  const member = TEAM.find(m => m.id === memberId);
+  const own = member?.core_tasks;
+  if (!own || !own.length) return [];
   return [...own, ...COMMON_TASKS];
 }
+
+// Icon choices offered in the Admin page's responsibility editor.
+export const CORE_TASK_ICONS = [
+  'mail', 'inbox', 'edit', 'search', 'shield', 'chat', 'swap', 'building',
+  'globe', 'plus', 'alert', 'tag', 'check', 'flag', 'clock', 'star', 'tool',
+  'activity', 'list', 'calendar', 'download', 'upload', 'link', 'percent',
+];
 
 // A core task is "missed" when its hard target wasn't met.
 // Secondary (coverage) tasks never count as missed.
@@ -181,17 +149,6 @@ export const ACCENT_PRESETS = [
   { id: 'neon-yellow', name: 'Neon Yellow', hex: '#fff01f', ink: '#0a0a0a' },
 ]
 
-export function hash(str) {
-  let h = 2166136261;
-  for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = (h * 16777619) >>> 0; }
-  return h;
-}
-export function rnd(seed) {
-  const h = hash(seed);
-  return (h % 10000) / 10000;
-}
-export function rndInt(seed, min, max) { return Math.floor(rnd(seed) * (max - min + 1)) + min; }
-
 // ─────────── Date helpers ───────────
 function localISODate(d = new Date()) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -212,115 +169,6 @@ export function fmtDayName(iso) {
 export function fmtFull(iso) {
   const d = new Date(iso + 'T00:00:00');
   return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
-}
-
-// ─────────── Seeded report data ───────────
-function seedReports() {
-  const out = [];
-  for (let d = 30; d >= 0; d--) {
-    const date = isoNDaysAgo(d);
-    const day = new Date(date + 'T00:00:00').getDay();
-    if (day === 0) continue;
-    for (const m of TEAM) {
-      if (m.role === 'lead') continue;
-      if (rnd(date + m.id + 'skip') < 0.1 && d > 0) continue;
-      const metrics = {};
-      const factor = 0.7 + rnd(m.id + 'baseline') * 0.7;
-      const dayBoost = day === 1 ? 0.85 : day === 6 ? 0.7 : 1.0;
-      for (const mt of METRICS) {
-        const seed = date + m.id + mt.key;
-        const present = rnd(seed) > (mt.target ? 0.05 : 0.5);
-        if (!present) continue;
-        let base = mt.target || rndInt(seed + 'b', 1, 12);
-        const variance = (rnd(seed + 'v') - 0.4) * base * 0.6;
-        const val = Math.max(0, Math.round((base + variance) * factor * dayBoost));
-        if (val > 0) metrics[mt.key] = val;
-      }
-      const submittedAt = `${date}T${17 + Math.floor(rnd(date + m.id + 't') * 3)}:${String(Math.floor(rnd(date + m.id + 'm') * 60)).padStart(2,'0')}:00`;
-      out.push({
-        id: `r_${date}_${m.id}`,
-        memberId: m.id,
-        date,
-        submittedAt,
-        metrics,
-        note: rnd(date + m.id + 'note') < 0.18
-          ? ['Inbox cleared early', 'Vendor escalation took 90 min', 'Power cut delayed start', 'Wrapped Microsoft Teams backlog', 'Lots of replacement requests today'][rndInt(date+m.id+'ni',0,4)]
-          : '',
-        status: rnd(date+m.id+'st') < 0.85 ? 'approved' : (rnd(date+m.id+'st2') < 0.5 ? 'pending' : 'flagged'),
-      });
-    }
-  }
-  return out;
-}
-
-function seedEmails() {
-  const out = [];
-  let counter = 0;
-  for (let d = 30; d >= 0; d--) {
-    const date = isoNDaysAgo(d);
-    const day = new Date(date + 'T00:00:00').getDay();
-    if (day === 0) continue;
-    for (const m of TEAM) {
-      if (m.role === 'lead') continue;
-      const count = rndInt(date + m.id + 'ec', 18, 36);
-      for (let i = 0; i < count; i++) {
-        counter++;
-        const vendor = VENDORS[rndInt(date + m.id + i + 'v', 0, VENDORS.length - 1)];
-        const linkId = rndInt(date + m.id + i + 'l', 1000000, 9999999);
-        const hr = 9 + Math.floor(i / 4);
-        const min = (i * 7) % 60;
-        out.push({
-          id: `e_${counter}`,
-          sr: counter,
-          memberId: m.id,
-          date,
-          vendor,
-          link: `missive.app/${linkId}`,
-          time: `${String(hr).padStart(2,'0')}:${String(min).padStart(2,'0')}`,
-          status: rnd(date+m.id+i+'st') < 0.92 ? 'sent' : 'reply',
-        });
-      }
-    }
-  }
-  return out;
-}
-
-export const REPORTS = seedReports();
-export const EMAILS = seedEmails();
-
-// ─────────── Aggregations ───────────
-export function reportsForMember(memberId, days = 7) {
-  const cutoff = isoNDaysAgo(days);
-  return REPORTS.filter(r => r.memberId === memberId && r.date >= cutoff);
-}
-export function emailsForMember(memberId, date) {
-  return EMAILS.filter(e => e.memberId === memberId && e.date === date);
-}
-export function emailsCountByDay(memberId, days = 14) {
-  const out = [];
-  for (let d = days - 1; d >= 0; d--) {
-    const date = isoNDaysAgo(d);
-    out.push({ date, count: EMAILS.filter(e => e.memberId === memberId && e.date === date).length });
-  }
-  return out;
-}
-export function teamEmailsCountByDay(days = 14) {
-  const out = [];
-  for (let d = days - 1; d >= 0; d--) {
-    const date = isoNDaysAgo(d);
-    out.push({ date, count: EMAILS.filter(e => e.date === date).length });
-  }
-  return out;
-}
-export function metricTotal(memberId, metricKey, days = 7) {
-  return reportsForMember(memberId, days).reduce((s, r) => s + (r.metrics[metricKey] || 0), 0);
-}
-
-export function reportToday(memberId) {
-  return REPORTS.find(r => r.memberId === memberId && r.date === todayISO());
-}
-export function emailsToday(memberId) {
-  return EMAILS.filter(e => e.memberId === memberId && e.date === todayISO()).length;
 }
 
 // Icons (inline SVG paths)
