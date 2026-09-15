@@ -41,6 +41,15 @@ function usedColors(rows, excludeId) {
   return new Set(rows.filter(r => r.id !== excludeId).map(r => r.color))
 }
 
+function missingFieldsHint({ name, email, password, teams }) {
+  const missing = []
+  if (!name?.trim()) missing.push('full name')
+  if (!email?.trim()) missing.push('email')
+  if (password !== undefined && password.trim().length < 8) missing.push('a password of 8+ characters')
+  if (!teams?.length) missing.push('at least one team')
+  return missing.length ? `Missing: ${missing.join(', ')}` : ''
+}
+
 function genPassword() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%'
   let out = ''
@@ -315,6 +324,7 @@ function CreateUserModal({ rows, onClose, onCreated }) {
           {error && <div style={{ fontSize: 12, color: '#fb7185' }}>{error}</div>}
         </div>
         <div className="modal-foot">
+          {!canSubmit && <span style={{ fontSize: 11, color: 'var(--text-faint)', marginRight: 'auto' }}>{missingFieldsHint({ name, email, password, teams })}</span>}
           <button className="btn ghost" onClick={onClose}>Cancel</button>
           <button className="btn primary" disabled={!canSubmit || saving} onClick={handleCreate}>
             {saving ? 'Creating…' : 'Create user'}
@@ -427,6 +437,7 @@ function EditUserModal({ user, rows, onClose, onSaved }) {
         </div>
 
         <div className="modal-foot">
+          {!canSubmit && <span style={{ fontSize: 11, color: 'var(--text-faint)', marginRight: 'auto' }}>{missingFieldsHint({ name, email, teams })}</span>}
           <button className="btn ghost" onClick={onClose}>Cancel</button>
           <button className="btn primary" disabled={!canSubmit || saving} onClick={handleSave}>
             {saving ? 'Saving…' : 'Save changes'}
