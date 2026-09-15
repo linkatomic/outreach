@@ -40,8 +40,17 @@ export function Sidebar({ route, setRoute, role, me, allUsers = [], impersonated
   // Only lead/super (the two specific admin roles) can see Active Users
   const showActiveUsers = (me.role === 'lead' || me.role === 'super') && !impersonatedId;
 
-  // Who can switch departments — lead/super/hr, plus livechat members granted dual access
-  const canSwitchDept = (['lead', 'super', 'hr'].includes(me.role) || hasDualAccess(me.id)) && !impersonatedId;
+  // Identity shown in footer, and whose permissions the sidebar should reflect:
+  // the impersonated user while impersonating, otherwise the real logged-in user.
+  const displayUser = impersonatedId
+    ? allUsers.find(m => m.id === impersonatedId) || me
+    : me;
+
+  // Who can switch departments — lead/super/hr, plus anyone granted dual access.
+  // Uses the effective identity (role prop already reflects it) so impersonating
+  // someone shows exactly what THEY would see, not gated off just because a
+  // super is the one doing the impersonating.
+  const canSwitchDept = ['lead', 'super', 'hr'].includes(role) || hasDualAccess(displayUser.id);
 
   // Show manage section for: lead, hr, super (when not impersonating), or impersonating a lead
   const showManageItems = (me.role === 'lead'
@@ -52,11 +61,6 @@ export function Sidebar({ route, setRoute, role, me, allUsers = [], impersonated
   // Plain livechat-role users always see LC nav regardless of dept state.
   // Dual-access livechat members can toggle like lead/super/hr — respect dept state instead.
   const showLcNav = me.role === 'livechat' && !hasDualAccess(me.id) ? true : dept === 'livechat';
-
-  // Identity shown in footer: impersonated user or real user
-  const displayUser = impersonatedId
-    ? allUsers.find(m => m.id === impersonatedId) || me
-    : me;
   const displayRoleLabel = impersonatedId
     ? (displayUser.role === 'lead' ? 'Team Lead' : 'Member')
     : me.role === 'super' ? 'Super Admin'
