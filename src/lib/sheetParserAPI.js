@@ -224,46 +224,6 @@ Return ONLY valid JSON, no explanation:
   return JSON.parse(text)
 }
 
-// ── Post-AI validation ────────────────────────────────────
-// Catches cases where GPT returns structurally valid JSON but the
-// detected columns don't actually match the data in the rows.
-
-export function validateColumnDetectionResult(result, rawRows) {
-  const issues = []
-  const headerIdx = result.headerRow ?? 0
-  const headerCells = (rawRows[headerIdx] || []).map(c => String(c ?? '').trim())
-
-  if (result.domainColumn) {
-    const colIdx = headerCells.indexOf(result.domainColumn)
-    if (colIdx === -1) {
-      issues.push(`Domain column "${result.domainColumn}" not found in header row`)
-    } else {
-      const sampleValues = rawRows.slice(headerIdx + 1, headerIdx + 6)
-        .map(r => String((r || [])[colIdx] ?? '').trim()).filter(Boolean)
-      const domainLike = sampleValues.filter(v => /\.[a-z]{2,}/i.test(v))
-      if (sampleValues.length > 0 && domainLike.length < sampleValues.length * 0.5) {
-        issues.push(`Domain column "${result.domainColumn}" doesn't look like domains (sample: ${sampleValues.slice(0,3).join(', ')})`)
-      }
-    }
-  }
-
-  for (const pc of (result.priceColumns || [])) {
-    const colIdx = headerCells.indexOf(pc.name)
-    if (colIdx === -1) {
-      issues.push(`Price column "${pc.name}" not found in header row`)
-      continue
-    }
-    const sampleValues = rawRows.slice(headerIdx + 1, headerIdx + 6)
-      .map(r => String((r || [])[colIdx] ?? '').trim()).filter(Boolean)
-    const numericLike = sampleValues.filter(v => /[\d$]/.test(v))
-    if (sampleValues.length > 0 && numericLike.length === 0) {
-      issues.push(`Price column "${pc.name}" has no numeric values — may be misclassified (sample: ${sampleValues.slice(0,3).join(', ')})`)
-    }
-  }
-
-  return issues
-}
-
 // ── Cross-tab label normalization ─────────────────────────
 // labelInfos: Array<{ label, tab, valueSamples, domainSamples }>
 
@@ -422,63 +382,9 @@ export const NICHE_CATEGORIES = [
   { key: 'crypto_li',  label: 'Crypto/LI',   gplLabel: 'crypto link insertion' },
 ]
 
-// ── GPL publisher data lookup ─────────────────────────────
-
-export async function lookupPublisherData(domains, onProgress) {
-  const result = new Map()
-  if (!GPL_API_TOKEN || !domains.length) return result
-
-  const BATCH = 100
-  const CONCURRENCY = 5
-  const batches = []
-  for (let i = 0; i < domains.length; i += BATCH) batches.push(domains.slice(i, i + BATCH))
-
-  let done = 0
-  for (let i = 0; i < batches.length; i += CONCURRENCY) {
-    const chunk = batches.slice(i, i + CONCURRENCY)
-    await Promise.allSettled(chunk.map(async batch => {
-      try {
-        const res = await fetch('https://api.records.guestpostlinks.net/v2/publisher/website/gpl/search-publishers', {
-          method: 'POST',
-          headers: { 'Authorization': GPL_API_TOKEN, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ websites: batch }),
-        })
-        if (!res.ok) return
-        const data = await res.json()
-        if (data.success && data.data?.websites) {
-          for (const site of data.data.websites) {
-            const vendor = site.vendors?.find(v => v.is_primary) || site.vendors?.[0] || null
-            const primaryEmail = vendor?.email?.find(e => e.isPrimary)?.address
-                              || vendor?.email?.[0]?.address || ''
-            result.set(site.website, {
-              status: site.status,
-              disableReason: site.disable_reason || '',
-              vendorName: vendor?.name || '',
-              vendorType: vendor?.vendorType || '',
-              email: primaryEmail,
-              currency: vendor?.actualCurrency?.cc || '',
-              addons: (vendor?.addons || []).map(a => ({
-                label: a.label,
-                name: a.name,
-                actualPrice: a.actualPrice ?? '',
-              })),
-            })
-          }
-        }
-      } catch { /* skip failed batches */ }
-      done++
-      onProgress?.(done, batches.length)
-    }))
-  }
-
-  return result
-}
-
-// ── GPL publisher data lookup (full detail, for Ultimate Sheet Parser) ────
-// Separate from lookupPublisherData above (which the existing Sheet Parser depends on and
-// which stays untouched) — this pulls the full vendors array, admin/buyer/reseller price per
-// addon, vendor-level disable state, corrected contact fields (the old function's `email`
-// lookup doesn't match the current API schema at all), and site-level DA/PA/Ascore.
+// ── GPL publisher data lookup (full detail) ───────────────
+// Pulls the full vendors array, admin/buyer/reseller price per addon,
+// vendor-level disable state, contact fields, and site-level DA/PA/Ascore.
 export async function lookupPublisherDataFull(domains, onProgress) {
   const result = new Map()
   if (!GPL_API_TOKEN || !domains.length) return result
@@ -564,96 +470,8 @@ async function gdrive(path, opts = {}) {
   return data
 }
 
-// ── Output sheet creation ─────────────────────────────────
-
-export async function createOutputSheet(title, headers, rows, numPriceCols) {
-  const created = await gsheets('/spreadsheets', {
-    method: 'POST',
-    body: JSON.stringify({
-      properties: { title },
-      sheets: [{ properties: { title: 'Websites' } }],
-    }),
-  })
-  const newId   = created.spreadsheetId
-  const sheetId = created.sheets[0].properties.sheetId
-
-  await gsheets(`/spreadsheets/${newId}/values/Websites!A1?valueInputOption=USER_ENTERED`, {
-    method: 'PUT',
-    body: JSON.stringify({ values: [headers, ...rows] }),
-  })
-
-  // Buyer columns at indices 3, 5, 7, … (3 + 2*i) — green highlight
-  const buyerColRequests = Array.from({ length: numPriceCols }, (_, i) => ({
-    repeatCell: {
-      range: { sheetId, startColumnIndex: 3 + i * 2, endColumnIndex: 4 + i * 2 },
-      cell: { userEnteredFormat: { backgroundColor: { red: 0.851, green: 0.918, blue: 0.827 } } },
-      fields: 'userEnteredFormat.backgroundColor',
-    },
-  }))
-
-  // Status col = 2 + 2*n; Disable Reason = 3 + 2*n (always left-align Website=1 and Disable Reason)
-  const disableReasonColIdx = 3 + 2 * numPriceCols
-
-  await gsheets(`/spreadsheets/${newId}:batchUpdate`, {
-    method: 'POST',
-    body: JSON.stringify({
-      requests: [
-        // Bold header row
-        {
-          repeatCell: {
-            range: { sheetId, startRowIndex: 0, endRowIndex: 1 },
-            cell: { userEnteredFormat: { textFormat: { bold: true } } },
-            fields: 'userEnteredFormat.textFormat.bold',
-          },
-        },
-        // Freeze header row
-        {
-          updateSheetProperties: {
-            properties: { sheetId, gridProperties: { frozenRowCount: 1 } },
-            fields: 'gridProperties.frozenRowCount',
-          },
-        },
-        // Center-align entire sheet
-        {
-          repeatCell: {
-            range: { sheetId },
-            cell: { userEnteredFormat: { horizontalAlignment: 'CENTER' } },
-            fields: 'userEnteredFormat.horizontalAlignment',
-          },
-        },
-        // Left-align Website column (index 1)
-        {
-          repeatCell: {
-            range: { sheetId, startColumnIndex: 1, endColumnIndex: 2 },
-            cell: { userEnteredFormat: { horizontalAlignment: 'LEFT' } },
-            fields: 'userEnteredFormat.horizontalAlignment',
-          },
-        },
-        // Left-align Disable Reason column
-        {
-          repeatCell: {
-            range: { sheetId, startColumnIndex: disableReasonColIdx, endColumnIndex: disableReasonColIdx + 1 },
-            cell: { userEnteredFormat: { horizontalAlignment: 'LEFT' } },
-            fields: 'userEnteredFormat.horizontalAlignment',
-          },
-        },
-        ...buyerColRequests,
-      ],
-    }),
-  })
-
-  // Share with anyone as editor
-  await gdrive(`/files/${newId}/permissions`, {
-    method: 'POST',
-    body: JSON.stringify({ role: 'writer', type: 'anyone' }),
-  })
-
-  return `https://docs.google.com/spreadsheets/d/${newId}/edit`
-}
-
 // ── Ultimate Sheet Parser output ──────────────────────────
-// Separate from createOutputSheet above (existing Sheet Parser depends on that one and it
-// stays untouched). Conditional formatting here is driven by the caller — it already knows
+// Conditional formatting here is driven by the caller — it already knows
 // which cells are "cheaper"/"tied"/disabled — so this function just materializes whatever
 // buildFormatRequests(sheetId) returns, chunked to stay well under the Sheets API's per-call
 // request-count ceiling on very large sheets.
