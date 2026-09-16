@@ -7,7 +7,9 @@ import { UltimateSheetParser } from './UltimateSheetParser.jsx'
 import { AnchorSync } from './AnchorSync.jsx'
 import { SamplePostFinder } from './SamplePostFinder.jsx'
 import { LiveChatClients } from './LiveChat.jsx'
+import { LiveChatPriceFinder } from './LiveChatPriceFinder.jsx'
 import { EmailHarvester } from './EmailHarvester.jsx'
+import { loadToolAccess } from '../lib/supabase.js'
 
 // ─── shared helpers ────────────────────────────────────────────────────────────
 
@@ -1087,26 +1089,42 @@ function BuyerPriceLookup({ priceMap, loading, error }) {
 }
 
 // ─── Tool registry ─────────────────────────────────────────────────────────────
+// `section` is only the default — the Admin page's Tool Permissions tab can
+// override both section and access (everyone / selected people) per tool via
+// the tool_access table, without any code change or deploy.
 
-const TOOLS = [
-  { id: 'sheet-parser',   title: 'Sheet Parser',            desc: 'Paste a reseller Google Sheet URL — AI detects columns and creates a clean output sheet with buyer prices', icon: 'download', tag: 'Sheets'   },
-  { id: 'ultimate-sheet-parser', title: 'Ultimate Sheet Parser', desc: 'AI + manual column assignment, GPL vendor price comparison, and DA/PA/Ascore enrichment — separate from Sheet Parser', icon: 'zap', tag: 'Sheets' },
-  { id: 'combined-calc',  title: 'Currency & % Calculator', desc: 'Apply % discount/markup, convert currency, get post price with buyer/reseller lookup',                       icon: 'globe',    tag: 'Pricing'  },
-  { id: 'price-calc',     title: 'Price Calculator',        desc: 'Convert admin price to buyer & reseller price instantly',                                                     icon: 'tool',     tag: 'Pricing'  },
-  { id: 'buyer-lookup',   title: 'Buyer → Admin Lookup',    desc: 'Search a buyer price (e.g. 34 for 34.9) and get the best matching admin price instantly',                       icon: 'search',   tag: 'Pricing'  },
-  { id: 'livechat-clients', title: 'Live Chat Clients',     desc: 'Manage live chat team clients — order sheets, article costs, discounts, buyer/reseller types',               icon: 'users',    tag: 'LiveChat', roles: ['livechat', 'lead', 'super'] },
-  { id: 'email-harvester', title: 'Email Harvester',        desc: 'Paste a list of sites — scrapes contact, about, home & privacy pages and collects every email found. No target needed.', icon: 'inbox',    tag: 'Outreach' },
-  { id: 'anchor-sync',     title: 'Anchor Sync',            desc: 'Reads Google Doc links from a sheet column and writes each doc\'s anchor text + URL pairs directly back into that same row', icon: 'link',     tag: 'Sheets'   },
-  { id: 'sample-posts',    title: 'Sample Post Finder',     desc: 'Paste a site list — finds post/article URLs via sitemap, RSS/Atom feed, and the WordPress API, with a copy-all button', icon: 'search',   tag: 'Outreach' },
+export const TOOLS = [
+  { id: 'sheet-parser',   title: 'Sheet Parser',            desc: 'Paste a reseller Google Sheet URL — AI detects columns and creates a clean output sheet with buyer prices', icon: 'download', tag: 'Sheets', section: 'outreach'   },
+  { id: 'ultimate-sheet-parser', title: 'Ultimate Sheet Parser', desc: 'AI + manual column assignment, GPL vendor price comparison, and DA/PA/Ascore enrichment — separate from Sheet Parser', icon: 'zap', tag: 'Sheets', section: 'outreach' },
+  { id: 'combined-calc',  title: 'Currency & % Calculator', desc: 'Apply % discount/markup, convert currency, get post price with buyer/reseller lookup',                       icon: 'globe',    tag: 'Pricing', section: 'outreach'  },
+  { id: 'price-calc',     title: 'Price Calculator',        desc: 'Convert admin price to buyer & reseller price instantly',                                                     icon: 'tool',     tag: 'Pricing', section: 'outreach'  },
+  { id: 'buyer-lookup',   title: 'Buyer → Admin Lookup',    desc: 'Search a buyer price (e.g. 34 for 34.9) and get the best matching admin price instantly',                       icon: 'search',   tag: 'Pricing', section: 'outreach'  },
+  { id: 'email-harvester', title: 'Email Harvester',        desc: 'Paste a list of sites — scrapes contact, about, home & privacy pages and collects every email found. No target needed.', icon: 'inbox',    tag: 'Outreach', section: 'outreach' },
+  { id: 'anchor-sync',     title: 'Anchor Sync',            desc: 'Reads Google Doc links from a sheet column and writes each doc\'s anchor text + URL pairs directly back into that same row', icon: 'link',     tag: 'Sheets', section: 'outreach'   },
+  { id: 'sample-posts',    title: 'Sample Post Finder',     desc: 'Paste a site list — finds post/article URLs via sitemap, RSS/Atom feed, and the WordPress API, with a copy-all button', icon: 'search',   tag: 'Outreach', section: 'outreach' },
+  { id: 'livechat-clients', title: 'Live Chat Clients',     desc: 'Manage live chat team clients — order sheets, article costs, discounts, buyer/reseller types',               icon: 'users',    tag: 'LiveChat', section: 'livechat' },
+  { id: 'price-finder',    title: 'Price Finder',           desc: 'Paste a list of sites, pick niches, get current buyer prices (with an optional discount) written to a sheet', icon: 'zap',      tag: 'Pricing', section: 'livechat' },
 ]
 
-// ─── Tools Page ────────────────────────────────────────────────────────────────
+function hasToolAccess(tool, access, me, role) {
+  if (['lead', 'super'].includes(role)) return true // admins always see every tool
+  const cfg = access[tool.id]
+  if (!cfg || cfg.mode !== 'selected') return true
+  return (cfg.allowed_member_ids || []).includes(me.id)
+}
 
-export function ToolsPage({ me, role }) {
+// ─── Tools Page ────────────────────────────────────────────────────────────────
+// Shared by both the Outreach Tools page (section="outreach", the default)
+// and the Live Chat Tools page (section="livechat") — one registry, one set
+// of tool components, so moving a tool between sections in Admin actually
+// moves which page's grid it shows up on.
+
+export function ToolsPage({ me, role, section = 'outreach' }) {
   const [activeTool, setActiveTool] = useState(null)
   const [priceMap, setPriceMap] = useState(new Map())
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [toolAccess, setToolAccess] = useState({})
 
   const [fxRates, setFxRates]       = useState(null)
   const [fxLoading, setFxLoading]   = useState(false)
@@ -1134,14 +1152,21 @@ export function ToolsPage({ me, role }) {
       .catch(err => setError(err.message))
       .finally(() => setLoading(false))
     fetchRates()
+    loadToolAccess().then(setToolAccess).catch(() => {})
   }, [])
+
+  const visibleTools = TOOLS.filter(t => {
+    const cfg = toolAccess[t.id]
+    const effectiveSection = cfg?.section || t.section
+    return effectiveSection === section && hasToolAccess(t, toolAccess, me, role)
+  })
 
   return (
     <div className="page" style={{ maxWidth: 900 }}>
       <div className="page-head">
         <div>
           <h1>Tools</h1>
-          <div className="sub">Internal tools for the outreach team</div>
+          <div className="sub">{section === 'livechat' ? 'Live Chat team tools' : 'Internal tools for the outreach team'}</div>
         </div>
         {activeTool && (
           <button className="btn ghost" onClick={() => setActiveTool(null)} style={{ fontSize: 12 }}>← All Tools</button>
@@ -1150,7 +1175,7 @@ export function ToolsPage({ me, role }) {
 
       {!activeTool ? (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 16 }}>
-          {TOOLS.filter(t => !t.roles || t.roles.includes(role)).map(tool => (
+          {visibleTools.map(tool => (
             <div key={tool.id} className="card" onClick={() => setActiveTool(tool.id)} style={{ cursor: 'pointer' }}>
               <div className="card-pad" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                 <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
@@ -1244,6 +1269,8 @@ export function ToolsPage({ me, role }) {
         </div>
       ) : activeTool === 'livechat-clients' ? (
         <LiveChatClients me={me} />
+      ) : activeTool === 'price-finder' ? (
+        <LiveChatPriceFinder />
       ) : activeTool === 'email-harvester' ? (
         <div className="card">
           <div className="card-head">

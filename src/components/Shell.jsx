@@ -30,6 +30,7 @@ export function Sidebar({ route, setRoute, role, me, allUsers = [], impersonated
       { id: 'lc-notion-history', label: 'Notion History', icon: 'clock' },
     ]},
     { id: 'lc-team',    label: 'Team',        icon: 'users' },
+    { id: 'lc-tools',   label: 'Tools',       icon: 'tool' },
     { id: 'lc-guide',   label: 'Guide',       icon: 'list' },
   ];
 
@@ -221,6 +222,7 @@ export function Topbar({ route, role, theme, toggleTheme, openCmdK, notifOpen, s
     'lc-notion-history': ['Live Chat', 'Notion History'],
     'lc-history':        ['Live Chat', 'Sheet History'],
     'lc-guide':          ['Live Chat', 'Guide'],
+    'lc-tools':          ['Live Chat', 'Tools'],
     online: ['Admin', 'Active Users'],
   }[route] || ['Home'];
 

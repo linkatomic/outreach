@@ -200,6 +200,25 @@ export function adminSetActive(id, active) { return adminCall('setActive', { id,
 export function adminDeleteUser(id) { return adminCall('deleteUser', { id }) }
 export function adminResetPassword(id, password) { return adminCall('resetPassword', { id, password }) }
 
+// ── Tool access (per-tool section + permission overrides) ────
+export async function loadToolAccess() {
+  const { data, error } = await supabase.from('tool_access').select('*')
+  if (error) throw error
+  return Object.fromEntries((data || []).map(r => [r.tool_id, r]))
+}
+
+export async function adminUpdateToolAccess(toolId, updates) {
+  const { data: { session } } = await supabase.auth.getSession()
+  const res = await fetch('/api/admin-tools', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token || ''}` },
+    body: JSON.stringify({ toolId, updates }),
+  })
+  const body = await res.json()
+  if (!res.ok) throw new Error(body.error || `Request failed (${res.status})`)
+  return body.toolAccess
+}
+
 export async function saveUserAccent(userId, accent) {
   const { error } = await supabase
     .from('user_profiles')

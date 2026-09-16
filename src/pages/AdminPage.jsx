@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
 import { Icon, CORE_TASK_ICONS } from '../data.jsx'
+import { TOOLS } from './Tools.jsx'
 import {
   loadFullRoster, adminCreateUser, adminUpdateProfile, adminSetActive,
-  adminDeleteUser, adminResetPassword,
+  adminDeleteUser, adminResetPassword, loadToolAccess, adminUpdateToolAccess,
 } from '../lib/supabase.js'
 import { loadAndApplyRoster } from '../lib/roster.js'
 
@@ -572,9 +573,117 @@ function UserRow({ user, onEdit, onResetPassword, onToggleActive, onDelete }) {
   )
 }
 
+// ─────────── Tool permissions ───────────
+
+function ToolAccessRow({ tool, cfg, rows, onChange }) {
+  const [saving, setSaving] = useState(false)
+  const section = cfg?.section || tool.section
+  const mode = cfg?.mode || 'everyone'
+  const allowed = cfg?.allowed_member_ids || []
+
+  async function update(updates) {
+    setSaving(true)
+    try {
+      const updated = await adminUpdateToolAccess(tool.id, updates)
+      onChange(tool.id, updated)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  function toggleMember(memberId) {
+    const set = new Set(allowed)
+    set.has(memberId) ? set.delete(memberId) : set.add(memberId)
+    update({ mode: 'selected', allowed_member_ids: [...set] })
+  }
+
+  return (
+    <div className="card" style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ width: 32, height: 32, borderRadius: 8, background: 'color-mix(in srgb, var(--accent) 15%, transparent)', display: 'grid', placeItems: 'center', color: 'var(--accent)', flexShrink: 0 }}>
+          <Icon name={tool.icon} size={16} />
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 600, fontSize: 13 }}>{tool.title}</div>
+          <div style={{ fontSize: 11, color: 'var(--text-faint)' }}>{tool.desc}</div>
+        </div>
+        <button className="btn ghost" disabled={saving} onClick={() => update({ section: section === 'outreach' ? 'livechat' : 'outreach' })}>
+          Move to {section === 'outreach' ? 'Live Chat' : 'Outreach'}
+        </button>
+      </div>
+
+      <select style={selStyle} value={mode} disabled={saving} onChange={e => update({ mode: e.target.value })}>
+        <option value="everyone">Everyone in this section</option>
+        <option value="selected">Selected people only</option>
+      </select>
+
+      {mode === 'selected' && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          {rows.filter(r => r.active).map(r => {
+            const checked = allowed.includes(r.member_id)
+            return (
+              <label key={r.id} style={{
+                display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, padding: '4px 9px',
+                border: '1px solid var(--border)', borderRadius: 6, cursor: saving ? 'default' : 'pointer',
+                background: checked ? 'color-mix(in srgb, var(--accent) 15%, transparent)' : 'transparent',
+              }}>
+                <input type="checkbox" checked={checked} disabled={saving} onChange={() => toggleMember(r.member_id)} />
+                {r.name}
+              </label>
+            )
+          })}
+          {allowed.length === 0 && (
+            <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>No one selected yet — tool is effectively hidden from everyone.</span>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ToolPermissionsTab({ rows }) {
+  const [access, setAccess] = useState({})
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    loadToolAccess().then(setAccess).catch(() => {}).finally(() => setLoading(false))
+  }, [])
+
+  function handleChange(toolId, updated) {
+    setAccess(prev => ({ ...prev, [toolId]: updated }))
+  }
+
+  if (loading) return <div className="card" style={{ padding: 48, textAlign: 'center' }}><span className="muted">Loading…</span></div>
+
+  const outreachTools = TOOLS.filter(t => (access[t.id]?.section || t.section) === 'outreach')
+  const livechatTools = TOOLS.filter(t => (access[t.id]?.section || t.section) === 'livechat')
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
+      <section>
+        <h2 style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-dim)', marginBottom: 14, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+          Outreach Tools · {outreachTools.length}
+        </h2>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {outreachTools.map(t => <ToolAccessRow key={t.id} tool={t} cfg={access[t.id]} rows={rows} onChange={handleChange} />)}
+        </div>
+      </section>
+      <section>
+        <h2 style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-dim)', marginBottom: 14, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+          Live Chat Tools · {livechatTools.length}
+        </h2>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {livechatTools.map(t => <ToolAccessRow key={t.id} tool={t} cfg={access[t.id]} rows={rows} onChange={handleChange} />)}
+        </div>
+      </section>
+    </div>
+  )
+}
+
 // ─────────── Page ───────────
 
 export function AdminPage() {
+  const [tab, setTab] = useState('team')
   const [rows, setRows]     = useState([])
   const [loading, setLoading] = useState(true)
   const [loadErr, setLoadErr] = useState('')
@@ -621,43 +730,65 @@ export function AdminPage() {
           <h1>Admin</h1>
           <div className="sub">{rows.filter(r => r.active).length} active · {rows.length} total across Outreach and Live Chat</div>
         </div>
-        <div className="actions">
-          <button className="btn primary" onClick={() => setShowCreate(true)}><Icon name="plus" size={12} />New user</button>
-        </div>
+        {tab === 'team' && (
+          <div className="actions">
+            <button className="btn primary" onClick={() => setShowCreate(true)}><Icon name="plus" size={12} />New user</button>
+          </div>
+        )}
       </div>
 
-      <div style={{ display: 'flex', gap: 10, marginBottom: 18, flexWrap: 'wrap', alignItems: 'center' }}>
-        <input style={{ ...inputStyle, maxWidth: 260 }} placeholder="Search name or email…" value={search} onChange={e => setSearch(e.target.value)} />
-        <select style={{ ...selStyle, maxWidth: 160 }} value={teamFilter} onChange={e => setTeamFilter(e.target.value)}>
-          <option value="all">All teams</option>
-          <option value="outreach">Outreach</option>
-          <option value="livechat">Live Chat</option>
-        </select>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-dim)', cursor: 'pointer' }}>
-          <input type="checkbox" checked={showInactive} onChange={e => setShowInactive(e.target.checked)} />
-          Show deactivated
-        </label>
+      <div style={{ display: 'flex', gap: 4, marginBottom: 20 }}>
+        {[['team', 'Team'], ['tools', 'Tool Permissions']].map(([id, label]) => (
+          <button key={id} onClick={() => setTab(id)}
+                  style={{
+                    padding: '8px 14px', borderRadius: 8, border: 'none', cursor: 'pointer',
+                    fontSize: 12, fontWeight: 700, fontFamily: 'var(--font-sans)',
+                    background: tab === id ? 'var(--surface-2)' : 'transparent',
+                    color: tab === id ? 'var(--text)' : 'var(--text-faint)',
+                  }}>
+            {label}
+          </button>
+        ))}
       </div>
 
-      {loading ? (
-        <div className="card" style={{ padding: 48, textAlign: 'center' }}><span className="muted">Loading…</span></div>
-      ) : loadErr ? (
-        <div className="card" style={{ padding: 24, color: '#fb7185' }}>{loadErr}</div>
+      {tab === 'tools' ? (
+        <ToolPermissionsTab rows={rows} />
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {filtered.map(user => (
-            <UserRow
-              key={user.id} user={user}
-              onEdit={() => setEditUser(user)}
-              onResetPassword={() => setResetUser(user)}
-              onToggleActive={() => toggleActive(user)}
-              onDelete={() => setDeleteUser(user)}
-            />
-          ))}
-          {filtered.length === 0 && (
-            <div className="card" style={{ padding: 24, textAlign: 'center', color: 'var(--text-faint)', fontSize: 13 }}>No users match.</div>
+        <>
+          <div style={{ display: 'flex', gap: 10, marginBottom: 18, flexWrap: 'wrap', alignItems: 'center' }}>
+            <input style={{ ...inputStyle, maxWidth: 260 }} placeholder="Search name or email…" value={search} onChange={e => setSearch(e.target.value)} />
+            <select style={{ ...selStyle, maxWidth: 160 }} value={teamFilter} onChange={e => setTeamFilter(e.target.value)}>
+              <option value="all">All teams</option>
+              <option value="outreach">Outreach</option>
+              <option value="livechat">Live Chat</option>
+            </select>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-dim)', cursor: 'pointer' }}>
+              <input type="checkbox" checked={showInactive} onChange={e => setShowInactive(e.target.checked)} />
+              Show deactivated
+            </label>
+          </div>
+
+          {loading ? (
+            <div className="card" style={{ padding: 48, textAlign: 'center' }}><span className="muted">Loading…</span></div>
+          ) : loadErr ? (
+            <div className="card" style={{ padding: 24, color: '#fb7185' }}>{loadErr}</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {filtered.map(user => (
+                <UserRow
+                  key={user.id} user={user}
+                  onEdit={() => setEditUser(user)}
+                  onResetPassword={() => setResetUser(user)}
+                  onToggleActive={() => toggleActive(user)}
+                  onDelete={() => setDeleteUser(user)}
+                />
+              ))}
+              {filtered.length === 0 && (
+                <div className="card" style={{ padding: 24, textAlign: 'center', color: 'var(--text-faint)', fontSize: 13 }}>No users match.</div>
+              )}
+            </div>
           )}
-        </div>
+        </>
       )}
 
       {showCreate && <CreateUserModal rows={rows} onClose={() => setShowCreate(false)} onCreated={refresh} />}
