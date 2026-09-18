@@ -125,7 +125,11 @@ export function CrispChatExport() {
 
   async function findConversations() {
     setListing(true); setListError('')
-    setAllConversations(null); setFinalText(null); setTruncated(false)
+    // Clear allConversations AND conversations together — conversations otherwise only
+    // updates via the effect above, which runs after this render commits, leaving a brief
+    // window where conversations is still the OLD non-null list while allConversations is
+    // already null (a real crash we hit: allConversations.length below throwing on null).
+    setAllConversations(null); setConversations(null); setFinalText(null); setTruncated(false)
     transcriptCache.current.clear()
     try {
       const fromISO = new Date(fromDate + 'T00:00:00.000Z').toISOString()
@@ -262,7 +266,7 @@ export function CrispChatExport() {
         <div style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
           <div style={{ padding: '10px 16px', borderBottom: conversations.length ? '1px solid var(--border)' : 'none', fontSize: 13, fontWeight: 600 }}>
             {conversations.length} conversation{conversations.length === 1 ? '' : 's'} found
-            {selectedOperatorIds.size > 0 && <span style={{ color: 'var(--text-faint)', fontWeight: 400 }}> ({allConversations.length} total in range, filtered)</span>}
+            {selectedOperatorIds.size > 0 && <span style={{ color: 'var(--text-faint)', fontWeight: 400 }}> ({allConversations?.length ?? 0} total in range, filtered)</span>}
           </div>
           {conversations.length > 0 && (
             <div style={{ maxHeight: 260, overflowY: 'auto' }}>
