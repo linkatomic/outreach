@@ -29,6 +29,7 @@ export function CrispChatExport() {
   const [listError, setListError] = useState('')
   // Unfiltered — every conversation Crisp returned for the date range.
   const [allConversations, setAllConversations] = useState(null) // [{sessionId, nickname, email, state, createdAt, assignedUserId}]
+  const [truncated, setTruncated] = useState(false)
 
   const [exporting, setExporting] = useState(false)
   const [exportError, setExportError] = useState('')
@@ -68,18 +69,21 @@ export function CrispChatExport() {
 
   async function findConversations() {
     setListing(true); setListError('')
-    setAllConversations(null); setFinalText(null)
+    setAllConversations(null); setFinalText(null); setTruncated(false)
     try {
-      const fromMs = new Date(fromDate + 'T00:00:00Z').getTime()
-      const toMs = new Date(toDate + 'T23:59:59Z').getTime()
-      if (toMs < fromMs) throw new Error('End date is before start date')
+      const fromISO = new Date(fromDate + 'T00:00:00.000Z').toISOString()
+      const toISO = new Date(toDate + 'T23:59:59.999Z').toISOString()
+      if (Date.parse(toISO) < Date.parse(fromISO)) throw new Error('End date is before start date')
 
       const all = []
-      for (let page = 1; page <= 100; page++) { // 100 pages * 20/page = 2000 conversations, a generous ceiling
-        const batch = await listCrispConversationsPage(fromMs, toMs, page)
+      const PAGE_CAP = 100 // 100 pages * 20/page = 2000 conversations, a generous ceiling
+      let hitCap = true
+      for (let page = 1; page <= PAGE_CAP; page++) {
+        const batch = await listCrispConversationsPage(fromISO, toISO, page)
         all.push(...batch)
-        if (batch.length < 20) break
+        if (batch.length < 20) { hitCap = false; break }
       }
+      setTruncated(hitCap)
       setAllConversations(all)
     } catch (err) {
       setListError(err.message)
@@ -181,6 +185,12 @@ export function CrispChatExport() {
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {truncated && (
+        <div style={{ background: 'rgba(255,197,61,.08)', border: '1px solid rgba(255,197,61,.2)', color: '#ffc53d', borderRadius: 8, padding: '10px 14px', fontSize: 12 }}>
+          Hit the 2,000-conversation safety cap for this range — there may be more. Narrow the date range for a complete export.
         </div>
       )}
 

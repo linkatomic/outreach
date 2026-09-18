@@ -14,19 +14,46 @@ function fmtStamp(ms) {
   return new Date(ms).toISOString().replace('T', ' ').slice(0, 19) + ' UTC'
 }
 
-async function listConversationsPage(fromMs, toMs, page) {
+// Crisp's docs don't state the type of `created_at`/`updated_at` in a conversation
+// object as explicitly as they state the *filter params* are ISO 8601 — response
+// timestamps elsewhere in this API (message.timestamp) are epoch milliseconds, so
+// handle both an ISO string and an epoch number (seconds or ms) defensively.
+function toMillis(value) {
+  if (typeof value === 'number') return value < 1e12 ? value * 1000 : value
+  const parsed = Date.parse(value)
+  return Number.isNaN(parsed) ? null : parsed
+}
+
+async function listConversationsPage(fromISO, toISO, page) {
   const websiteId = crispWebsiteId()
-  const data = await crispRequest(
-    `/website/${websiteId}/conversations/${page}?filter_date_start=${fromMs}&filter_date_end=${toMs}&per_page=20`
-  )
-  return (data || []).map(c => ({
-    sessionId: c.session_id,
-    nickname: c.meta?.nickname || null,
-    email: c.meta?.email || null,
-    state: c.state,
-    createdAt: c.created_at,
-    assignedUserId: c.assigned?.user_id || null,
-  }))
+  // Crisp's docs are explicit that filter_date_start/filter_date_end are ISO 8601
+  // strings, not epoch numbers — sending epoch ms here previously made Crisp silently
+  // ignore the filter and return everything, paginated (that's the "2000 conversations
+  // for today" bug). order_date_created=desc makes the result order deterministic.
+  const qs = new URLSearchParams({
+    filter_date_start: fromISO,
+    filter_date_end: toISO,
+    order_date_created: 'desc',
+    per_page: '20',
+  })
+  const data = await crispRequest(`/website/${websiteId}/conversations/${page}?${qs}`)
+  const fromMs = toMillis(fromISO)
+  const toMs = toMillis(toISO)
+  return (data || [])
+    // Defensive double-check against the server-side filter — never show/export a
+    // conversation outside the requested range even if Crisp's filter misbehaves.
+    .filter(c => {
+      const created = toMillis(c.created_at)
+      return created == null || (created >= fromMs && created <= toMs)
+    })
+    .map(c => ({
+      sessionId: c.session_id,
+      nickname: c.meta?.nickname || null,
+      email: c.meta?.email || null,
+      state: c.state,
+      createdAt: c.created_at,
+      assignedUserId: c.assigned?.user_id || null,
+    }))
 }
 
 // Real operators only (not pending invites/sandbox seats) — used to build the
@@ -102,9 +129,9 @@ export default async function handler(req, res) {
 
   try {
     if (action === 'listConversationsPage') {
-      const { fromMs, toMs, page } = payload
-      if (!fromMs || !toMs || !page) return res.status(400).json({ error: 'fromMs, toMs and page are required' })
-      const conversations = await listConversationsPage(fromMs, toMs, page)
+      const { fromDate, toDate, page } = payload
+      if (!fromDate || !toDate || !page) return res.status(400).json({ error: 'fromDate, toDate and page are required' })
+      const conversations = await listConversationsPage(fromDate, toDate, page)
       return res.json({ conversations })
     }
 
