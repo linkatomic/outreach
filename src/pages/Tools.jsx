@@ -6,6 +6,7 @@ import { UltimateSheetParser } from './UltimateSheetParser.jsx'
 import { AnchorSync } from './AnchorSync.jsx'
 import { LiveChatClients } from './LiveChat.jsx'
 import { LiveChatPriceFinder } from './LiveChatPriceFinder.jsx'
+import { CrispChatExport } from './CrispChatExport.jsx'
 import { EmailHarvester } from './EmailHarvester.jsx'
 import { loadToolAccess } from '../lib/supabase.js'
 
@@ -1100,6 +1101,7 @@ export const TOOLS = [
   { id: 'anchor-sync',     title: 'Anchor Sync',            desc: 'Reads Google Doc links from a sheet column and writes each doc\'s anchor text + URL pairs directly back into that same row', icon: 'link',     tag: 'Sheets', section: 'outreach'   },
   { id: 'livechat-clients', title: 'Live Chat Clients',     desc: 'Manage live chat team clients — order sheets, article costs, discounts, buyer/reseller types',               icon: 'users',    tag: 'LiveChat', section: 'livechat' },
   { id: 'price-finder',    title: 'Price Finder',           desc: 'Paste a list of sites, pick niches, get current buyer prices (with an optional discount) written to a sheet', icon: 'zap',      tag: 'Pricing', section: 'livechat' },
+  { id: 'crisp-chat-export', title: 'Chat Export',          desc: 'Export Crisp live chat conversations from a date range as a downloadable transcript', icon: 'download', tag: 'LiveChat', section: 'livechat' },
 ]
 
 function hasToolAccess(tool, access, me, role) {
@@ -1253,6 +1255,8 @@ export function ToolsPage({ me, role, section = 'outreach' }) {
         <LiveChatClients me={me} />
       ) : activeTool === 'price-finder' ? (
         <LiveChatPriceFinder />
+      ) : activeTool === 'crisp-chat-export' ? (
+        <CrispChatExport />
       ) : activeTool === 'email-harvester' ? (
         <div className="card">
           <div className="card-head">

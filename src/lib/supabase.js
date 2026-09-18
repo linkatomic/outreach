@@ -219,6 +219,29 @@ export async function adminUpdateToolAccess(toolId, updates) {
   return body.toolAccess
 }
 
+// ── Crisp chat export ──────────────────────────────────
+// api/crisp-export.js independently re-checks tool access server-side
+// (requireToolAccess) — this is the same bearer-token pattern as adminCall,
+// just against a route that isn't admin-only.
+async function crispExportCall(action, payload) {
+  const { data: { session } } = await supabase.auth.getSession()
+  const res = await fetch('/api/crisp-export', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token || ''}` },
+    body: JSON.stringify({ action, payload }),
+  })
+  const body = await res.json()
+  if (!res.ok) throw new Error(body.error || `Request failed (${res.status})`)
+  return body
+}
+
+export function listCrispConversationsPage(fromMs, toMs, page) {
+  return crispExportCall('listConversationsPage', { fromMs, toMs, page }).then(r => r.conversations)
+}
+export function getCrispTranscript(sessionId) {
+  return crispExportCall('getTranscript', { sessionId })
+}
+
 export async function saveUserAccent(userId, accent) {
   const { error } = await supabase
     .from('user_profiles')

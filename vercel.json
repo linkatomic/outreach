@@ -6,7 +6,8 @@
     "api/doc-links.js": { "maxDuration": 30 },
     "api/email-harvester.js": { "maxDuration": 30 },
     "api/admin-users.js": { "maxDuration": 15 },
-    "api/admin-tools.js": { "maxDuration": 15 }
+    "api/admin-tools.js": { "maxDuration": 15 },
+    "api/crisp-export.js": { "maxDuration": 10 }
   },
   "crons": [
     {
