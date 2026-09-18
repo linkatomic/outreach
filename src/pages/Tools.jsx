@@ -3,7 +3,6 @@ import { Icon } from '../data.jsx'
 import { loadPriceTable } from '../lib/supabase.js'
 import { extractSheetId, getSheetTabs, getSheetRows, batchWriteRangeValues } from '../lib/sheetParserAPI.js'
 import { UltimateSheetParser } from './UltimateSheetParser.jsx'
-import { AnchorSync } from './AnchorSync.jsx'
 import { LiveChatClients } from './LiveChat.jsx'
 import { LiveChatPriceFinder } from './LiveChatPriceFinder.jsx'
 import { CrispChatExport } from './CrispChatExport.jsx'
@@ -1098,7 +1097,6 @@ export const TOOLS = [
   { id: 'price-calc',     title: 'Price Calculator',        desc: 'Convert admin price to buyer & reseller price instantly',                                                     icon: 'tool',     tag: 'Pricing', section: 'outreach'  },
   { id: 'buyer-lookup',   title: 'Buyer → Admin Lookup',    desc: 'Search a buyer price (e.g. 34 for 34.9) and get the best matching admin price instantly',                       icon: 'search',   tag: 'Pricing', section: 'outreach'  },
   { id: 'email-harvester', title: 'Email Harvester',        desc: 'Paste a list of sites — scrapes contact, about, home & privacy pages and collects every email found. No target needed.', icon: 'inbox',    tag: 'Outreach', section: 'outreach' },
-  { id: 'anchor-sync',     title: 'Anchor Sync',            desc: 'Reads Google Doc links from a sheet column and writes each doc\'s anchor text + URL pairs directly back into that same row', icon: 'link',     tag: 'Sheets', section: 'outreach'   },
   { id: 'livechat-clients', title: 'Live Chat Clients',     desc: 'Manage live chat team clients — order sheets, article costs, discounts, buyer/reseller types',               icon: 'users',    tag: 'LiveChat', section: 'livechat' },
   { id: 'price-finder',    title: 'Price Finder',           desc: 'Paste a list of sites, pick niches, get current buyer prices (with an optional discount) written to a sheet', icon: 'zap',      tag: 'Pricing', section: 'livechat' },
   { id: 'crisp-chat-export', title: 'Chat Export',          desc: 'Export Crisp live chat conversations from a date range as a downloadable transcript', icon: 'download', tag: 'LiveChat', section: 'livechat' },
@@ -1269,20 +1267,6 @@ export function ToolsPage({ me, role, section = 'outreach' }) {
           </div>
           <div className="card-pad">
             <EmailHarvester />
-          </div>
-        </div>
-      ) : activeTool === 'anchor-sync' ? (
-        <div className="card">
-          <div className="card-head">
-            <div>
-              <h3>Anchor Sync</h3>
-              <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 2 }}>
-                Extracts anchor text + URL pairs from Google Docs and writes them straight into the source sheet, row by row
-              </div>
-            </div>
-          </div>
-          <div className="card-pad">
-            <AnchorSync />
           </div>
         </div>
       ) : null}

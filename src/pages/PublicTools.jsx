@@ -1,11 +1,5 @@
 const TOOLS = [
   {
-    path: '/anchor-extractor',
-    title: 'Anchor Link Extractor',
-    desc: 'Paste multiple Google Doc links and pull out every hyperlink\'s anchor text + destination URL — formatted to paste straight into a Google Sheet.',
-    tag: 'Google Docs',
-  },
-  {
     path: '/url-fetcher',
     title: 'URL Fetcher',
     desc: 'Paste cells copied from Google Sheets (or any hyperlinked text) and extract all the underlying links, in order.',

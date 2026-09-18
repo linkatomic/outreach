@@ -27,7 +27,6 @@ import { LcGuide } from './pages/LcGuide.jsx'
 import { AdminPage } from './pages/AdminPage.jsx'
 import { UrlFetcherPage } from './pages/UrlFetcher.jsx'
 import { DomainExtractorPage } from './pages/DomainExtractor.jsx'
-import { AnchorExtractorPage } from './pages/AnchorExtractor.jsx'
 import { PublicToolsPage } from './pages/PublicTools.jsx'
 
 const TWEAK_DEFAULTS = { dark: true };
@@ -357,9 +356,6 @@ export default function App() {
   }
   if (window.location.pathname === '/domain-extractor') {
     return <DomainExtractorPage />;
-  }
-  if (window.location.pathname === '/anchor-extractor') {
-    return <AnchorExtractorPage />;
   }
   if (window.location.pathname === '/public') {
     return <PublicToolsPage />;
