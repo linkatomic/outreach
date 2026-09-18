@@ -137,8 +137,10 @@ export function CrispChatExport() {
       if (Date.parse(toISO) < Date.parse(fromISO)) throw new Error('End date is before start date')
 
       const all = []
-      const PAGE_CAP = 100    // 100 pages * 20/page = 2000 conversations, a generous ceiling —
-                              // a safety cap WE impose, not a limit Crisp itself enforces.
+      const PAGE_CAP = 500    // 500 pages * 20/page = 10,000 conversations — a safety cap WE
+                              // impose (not a Crisp limit), raised now that waved concurrency
+                              // makes a range this size finish in well under a minute instead
+                              // of one request at a time.
       const WAVE_SIZE = 5     // pages fetched concurrently per wave; a page or two of
                               // already-exhausted overshoot is fine since the backend has
                               // already filtered each page down to the requested date range.
@@ -286,7 +288,7 @@ export function CrispChatExport() {
 
       {truncated && (
         <div style={{ background: 'rgba(255,197,61,.08)', border: '1px solid rgba(255,197,61,.2)', color: '#ffc53d', borderRadius: 8, padding: '10px 14px', fontSize: 12 }}>
-          Hit the 2,000-conversation safety cap for this range — there may be more. Narrow the date range for a complete export.
+          Hit the 10,000-conversation safety cap for this range — there may be more. Narrow the date range for a complete export.
         </div>
       )}
 
