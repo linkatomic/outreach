@@ -241,6 +241,9 @@ export function listCrispConversationsPage(fromMs, toMs, page) {
 export function getCrispTranscript(sessionId) {
   return crispExportCall('getTranscript', { sessionId })
 }
+export function listCrispOperators() {
+  return crispExportCall('listOperators', {}).then(r => r.operators)
+}
 
 export async function saveUserAccent(userId, accent) {
   const { error } = await supabase

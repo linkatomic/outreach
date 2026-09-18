@@ -25,7 +25,23 @@ async function listConversationsPage(fromMs, toMs, page) {
     email: c.meta?.email || null,
     state: c.state,
     createdAt: c.created_at,
+    assignedUserId: c.assigned?.user_id || null,
   }))
+}
+
+// Real operators only (not pending invites/sandbox seats) — used to build the
+// "filter by team member" checklist and to resolve assignedUserId to a name.
+async function listOperators() {
+  const websiteId = crispWebsiteId()
+  const data = await crispRequest(`/website/${websiteId}/operators/list`)
+  return (data || [])
+    .filter(o => o.type === 'operator')
+    .map(o => ({
+      userId: o.details?.user_id,
+      name: [o.details?.first_name, o.details?.last_name].filter(Boolean).join(' ') || o.details?.email || 'Unknown',
+      email: o.details?.email || null,
+    }))
+    .filter(o => o.userId)
 }
 
 async function fetchFullTranscript(sessionId) {
@@ -97,6 +113,11 @@ export default async function handler(req, res) {
       if (!sessionId) return res.status(400).json({ error: 'sessionId is required' })
       const result = await fetchFullTranscript(sessionId)
       return res.json(result)
+    }
+
+    if (action === 'listOperators') {
+      const operators = await listOperators()
+      return res.json({ operators })
     }
 
     return res.status(400).json({ error: `Unknown action: ${action}` })
