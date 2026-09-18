@@ -66,28 +66,47 @@ export function CrispChatExport() {
     if (selectedOperatorIds.size === 0) { setConversations(allConversations); return }
 
     let cancelled = false
+    // Each check is its own browser -> Vercel round trip (not one long function run), so
+    // running RESOLVE_CONCURRENCY of them at once is safe w.r.t. Vercel's 10s-per-call cap —
+    // it just means more calls in flight, not longer ones.
+    const RESOLVE_CONCURRENCY = 8
+
     async function resolve() {
       setResolving(true); setResolveError(''); setConversations(null)
       setResolveProgress({ done: 0, total: allConversations.length })
-      const matched = []
-      try {
-        for (let i = 0; i < allConversations.length; i++) {
-          const c = allConversations[i]
+      const matchedIds = new Set()
+      let done = 0
+      let firstError = null
+
+      async function worker(queue) {
+        while (queue.length && !cancelled && !firstError) {
+          const c = queue.shift()
           let t = transcriptCache.current.get(c.sessionId)
           if (!t) {
-            t = await getCrispTranscript(c.sessionId)
-            transcriptCache.current.set(c.sessionId, t)
+            try {
+              t = await getCrispTranscript(c.sessionId)
+              transcriptCache.current.set(c.sessionId, t)
+            } catch (err) {
+              firstError = err.message
+              return
+            }
           }
           if (cancelled) return
-          if ((t.operatorUserIds || []).some(id => selectedOperatorIds.has(id))) matched.push(c)
-          setResolveProgress({ done: i + 1, total: allConversations.length })
+          if ((t.operatorUserIds || []).some(id => selectedOperatorIds.has(id))) matchedIds.add(c.sessionId)
+          done += 1
+          setResolveProgress({ done, total: allConversations.length })
         }
-        if (!cancelled) setConversations(matched)
-      } catch (err) {
-        if (!cancelled) setResolveError(err.message)
-      } finally {
-        if (!cancelled) setResolving(false)
       }
+
+      const queue = [...allConversations]
+      await Promise.all(Array.from({ length: Math.min(RESOLVE_CONCURRENCY, queue.length) }, () => worker(queue)))
+
+      if (cancelled) return
+      if (firstError) { setResolveError(firstError); setResolving(false); return }
+      // Filter the original (already date-sorted) array rather than push-as-completed,
+      // so the result list keeps a stable order despite concurrent completion.
+      setConversations(allConversations.filter(c => matchedIds.has(c.sessionId)))
+      setResolving(false)
     }
     resolve()
     return () => { cancelled = true }
@@ -114,12 +133,22 @@ export function CrispChatExport() {
       if (Date.parse(toISO) < Date.parse(fromISO)) throw new Error('End date is before start date')
 
       const all = []
-      const PAGE_CAP = 100 // 100 pages * 20/page = 2000 conversations, a generous ceiling
+      const PAGE_CAP = 100    // 100 pages * 20/page = 2000 conversations, a generous ceiling —
+                              // a safety cap WE impose, not a limit Crisp itself enforces.
+      const WAVE_SIZE = 5     // pages fetched concurrently per wave; a page or two of
+                              // already-exhausted overshoot is fine since the backend has
+                              // already filtered each page down to the requested date range.
       let hitCap = true
-      for (let page = 1; page <= PAGE_CAP; page++) {
-        const { conversations: batch, exhausted } = await listCrispConversationsPage(fromISO, toISO, page)
-        all.push(...batch)
-        if (exhausted) { hitCap = false; break }
+      for (let waveStart = 1; waveStart <= PAGE_CAP; waveStart += WAVE_SIZE) {
+        const pageNums = []
+        for (let p = waveStart; p < waveStart + WAVE_SIZE && p <= PAGE_CAP; p++) pageNums.push(p)
+        const waveResults = await Promise.all(pageNums.map(p => listCrispConversationsPage(fromISO, toISO, p)))
+        let exhaustedInWave = false
+        for (const { conversations: batch, exhausted } of waveResults) {
+          all.push(...batch)
+          if (exhausted) exhaustedInWave = true
+        }
+        if (exhaustedInWave) { hitCap = false; break }
       }
       all.sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt))
       setTruncated(hitCap)
@@ -135,21 +164,28 @@ export function CrispChatExport() {
     if (!canExport) return
     setExporting(true); setExportError('')
     setProgress({ done: 0, total: conversations.length })
-    const texts = []
-    let msgCount = 0
+    const EXPORT_CONCURRENCY = 8
+    const texts = new Array(conversations.length)
+    let done = 0
     try {
-      for (let i = 0; i < conversations.length; i++) {
-        const sessionId = conversations[i].sessionId
-        let t = transcriptCache.current.get(sessionId)
-        if (!t) {
-          t = await getCrispTranscript(sessionId)
-          transcriptCache.current.set(sessionId, t)
+      const indices = conversations.map((_, i) => i)
+      async function worker(queue) {
+        while (queue.length) {
+          const i = queue.shift()
+          const sessionId = conversations[i].sessionId
+          let t = transcriptCache.current.get(sessionId)
+          if (!t) {
+            t = await getCrispTranscript(sessionId)
+            transcriptCache.current.set(sessionId, t)
+          }
+          texts[i] = t
+          done += 1
+          setProgress({ done, total: conversations.length })
         }
-        texts.push(t.text)
-        msgCount += t.messageCount
-        setProgress({ done: i + 1, total: conversations.length })
       }
-      const combined = texts.join('\n' + '═'.repeat(60) + '\n\n')
+      await Promise.all(Array.from({ length: Math.min(EXPORT_CONCURRENCY, indices.length) }, () => worker(indices)))
+      const msgCount = texts.reduce((sum, t) => sum + t.messageCount, 0)
+      const combined = texts.map(t => t.text).join('\n' + '═'.repeat(60) + '\n\n')
       setFinalText(combined)
       setTotalMessages(msgCount)
       downloadText(`crisp-chats-${fromDate}-to-${toDate}.txt`, combined)
