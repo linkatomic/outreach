@@ -261,9 +261,11 @@ export function EmailHarvester() {
   }
 
   async function retryEmpty() {
+    // Covers both "found nothing" AND genuinely failed domains (timeout, network
+    // error, HTTP error) — a hard failure used to be silently unretryable from here.
     const targets = results
       .map((r, i) => ({ r, i }))
-      .filter(({ r }) => r.status !== 'pending' && !r.error && (r.allEmails?.length || 0) === 0)
+      .filter(({ r }) => r.status !== 'pending' && (r.error || (r.allEmails?.length || 0) === 0))
     if (!targets.length) return
 
     setRetryingSet(new Set(targets.map(({ r }) => r.domain)))
@@ -308,8 +310,9 @@ export function EmailHarvester() {
   const doneResults  = results.filter(r => r.status !== 'pending')
   const withEmails   = doneResults.filter(r => (r.allEmails?.length || 0) > 0)
   const withNone     = doneResults.filter(r => !r.error && !(r.allEmails?.length))
+  const withError    = doneResults.filter(r => r.error)
   const totalEmails  = [...new Set(doneResults.flatMap(r => r.allEmails || []))].length
-  const emptyCount   = withNone.length
+  const emptyCount   = withNone.length + withError.length
   const isRetryingAny = retryingSet.size > 0
 
   const emailFreq = useMemo(() => {
@@ -385,7 +388,7 @@ export function EmailHarvester() {
 
             {!running && emptyCount > 0 && (
               <button className="btn ghost" onClick={retryEmpty} disabled={isRetryingAny} style={{ fontSize: 12 }}>
-                {isRetryingAny ? `↺ Retrying ${retryingSet.size}…` : `↺ Retry ${emptyCount} empty`}
+                {isRetryingAny ? `↺ Retrying ${retryingSet.size}…` : `↺ Retry ${emptyCount} failed/empty`}
               </button>
             )}
 
@@ -400,6 +403,7 @@ export function EmailHarvester() {
                 {withEmails.length > 0 && <span style={{ color: 'var(--ok)' }}>✓ {withEmails.length} with emails</span>}
                 {totalEmails > 0 && <span style={{ color: 'var(--text-dim)' }}>{totalEmails} unique</span>}
                 {withNone.length > 0 && <span style={{ color: 'var(--text-faint)' }}>— {withNone.length} empty</span>}
+                {withError.length > 0 && <span style={{ color: 'var(--danger)' }}>✕ {withError.length} failed</span>}
 
                 {doneResults.length > 0 && (
                   sheetStatus === 'building' || (typeof sheetStatus === 'string' && sheetStatus.startsWith('building:'))
