@@ -24,36 +24,44 @@ function toMillis(value) {
   return Number.isNaN(parsed) ? null : parsed
 }
 
+// Filtering strategy: Crisp's own filter_date_start/filter_date_end almost certainly
+// scope to created_at (when the session was first opened) — great for "new chats
+// today," wrong for "chats we worked on today," since a visitor who first messaged
+// last week and got a reply today wouldn't show up. So instead: don't filter
+// server-side at all — page through conversations sorted by LAST ACTIVITY
+// (order_date_updated=desc) and keep every conversation whose updated_at falls in
+// the window. Sorted-descending means once a full page's oldest updated_at is
+// already before the window start, every later page is even older — safe to stop
+// there (`exhausted: true`), which also gives an honest end signal instead of the
+// old "shorter than a full page" heuristic.
 async function listConversationsPage(fromISO, toISO, page) {
   const websiteId = crispWebsiteId()
-  // Crisp's docs are explicit that filter_date_start/filter_date_end are ISO 8601
-  // strings, not epoch numbers — sending epoch ms here previously made Crisp silently
-  // ignore the filter and return everything, paginated (that's the "2000 conversations
-  // for today" bug). order_date_created=desc makes the result order deterministic.
-  const qs = new URLSearchParams({
-    filter_date_start: fromISO,
-    filter_date_end: toISO,
-    order_date_created: 'desc',
-    per_page: '20',
-  })
+  const qs = new URLSearchParams({ order_date_updated: 'desc', per_page: '20' })
   const data = await crispRequest(`/website/${websiteId}/conversations/${page}?${qs}`)
   const fromMs = toMillis(fromISO)
   const toMs = toMillis(toISO)
-  return (data || [])
-    // Defensive double-check against the server-side filter — never show/export a
-    // conversation outside the requested range even if Crisp's filter misbehaves.
-    .filter(c => {
-      const created = toMillis(c.created_at)
-      return created == null || (created >= fromMs && created <= toMs)
-    })
-    .map(c => ({
-      sessionId: c.session_id,
-      nickname: c.meta?.nickname || null,
-      email: c.meta?.email || null,
-      state: c.state,
-      createdAt: c.created_at,
-      assignedUserId: c.assigned?.user_id || null,
-    }))
+
+  const mapped = (data || []).map(c => ({
+    sessionId: c.session_id,
+    nickname: c.meta?.nickname || null,
+    email: c.meta?.email || null,
+    state: c.state,
+    createdAt: c.created_at,
+    updatedAt: c.updated_at,
+    assignedUserId: c.assigned?.user_id || null,
+  }))
+
+  const conversations = mapped.filter(c => {
+    const updated = toMillis(c.updatedAt)
+    return updated != null && updated >= fromMs && updated <= toMs
+  })
+
+  const oldestOnPage = mapped.length
+    ? Math.min(...mapped.map(c => toMillis(c.updatedAt) ?? Infinity))
+    : Infinity
+  const exhausted = mapped.length < 20 || oldestOnPage < fromMs
+
+  return { conversations, exhausted }
 }
 
 // Real operators only (not pending invites/sandbox seats) — used to build the
@@ -131,8 +139,8 @@ export default async function handler(req, res) {
     if (action === 'listConversationsPage') {
       const { fromDate, toDate, page } = payload
       if (!fromDate || !toDate || !page) return res.status(400).json({ error: 'fromDate, toDate and page are required' })
-      const conversations = await listConversationsPage(fromDate, toDate, page)
-      return res.json({ conversations })
+      const result = await listConversationsPage(fromDate, toDate, page)
+      return res.json(result)
     }
 
     if (action === 'getTranscript') {

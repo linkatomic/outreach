@@ -79,10 +79,11 @@ export function CrispChatExport() {
       const PAGE_CAP = 100 // 100 pages * 20/page = 2000 conversations, a generous ceiling
       let hitCap = true
       for (let page = 1; page <= PAGE_CAP; page++) {
-        const batch = await listCrispConversationsPage(fromISO, toISO, page)
+        const { conversations: batch, exhausted } = await listCrispConversationsPage(fromISO, toISO, page)
         all.push(...batch)
-        if (batch.length < 20) { hitCap = false; break }
+        if (exhausted) { hitCap = false; break }
       }
+      all.sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt))
       setTruncated(hitCap)
       setAllConversations(all)
     } catch (err) {
@@ -119,9 +120,10 @@ export function CrispChatExport() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20, maxWidth: 700 }}>
       <div style={{ fontSize: 12, color: 'var(--text-faint)', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: '10px 14px', lineHeight: 1.6 }}>
-        Pick a date range and export every Crisp live chat conversation started in it as one
-        downloadable transcript file — visitor identity, sender, and real timestamps per message.
-        Optionally narrow it down to conversations handled by specific team members.
+        Pick a date range and export every Crisp live chat conversation with activity in it
+        (including ongoing chats that started earlier) as one downloadable transcript file —
+        visitor identity, sender, and real timestamps per message. Optionally narrow it down to
+        conversations handled by specific team members.
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 12, alignItems: 'end' }}>

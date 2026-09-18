@@ -236,7 +236,7 @@ async function crispExportCall(action, payload) {
 }
 
 export function listCrispConversationsPage(fromDate, toDate, page) {
-  return crispExportCall('listConversationsPage', { fromDate, toDate, page }).then(r => r.conversations)
+  return crispExportCall('listConversationsPage', { fromDate, toDate, page })
 }
 export function getCrispTranscript(sessionId) {
   return crispExportCall('getTranscript', { sessionId })
