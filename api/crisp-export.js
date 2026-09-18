@@ -102,6 +102,14 @@ async function fetchFullTranscript(sessionId) {
 
   allMessages.sort((a, b) => a.timestamp - b.timestamp)
 
+  // Who actually typed something in this conversation, by Crisp operator user_id —
+  // this is what "filter by team member" should mean, as distinct from
+  // assigned.user_id (who the conversation is routed to, which can differ from who
+  // actually replied).
+  const operatorUserIds = [...new Set(
+    allMessages.filter(m => m.from === 'operator' && m.user?.user_id).map(m => m.user.user_id)
+  )]
+
   const header = [
     `Conversation ${sessionId}`,
     `Visitor: ${meta?.nickname || meta?.email || 'Unknown'}${meta?.email ? ` <${meta.email}>` : ''}`,
@@ -115,7 +123,7 @@ async function fetchFullTranscript(sessionId) {
     return `[${fmtStamp(m.timestamp)}] ${who}: ${flattenContent(m.content)}`
   }).join('\n')
 
-  return { sessionId, text: `${header}\n${body}\n`, messageCount: allMessages.length }
+  return { sessionId, text: `${header}\n${body}\n`, messageCount: allMessages.length, operatorUserIds }
 }
 
 function flattenContent(content) {

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { Icon } from '../data.jsx'
 import { listCrispConversationsPage, getCrispTranscript, listCrispOperators } from '../lib/supabase.js'
 
@@ -31,6 +31,21 @@ export function CrispChatExport() {
   const [allConversations, setAllConversations] = useState(null) // [{sessionId, nickname, email, state, createdAt, assignedUserId}]
   const [truncated, setTruncated] = useState(false)
 
+  // Transcripts are cached by sessionId as soon as they're fetched — either while
+  // resolving the team-member filter below, or during export — so the same
+  // conversation is never fetched from Crisp twice.
+  const transcriptCache = useRef(new Map()) // sessionId -> {text, messageCount, operatorUserIds}
+
+  // "Filter by team member" means "this person sent at least one message," which
+  // Crisp doesn't expose as a list-conversations filter — the only way to know is
+  // to read each conversation's actual messages (operatorUserIds), not trust the
+  // cheap assigned.user_id routing field. So this is a real async resolution pass,
+  // not a client-side memo.
+  const [resolving, setResolving] = useState(false)
+  const [resolveProgress, setResolveProgress] = useState({ done: 0, total: 0 })
+  const [resolveError, setResolveError] = useState('')
+  const [conversations, setConversations] = useState(null)
+
   const [exporting, setExporting] = useState(false)
   const [exportError, setExportError] = useState('')
   const [progress, setProgress] = useState({ done: 0, total: 0 })
@@ -46,18 +61,40 @@ export function CrispChatExport() {
     return id => (id ? map.get(id) || 'Unknown operator' : null)
   }, [operators])
 
-  // Filtering by team member happens client-side against the already-fetched
-  // date-range results (each conversation carries its assigned operator per
-  // Crisp's own response shape) — no need to trust an undocumented filter
-  // query-param format on the List Conversations endpoint.
-  const conversations = useMemo(() => {
-    if (!allConversations) return null
-    if (selectedOperatorIds.size === 0) return allConversations
-    return allConversations.filter(c => c.assignedUserId && selectedOperatorIds.has(c.assignedUserId))
+  useEffect(() => {
+    if (!allConversations) { setConversations(null); return }
+    if (selectedOperatorIds.size === 0) { setConversations(allConversations); return }
+
+    let cancelled = false
+    async function resolve() {
+      setResolving(true); setResolveError(''); setConversations(null)
+      setResolveProgress({ done: 0, total: allConversations.length })
+      const matched = []
+      try {
+        for (let i = 0; i < allConversations.length; i++) {
+          const c = allConversations[i]
+          let t = transcriptCache.current.get(c.sessionId)
+          if (!t) {
+            t = await getCrispTranscript(c.sessionId)
+            transcriptCache.current.set(c.sessionId, t)
+          }
+          if (cancelled) return
+          if ((t.operatorUserIds || []).some(id => selectedOperatorIds.has(id))) matched.push(c)
+          setResolveProgress({ done: i + 1, total: allConversations.length })
+        }
+        if (!cancelled) setConversations(matched)
+      } catch (err) {
+        if (!cancelled) setResolveError(err.message)
+      } finally {
+        if (!cancelled) setResolving(false)
+      }
+    }
+    resolve()
+    return () => { cancelled = true }
   }, [allConversations, selectedOperatorIds])
 
-  const canFind = fromDate && toDate && !listing
-  const canExport = !!conversations?.length && !exporting
+  const canFind = fromDate && toDate && !listing && !resolving
+  const canExport = !!conversations?.length && !exporting && !resolving
 
   function toggleOperator(userId) {
     setSelectedOperatorIds(prev => {
@@ -70,6 +107,7 @@ export function CrispChatExport() {
   async function findConversations() {
     setListing(true); setListError('')
     setAllConversations(null); setFinalText(null); setTruncated(false)
+    transcriptCache.current.clear()
     try {
       const fromISO = new Date(fromDate + 'T00:00:00.000Z').toISOString()
       const toISO = new Date(toDate + 'T23:59:59.999Z').toISOString()
@@ -101,9 +139,14 @@ export function CrispChatExport() {
     let msgCount = 0
     try {
       for (let i = 0; i < conversations.length; i++) {
-        const { text, messageCount } = await getCrispTranscript(conversations[i].sessionId)
-        texts.push(text)
-        msgCount += messageCount
+        const sessionId = conversations[i].sessionId
+        let t = transcriptCache.current.get(sessionId)
+        if (!t) {
+          t = await getCrispTranscript(sessionId)
+          transcriptCache.current.set(sessionId, t)
+        }
+        texts.push(t.text)
+        msgCount += t.messageCount
         setProgress({ done: i + 1, total: conversations.length })
       }
       const combined = texts.join('\n' + '═'.repeat(60) + '\n\n')
@@ -123,7 +166,8 @@ export function CrispChatExport() {
         Pick a date range and export every Crisp live chat conversation with activity in it
         (including ongoing chats that started earlier) as one downloadable transcript file —
         visitor identity, sender, and real timestamps per message. Optionally narrow it down to
-        conversations handled by specific team members.
+        conversations where a specific team member actually sent at least one message
+        (checked against the real message history, not just who the chat is assigned to).
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 12, alignItems: 'end' }}>
@@ -168,7 +212,17 @@ export function CrispChatExport() {
         <div style={{ background: 'rgba(255,92,124,.08)', border: '1px solid rgba(255,92,124,.2)', color: '#ff8fa3', borderRadius: 8, padding: '10px 14px', fontSize: 13 }}>{listError}</div>
       )}
 
-      {conversations && (
+      {resolveError && (
+        <div style={{ background: 'rgba(255,92,124,.08)', border: '1px solid rgba(255,92,124,.2)', color: '#ff8fa3', borderRadius: 8, padding: '10px 14px', fontSize: 13 }}>{resolveError}</div>
+      )}
+
+      {resolving && (
+        <div style={{ fontSize: 12, color: 'var(--text-faint)' }}>
+          Checking who actually sent messages… {resolveProgress.done}/{resolveProgress.total}
+        </div>
+      )}
+
+      {conversations && !resolving && (
         <div style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
           <div style={{ padding: '10px 16px', borderBottom: conversations.length ? '1px solid var(--border)' : 'none', fontSize: 13, fontWeight: 600 }}>
             {conversations.length} conversation{conversations.length === 1 ? '' : 's'} found
@@ -181,7 +235,7 @@ export function CrispChatExport() {
                   <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {c.nickname || c.email || 'Unknown visitor'}
                   </span>
-                  <span style={{ color: 'var(--text-faint)', fontSize: 11 }}>{operatorName(c.assignedUserId) || 'Unassigned'}</span>
+                  <span style={{ color: 'var(--text-faint)', fontSize: 11 }}>Assigned: {operatorName(c.assignedUserId) || 'Unassigned'}</span>
                   <span style={{ color: 'var(--text-faint)', fontFamily: 'var(--font-mono)', fontSize: 11 }}>{c.state}</span>
                 </div>
               ))}
