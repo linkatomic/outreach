@@ -3,7 +3,7 @@ import JSZip from 'jszip'
 import { Icon } from '../data.jsx'
 import {
   listMissiveOrganizations, listMissiveSharedLabels,
-  listMissiveConversationsPage, getMissiveConversationExport,
+  listMissiveConversationsPage, getMissiveConversation, getMissiveConversationExport,
 } from '../lib/supabase.js'
 
 const labelStyle = { fontSize: 11, fontWeight: 700, color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6, display: 'block' }
@@ -45,7 +45,18 @@ function todayISO() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
+// Missive conversation IDs are UUIDs — pulling one out of a pasted web_url this way means
+// it works regardless of the exact URL shape (path segment, hash fragment, query param,
+// whatever Missive's web app happens to use), since we never need to parse the rest of it.
+const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i
+function extractConversationId(line) {
+  const match = line.match(UUID_RE)
+  return match ? match[0] : null
+}
+
 export function MissiveExport() {
+  const [mode, setMode] = useState('search') // 'search' | 'links'
+
   const [organizations, setOrganizations] = useState([])
   const [organizationId, setOrganizationId] = useState('')
   const [orgError, setOrgError] = useState('')
@@ -53,10 +64,13 @@ export function MissiveExport() {
   const [labels, setLabels] = useState([])
   const [mailbox, setMailbox] = useState('inbox')
   const [sharedLabelId, setSharedLabelId] = useState('')
+  const [contactEmail, setContactEmail] = useState('')
 
   const [fromDate, setFromDate] = useState('')
   const [toDate, setToDate] = useState('')
   const [maxMessages, setMaxMessages] = useState(30)
+
+  const [linkText, setLinkText] = useState('')
 
   const [listing, setListing] = useState(false)
   const [listError, setListError] = useState('')
@@ -79,7 +93,9 @@ export function MissiveExport() {
     listMissiveSharedLabels(organizationId).then(setLabels).catch(() => setLabels([]))
   }, [mailbox, organizationId])
 
-  const canFind = mailbox && (mailbox !== 'shared_label' || sharedLabelId) && !listing
+  const canFind = mode === 'links'
+    ? linkText.trim().length > 0 && !listing
+    : mailbox && (mailbox !== 'shared_label' || sharedLabelId) && !listing
   const canExport = !!conversations?.length && !exporting
 
   async function findConversations() {
@@ -93,7 +109,7 @@ export function MissiveExport() {
       let hitCap = true
 
       for (let i = 0; i < PAGE_CAP; i++) {
-        const page = await listMissiveConversationsPage(mailbox, mailbox === 'shared_label' ? sharedLabelId : null, until)
+        const page = await listMissiveConversationsPage(mailbox, mailbox === 'shared_label' ? sharedLabelId : null, until, contactEmail.trim() || null)
         if (!page.length) { hitCap = false; break }
 
         let reachedFloor = false
@@ -110,6 +126,43 @@ export function MissiveExport() {
 
       setTruncated(hitCap)
       setConversations(all)
+    } catch (err) {
+      setListError(err.message)
+    } finally {
+      setListing(false)
+    }
+  }
+
+  async function fetchFromLinks() {
+    const lines = linkText.split('\n').map(l => l.trim()).filter(Boolean)
+    const ids = [...new Set(lines.map(extractConversationId))]
+    const badLines = lines.filter(l => !extractConversationId(l))
+
+    setListing(true); setListError('')
+    setConversations(null); setTruncated(false); setZipDone(false)
+    try {
+      if (!ids.length) throw new Error('No valid Missive conversation links found — paste one link per line')
+
+      const results = new Array(ids.length)
+      const errors = []
+      const FETCH_CONCURRENCY = 5
+      const queue = ids.map((_, i) => i)
+      async function worker() {
+        while (queue.length) {
+          const i = queue.shift()
+          try {
+            results[i] = await getMissiveConversation(ids[i])
+          } catch (err) {
+            errors.push(`${ids[i]}: ${err.message}`)
+          }
+        }
+      }
+      await Promise.all(Array.from({ length: Math.min(FETCH_CONCURRENCY, queue.length) }, worker))
+
+      const found = results.filter(Boolean)
+      setConversations(found)
+      const problems = [...badLines.map(l => `Not a conversation link: ${l}`), ...errors]
+      if (problems.length) setListError(`${found.length} of ${lines.length} fetched. ${problems.join('; ')}`)
     } catch (err) {
       setListError(err.message)
     } finally {
@@ -180,41 +233,80 @@ export function MissiveExport() {
         <div style={{ background: 'rgba(255,92,124,.08)', border: '1px solid rgba(255,92,124,.2)', color: '#ff8fa3', borderRadius: 8, padding: '10px 14px', fontSize: 13 }}>{orgError}</div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: mailbox === 'shared_label' ? '1fr 1fr' : '1fr', gap: 12 }}>
-        <div>
-          <label style={labelStyle}>Mailbox</label>
-          <select className="input" value={mailbox} onChange={e => setMailbox(e.target.value)} style={{ width: '100%' }}>
-            {MAILBOXES.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
-          </select>
-        </div>
-        {mailbox === 'shared_label' && (
-          <div>
-            <label style={labelStyle}>Shared label</label>
-            <select className="input" value={sharedLabelId} onChange={e => setSharedLabelId(e.target.value)} style={{ width: '100%' }}>
-              <option value="">Select a label…</option>
-              {labels.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
-            </select>
-          </div>
-        )}
+      <div style={{ display: 'flex', gap: 3, borderBottom: '1px solid var(--border)', paddingBottom: 12 }}>
+        {[
+          { id: 'search', label: 'Search a mailbox' },
+          { id: 'links', label: 'Paste conversation links' },
+        ].map(t => (
+          <button key={t.id} onClick={() => { setMode(t.id); setConversations(null); setListError('') }} style={{ fontSize: 12, padding: '4px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', fontWeight: mode === t.id ? 700 : 400, background: mode === t.id ? 'var(--accent)' : 'transparent', color: mode === t.id ? 'var(--accent-ink)' : 'var(--text-faint)' }}>
+            {t.label}
+          </button>
+        ))}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: 12, alignItems: 'end' }}>
-        <div>
-          <label style={labelStyle}>From (optional)</label>
-          <input className="input" type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} style={{ width: '100%' }} />
+      {mode === 'search' ? (
+        <>
+          <div style={{ display: 'grid', gridTemplateColumns: mailbox === 'shared_label' ? '1fr 1fr 1fr' : '1fr 1fr', gap: 12 }}>
+            <div>
+              <label style={labelStyle}>Mailbox</label>
+              <select className="input" value={mailbox} onChange={e => setMailbox(e.target.value)} style={{ width: '100%' }}>
+                {MAILBOXES.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
+              </select>
+            </div>
+            {mailbox === 'shared_label' && (
+              <div>
+                <label style={labelStyle}>Shared label</label>
+                <select className="input" value={sharedLabelId} onChange={e => setSharedLabelId(e.target.value)} style={{ width: '100%' }}>
+                  <option value="">Select a label…</option>
+                  {labels.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+                </select>
+              </div>
+            )}
+            <div>
+              <label style={labelStyle}>Chats with this person (optional)</label>
+              <input className="input" type="email" placeholder="vendor@example.com" value={contactEmail} onChange={e => setContactEmail(e.target.value)} style={{ width: '100%' }} />
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: 12, alignItems: 'end' }}>
+            <div>
+              <label style={labelStyle}>From (optional)</label>
+              <input className="input" type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} style={{ width: '100%' }} />
+            </div>
+            <div>
+              <label style={labelStyle}>To (optional)</label>
+              <input className="input" type="date" value={toDate} onChange={e => setToDate(e.target.value)} style={{ width: '100%' }} />
+            </div>
+            <div>
+              <label style={labelStyle}>Max messages/thread</label>
+              <input className="input" type="number" min={1} max={100} value={maxMessages} onChange={e => setMaxMessages(Number(e.target.value) || 30)} style={{ width: '100%' }} />
+            </div>
+            <button className="btn accent" onClick={findConversations} disabled={!canFind}>
+              {listing ? 'Searching…' : <><Icon name="search" size={12} /> Find Conversations</>}
+            </button>
+          </div>
+        </>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <label style={labelStyle}>Missive conversation links (one per line)</label>
+          <textarea
+            className="input"
+            placeholder={'https://mail.missiveapp.com/#inbox/conversations/68d8...\nhttps://mail.missiveapp.com/#inbox/conversations/7a2f...'}
+            value={linkText}
+            onChange={e => setLinkText(e.target.value)}
+            style={{ fontFamily: 'var(--font-mono)', fontSize: 12, resize: 'vertical', minHeight: 100, lineHeight: 1.6 }}
+          />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <button className="btn accent" onClick={fetchFromLinks} disabled={!canFind}>
+              {listing ? 'Fetching…' : <><Icon name="search" size={12} /> Fetch Conversations</>}
+            </button>
+            <div>
+              <label style={{ ...labelStyle, marginBottom: 0, display: 'inline-block' }}>Max messages/thread</label>{' '}
+              <input className="input" type="number" min={1} max={100} value={maxMessages} onChange={e => setMaxMessages(Number(e.target.value) || 30)} style={{ width: 70, display: 'inline-block' }} />
+            </div>
+          </div>
         </div>
-        <div>
-          <label style={labelStyle}>To (optional)</label>
-          <input className="input" type="date" value={toDate} onChange={e => setToDate(e.target.value)} style={{ width: '100%' }} />
-        </div>
-        <div>
-          <label style={labelStyle}>Max messages/thread</label>
-          <input className="input" type="number" min={1} max={100} value={maxMessages} onChange={e => setMaxMessages(Number(e.target.value) || 30)} style={{ width: '100%' }} />
-        </div>
-        <button className="btn accent" onClick={findConversations} disabled={!canFind}>
-          {listing ? 'Searching…' : <><Icon name="search" size={12} /> Find Conversations</>}
-        </button>
-      </div>
+      )}
 
       {listError && (
         <div style={{ background: 'rgba(255,92,124,.08)', border: '1px solid rgba(255,92,124,.2)', color: '#ff8fa3', borderRadius: 8, padding: '10px 14px', fontSize: 13 }}>{listError}</div>

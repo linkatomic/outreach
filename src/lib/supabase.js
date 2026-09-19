@@ -266,8 +266,11 @@ export function listMissiveOrganizations() {
 export function listMissiveSharedLabels(organizationId) {
   return missiveExportCall('listSharedLabels', { organizationId }).then(r => r.labels)
 }
-export function listMissiveConversationsPage(mailbox, sharedLabelId, until) {
-  return missiveExportCall('listConversationsPage', { mailbox, sharedLabelId, until }).then(r => r.conversations)
+export function listMissiveConversationsPage(mailbox, sharedLabelId, until, contactEmail) {
+  return missiveExportCall('listConversationsPage', { mailbox, sharedLabelId, until, contactEmail }).then(r => r.conversations)
+}
+export function getMissiveConversation(conversationId) {
+  return missiveExportCall('getConversation', { conversationId }).then(r => r.conversation)
 }
 export function getMissiveConversationExport(payload) {
   return missiveExportCall('getConversationExport', payload)

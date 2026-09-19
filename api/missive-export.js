@@ -171,12 +171,28 @@ export default async function handler(req, res) {
     }
 
     if (action === 'listConversationsPage') {
-      const { mailbox, sharedLabelId, until } = payload
+      const { mailbox, sharedLabelId, until, contactEmail } = payload
       if (!mailbox) return res.status(400).json({ error: 'mailbox is required' })
       const params = new URLSearchParams({ limit: '50', ...buildMailboxParams(mailbox, sharedLabelId) })
       if (until != null) params.set('until', String(until))
+      // "Chats with a specific person" -- Missive's own contact filter, layered on top of
+      // the required mailbox filter rather than replacing it.
+      if (contactEmail) params.set('email', contactEmail)
       const body = await missiveRequest(`/conversations?${params}`)
       return res.json({ conversations: body.conversations || [] })
+    }
+
+    if (action === 'getConversation') {
+      const { conversationId } = payload
+      if (!conversationId) return res.status(400).json({ error: 'conversationId is required' })
+      const body = await missiveRequest(`/conversations/${conversationId}`)
+      // The reference doesn't show the literal envelope for a single-conversation get --
+      // hedge between a singular `conversation` key and the list endpoint's plural
+      // `conversations` key possibly being reused for one object.
+      const raw = body.conversation || body.conversations
+      const conversation = Array.isArray(raw) ? raw[0] : raw
+      if (!conversation) return res.status(404).json({ error: 'Conversation not found' })
+      return res.json({ conversation })
     }
 
     if (action === 'getConversationExport') {
