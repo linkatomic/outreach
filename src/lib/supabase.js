@@ -245,6 +245,34 @@ export function listCrispOperators() {
   return crispExportCall('listOperators', {}).then(r => r.operators)
 }
 
+// ── Missive email export ────────────────────────────────
+// api/missive-export.js independently re-checks tool access server-side
+// (requireToolAccess) — same bearer-token pattern as the calls above.
+async function missiveExportCall(action, payload) {
+  const { data: { session } } = await supabase.auth.getSession()
+  const res = await fetch('/api/missive-export', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token || ''}` },
+    body: JSON.stringify({ action, payload }),
+  })
+  const body = await res.json()
+  if (!res.ok) throw new Error(body.error || `Request failed (${res.status})`)
+  return body
+}
+
+export function listMissiveOrganizations() {
+  return missiveExportCall('listOrganizations', {}).then(r => r.organizations)
+}
+export function listMissiveSharedLabels(organizationId) {
+  return missiveExportCall('listSharedLabels', { organizationId }).then(r => r.labels)
+}
+export function listMissiveConversationsPage(mailbox, sharedLabelId, until) {
+  return missiveExportCall('listConversationsPage', { mailbox, sharedLabelId, until }).then(r => r.conversations)
+}
+export function getMissiveConversationExport(payload) {
+  return missiveExportCall('getConversationExport', payload)
+}
+
 export async function saveUserAccent(userId, accent) {
   const { error } = await supabase
     .from('user_profiles')

@@ -7,6 +7,7 @@ import { LiveChatClients } from './LiveChat.jsx'
 import { LiveChatPriceFinder } from './LiveChatPriceFinder.jsx'
 import { CrispChatExport } from './CrispChatExport.jsx'
 import { EmailHarvester } from './EmailHarvester.jsx'
+import { MissiveExport } from './MissiveExport.jsx'
 import { loadToolAccess } from '../lib/supabase.js'
 
 // ─── shared helpers ────────────────────────────────────────────────────────────
@@ -1100,6 +1101,7 @@ export const TOOLS = [
   { id: 'livechat-clients', title: 'Live Chat Clients',     desc: 'Manage live chat team clients — order sheets, article costs, discounts, buyer/reseller types',               icon: 'users',    tag: 'LiveChat', section: 'livechat' },
   { id: 'price-finder',    title: 'Price Finder',           desc: 'Paste a list of sites, pick niches, get current buyer prices (with an optional discount) written to a sheet', icon: 'zap',      tag: 'Pricing', section: 'livechat' },
   { id: 'crisp-chat-export', title: 'Chat Export',          desc: 'Export Crisp live chat conversations from a date range as a downloadable transcript', icon: 'download', tag: 'LiveChat', section: 'livechat' },
+  { id: 'missive-export',  title: 'Missive Export',         desc: 'Export Missive email threads from a mailbox/date range as Markdown files, ready for a knowledge-base upload', icon: 'download', tag: 'Outreach', section: 'outreach' },
 ]
 
 function hasToolAccess(tool, access, me, role) {
@@ -1255,6 +1257,8 @@ export function ToolsPage({ me, role, section = 'outreach' }) {
         <LiveChatPriceFinder />
       ) : activeTool === 'crisp-chat-export' ? (
         <CrispChatExport />
+      ) : activeTool === 'missive-export' ? (
+        <MissiveExport />
       ) : activeTool === 'email-harvester' ? (
         <div className="card">
           <div className="card-head">
