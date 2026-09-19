@@ -138,6 +138,22 @@ function buildMarkdown({ subject, webUrl, messages }) {
   return `---\nReference precedent only - never copy phrasing from this thread verbatim.\n\nConversation: ${subject}\nLink: ${webUrl}\n\n${body}\n\nOutcome: [FILL IN MANUALLY]\n---\n`
 }
 
+// The reference doesn't show a literal JSON envelope for either the messages-list or the
+// batch-get response, only that the batch one is "→ array" -- which turned out not to mean
+// a bare top-level array, nor necessarily {messages:[...]}. Real calls crashed with "Spread
+// syntax requires ...iterable[Symbol.iterator] to be a function", which only happens when
+// spreading a truthy non-array (an object) -- meaning `messages` was actually present but
+// shaped as an object (most likely keyed by message ID) rather than an array. Normalizing
+// defensively across every plausible shape avoids needing to keep guessing per-endpoint.
+function normalizeMessages(body) {
+  if (Array.isArray(body)) return body
+  const m = body?.messages
+  if (Array.isArray(m)) return m
+  if (m && typeof m === 'object') return Object.values(m) // keyed-by-id object map
+  if (body?.id) return [body] // bare single message, no wrapper at all
+  return []
+}
+
 // Cursor-based pagination (until = oldest delivered_at from the previous page) — the raw
 // field value is passed straight back as the next cursor, never renormalized, since we
 // don't actually know its unit/format beyond "whatever delivered_at itself already is."
@@ -152,7 +168,7 @@ async function fetchMessageStubs(conversationId, maxMessages) {
     const params = new URLSearchParams({ limit: String(MESSAGES_PAGE_LIMIT) })
     if (until != null) params.set('until', String(until))
     const body = await missiveRequest(`/conversations/${conversationId}/messages?${params}`)
-    const page = body.messages || []
+    const page = normalizeMessages(body)
     if (!page.length) break
 
     const before = stubs.length
@@ -176,7 +192,7 @@ async function fetchFullMessages(ids) {
   for (let i = 0; i < ids.length; i += BATCH_SIZE) {
     const chunk = ids.slice(i, i + BATCH_SIZE)
     const body = await missiveRequest(`/messages/${chunk.join(',')}`)
-    results.push(...(body.messages || []))
+    results.push(...normalizeMessages(body))
   }
   return results
 }
