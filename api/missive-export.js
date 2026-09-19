@@ -85,18 +85,38 @@ function stripQuotedContent(html) {
     el.remove()
   })
 
+  // Real exported data showed this account's quoted history isn't wrapped in any of the
+  // classed containers above -- just a bare <blockquote>, the one convention every mail
+  // client falls back to for "quoted prior message." Leaving that unstripped is exactly
+  // what caused the exponential re-embedding (each reply's blockquote already contained
+  // the previous reply's own blockquote, nesting one level deeper every round -- one
+  // thread hit 85KB from what should've been a ~15KB conversation). Blanket-removing
+  // every blockquote, not just classed ones, is what actually stops that.
+  removeAll('blockquote')
+
   return root.toString()
 }
 
+function stripQuoteLines(text) {
+  let out = text.replace(/^On .+ wrote:\s*$[\s\S]*/m, '').trim()
+  // A line beginning with one or more ">" (any nesting depth) -- from a blockquote the
+  // HTML pass missed, or a message that was already plain text using literal "> " quoting.
+  out = out.split('\n').filter(line => !/^\s*>+/.test(line)).join('\n')
+  return out.replace(/\n{3,}/g, '\n\n').trim() // collapse blank-line runs the filter leaves behind
+}
+
 function bodyToPlainText(rawBody) {
+  if (!rawBody) return ''
+  // A body with no HTML tags at all (some custom-channel/SMS message types, or an email
+  // Missive stored as plain text) must skip html-to-text entirely -- it treats untagged
+  // text as one HTML text node and collapses real newlines into spaces per whitespace
+  // rules, which would flatten literal "> quoted" lines onto one line before the filter
+  // below ever gets a chance to see them as separate lines.
+  if (!/<[a-z][\s\S]*>/i.test(rawBody)) return stripQuoteLines(rawBody)
+
   const stripped = stripQuotedContent(rawBody)
-  let text = htmlToText(stripped, { wordwrap: false, selectors: [{ selector: 'img', format: 'skip' }] })
-  // Plain-text fallback: bodies with no HTML quote markup at all (or a quote client-side
-  // rendering added that isn't actually in the raw stored body) still commonly re-embed a
-  // "On <date>, <name> wrote:" line ahead of the quoted text — safe as a final pass since a
-  // message that's already fully stripped won't have this line left to match.
-  text = text.replace(/^On .+ wrote:\s*$[\s\S]*/m, '').trim()
-  return text
+  const text = htmlToText(stripped, { wordwrap: false, selectors: [{ selector: 'img', format: 'skip' }] })
+  return stripQuoteLines(text)
 }
 
 function formatMessage(m) {
@@ -123,6 +143,10 @@ function buildMarkdown({ subject, webUrl, messages }) {
 // don't actually know its unit/format beyond "whatever delivered_at itself already is."
 async function fetchMessageStubs(conversationId, maxMessages) {
   const stubs = []
+  const seenIds = new Set() // real exported data showed the `until` boundary can be
+  // inclusive -- the last item of one page reappearing as the first item of the next --
+  // so page boundaries aren't a reliable "no overlap" guarantee. Dedupe by message ID
+  // rather than trusting that.
   let until = null
   while (stubs.length < maxMessages) {
     const params = new URLSearchParams({ limit: String(MESSAGES_PAGE_LIMIT) })
@@ -130,7 +154,15 @@ async function fetchMessageStubs(conversationId, maxMessages) {
     const body = await missiveRequest(`/conversations/${conversationId}/messages?${params}`)
     const page = body.messages || []
     if (!page.length) break
-    stubs.push(...page)
+
+    const before = stubs.length
+    for (const m of page) {
+      if (!seenIds.has(m.id)) { seenIds.add(m.id); stubs.push(m) }
+    }
+    // No new messages from a full page means the cursor is stuck (not just overlapping by
+    // one item) -- stop rather than loop forever re-fetching the same page.
+    if (stubs.length === before) break
+
     if (page.length < MESSAGES_PAGE_LIMIT) break
     until = page[page.length - 1].delivered_at
   }
