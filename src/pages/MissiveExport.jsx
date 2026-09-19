@@ -74,6 +74,7 @@ export function MissiveExport() {
 
   const [listing, setListing] = useState(false)
   const [listError, setListError] = useState('')
+  const [listNote, setListNote] = useState('')
   const [conversations, setConversations] = useState(null)
   const [truncated, setTruncated] = useState(false)
 
@@ -99,7 +100,7 @@ export function MissiveExport() {
   const canExport = !!conversations?.length && !exporting
 
   async function findConversations() {
-    setListing(true); setListError('')
+    setListing(true); setListError(''); setListNote('')
     setConversations(null); setTruncated(false); setZipDone(false)
     try {
       const fromMs = fromDate ? Date.parse(fromDate + 'T00:00:00.000Z') : null
@@ -135,10 +136,16 @@ export function MissiveExport() {
 
   async function fetchFromLinks() {
     const lines = linkText.split('\n').map(l => l.trim()).filter(Boolean)
-    const ids = [...new Set(lines.map(extractConversationId))]
-    const badLines = lines.filter(l => !extractConversationId(l))
+    const extracted = lines.map(extractConversationId)
+    const ids = [...new Set(extracted.filter(Boolean))]
+    const badLines = lines.filter((l, i) => !extracted[i])
+    // A conversation link is per-conversation, not per-message — pasting several links
+    // copied from different messages in the same thread all resolve to the same ID, so
+    // this is expected, not a bug. Surfaced below rather than silently returning fewer
+    // conversations than links pasted.
+    const duplicateCount = extracted.filter(Boolean).length - ids.length
 
-    setListing(true); setListError('')
+    setListing(true); setListError(''); setListNote('')
     setConversations(null); setTruncated(false); setZipDone(false)
     try {
       if (!ids.length) throw new Error('No valid Missive conversation links found — paste one link per line')
@@ -161,8 +168,11 @@ export function MissiveExport() {
 
       const found = results.filter(Boolean)
       setConversations(found)
+      if (duplicateCount > 0) {
+        setListNote(`${found.length} unique conversation${found.length === 1 ? '' : 's'} from ${lines.length} links — ${duplicateCount} duplicate${duplicateCount === 1 ? '' : 's'} skipped (a conversation link is per-thread, so links copied from different messages in the same thread resolve to the same conversation).`)
+      }
       const problems = [...badLines.map(l => `Not a conversation link: ${l}`), ...errors]
-      if (problems.length) setListError(`${found.length} of ${lines.length} fetched. ${problems.join('; ')}`)
+      if (problems.length) setListError(`${found.length} of ${lines.length} links resolved. ${problems.join('; ')}`)
     } catch (err) {
       setListError(err.message)
     } finally {
@@ -238,7 +248,7 @@ export function MissiveExport() {
           { id: 'search', label: 'Search a mailbox' },
           { id: 'links', label: 'Paste conversation links' },
         ].map(t => (
-          <button key={t.id} onClick={() => { setMode(t.id); setConversations(null); setListError('') }} style={{ fontSize: 12, padding: '4px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', fontWeight: mode === t.id ? 700 : 400, background: mode === t.id ? 'var(--accent)' : 'transparent', color: mode === t.id ? 'var(--accent-ink)' : 'var(--text-faint)' }}>
+          <button key={t.id} onClick={() => { setMode(t.id); setConversations(null); setListError(''); setListNote('') }} style={{ fontSize: 12, padding: '4px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', fontWeight: mode === t.id ? 700 : 400, background: mode === t.id ? 'var(--accent)' : 'transparent', color: mode === t.id ? 'var(--accent-ink)' : 'var(--text-faint)' }}>
             {t.label}
           </button>
         ))}
@@ -306,6 +316,10 @@ export function MissiveExport() {
             </div>
           </div>
         </div>
+      )}
+
+      {listNote && (
+        <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text-dim)', borderRadius: 8, padding: '10px 14px', fontSize: 12 }}>{listNote}</div>
       )}
 
       {listError && (
