@@ -1,12 +1,10 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { TEAM, Icon, fmtDateShort, fmtRel, hasDualAccess } from '../data.jsx'
-import { loadAllReportsForDate } from '../lib/supabase.js'
 
 // ────────────────────── Sidebar ──────────────────────
-export function Sidebar({ route, setRoute, role, me, allUsers = [], impersonatedId, openCmdK, todayDone, onLogout, dept, setDept, onlineIds = new Set() }) {
+export function Sidebar({ route, setRoute, role, me, allUsers = [], impersonatedId, openCmdK, onLogout, dept, setDept, onlineIds = new Set() }) {
   const navItems = [
     { id: 'home',      label: 'Home',         icon: 'home',   kbd: 'G H' },
-    { id: 'report',    label: 'Daily Report', icon: 'report', kbd: 'G R', badge: todayDone ? 'done' : 'todo' },
     { id: 'emails',    label: 'Email Log',    icon: 'mail',   kbd: 'G E' },
     { id: 'analytics', label: 'Analytics',    icon: 'chart',  kbd: 'G A' },
     { id: 'team',      label: 'Team',         icon: 'users',  kbd: 'G T' },
@@ -15,7 +13,6 @@ export function Sidebar({ route, setRoute, role, me, allUsers = [], impersonated
     { id: 'tools',     label: 'Tools',        icon: 'tool',   kbd: 'G W' },
   ];
   const leadItems = [
-    { id: 'review',      label: 'Review Queue', icon: 'eye',    badge: 3 },
     { id: 'leaderboard', label: 'Leaderboard',  icon: 'trophy' },
     { id: 'brief',       label: 'Design Brief', icon: 'layers' },
   ];
@@ -208,10 +205,10 @@ export function Sidebar({ route, setRoute, role, me, allUsers = [], impersonated
 }
 
 // ────────────────────── Topbar ──────────────────────
-export function Topbar({ route, role, theme, toggleTheme, openCmdK, notifOpen, setNotifOpen, onLogout, me, allUsers = [], impersonatedId, setImpersonatedId }) {
+export function Topbar({ route, role, theme, toggleTheme, openCmdK, onLogout, me, allUsers = [], impersonatedId, setImpersonatedId }) {
   const crumbs = {
-    home: ['Home'], report: ['Daily Report'], emails: ['Email Log'],
-    analytics: ['Analytics'], team: ['Team'], review: ['Manage', 'Review Queue'],
+    home: ['Home'], emails: ['Email Log'],
+    analytics: ['Analytics'], team: ['Team'],
     leaderboard: ['Manage', 'Leaderboard'], settings: ['Settings'], admin: ['Admin'],
     tools: ['Tools'], ideas: ['Ideas Board'], tasks: ['Tasks'],
     shortcuts: ['Shortcuts'], brief: ['Design Brief'],
@@ -271,116 +268,14 @@ export function Topbar({ route, role, theme, toggleTheme, openCmdK, notifOpen, s
         <span className="kbd" style={{ marginLeft: 'auto' }}>⌘K</span>
       </button>
 
-      <button className="icon-btn" title="Notifications" onClick={() => setNotifOpen(o => !o)}>
-        <Icon name="bell" size={15} />
-        <span className="dot"></span>
-      </button>
       <button className="icon-btn" title={theme === 'dark' ? 'Light mode' : 'Dark mode'} onClick={toggleTheme}>
         <Icon name={theme === 'dark' ? 'sun' : 'moon'} size={15} />
       </button>
       <button className="icon-btn" title="Sign out" onClick={onLogout} style={{ color: 'var(--text-faint)' }}>
         <Icon name="arrow" size={15} style={{ transform: 'rotate(180deg)' }} />
       </button>
-
-      {notifOpen && <NotificationsPanel onClose={() => setNotifOpen(false)} me={me} role={role} />}
     </div>
   );
-}
-
-function NotificationsPanel({ onClose, me, role }) {
-  const [reports, setReports] = useState(null) // null = loading
-
-  useEffect(() => {
-    const today = new Date()
-    const dateStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`
-    loadAllReportsForDate(dateStr)
-      .then(data => setReports(data || []))
-      .catch(() => setReports([]))
-  }, [])
-
-  const isLead = ['lead', 'super'].includes(role)
-  const members = TEAM
-
-  const submittedMap = new Map((reports || []).map(r => [r.member_id, r]))
-
-  // For members: only show their own status
-  // For leads: show everyone — submitted + pending
-  const items = isLead
-    ? members.map(m => {
-        const rep = submittedMap.get(m.id)
-        return rep
-          ? { member: m, submitted: true,  total: rep.total, createdAt: rep.created_at }
-          : { member: m, submitted: false }
-      })
-    : me
-      ? (() => {
-          const rep = submittedMap.get(me.id)
-          return [rep
-            ? { member: me, submitted: true, total: rep.total, createdAt: rep.created_at }
-            : { member: me, submitted: false }]
-        })()
-      : []
-
-  // Sort: submitted first (most recent first), then pending
-  const sorted = [...items].sort((a, b) => {
-    if (a.submitted !== b.submitted) return a.submitted ? -1 : 1
-    if (a.createdAt && b.createdAt) return new Date(b.createdAt) - new Date(a.createdAt)
-    return 0
-  })
-
-  function relTime(ts) {
-    if (!ts) return ''
-    const diff = Date.now() - new Date(ts).getTime()
-    const m = Math.floor(diff / 60000)
-    if (m < 1)  return 'just now'
-    if (m < 60) return `${m}m ago`
-    const h = Math.floor(m / 60)
-    if (h < 24) return `${h}h ago`
-    return `${Math.floor(h / 24)}d ago`
-  }
-
-  const submittedCount = sorted.filter(x => x.submitted).length
-  const todayLabel = new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
-
-  return (
-    <div className="notif-panel" onClick={e => e.stopPropagation()}>
-      <div className="notif-head">
-        <div>
-          <h4 style={{ margin: 0 }}>Today's Reports</h4>
-          <div style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 2 }}>{todayLabel}</div>
-        </div>
-        <button className="btn ghost" onClick={onClose}><Icon name="x" size={12} /></button>
-      </div>
-      <div className="notif-list">
-        {reports === null ? (
-          <div style={{ padding: '16px 14px', fontSize: 13, color: 'var(--text-faint)' }}>Loading…</div>
-        ) : sorted.length === 0 ? (
-          <div style={{ padding: '16px 14px', fontSize: 13, color: 'var(--text-faint)' }}>No data yet for today.</div>
-        ) : sorted.map(({ member: m, submitted, total, createdAt }) => (
-          <div className="notif-row" key={m.id} style={{ alignItems: 'center' }}>
-            <div className={`avatar sm ${m.color}`} style={{ flexShrink: 0 }}>{m.short}</div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 500, fontSize: 13 }}>{m.name}</div>
-              <div style={{ fontSize: 11, color: submitted ? 'var(--accent)' : '#f59e0b', marginTop: 1 }}>
-                {submitted ? `Submitted · ${total} total` : 'Pending — not submitted yet'}
-              </div>
-            </div>
-            <div style={{ textAlign: 'right', flexShrink: 0 }}>
-              {submitted
-                ? <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>{relTime(createdAt)}</span>
-                : <span style={{ fontSize: 18 }}>⏳</span>
-              }
-            </div>
-          </div>
-        ))}
-      </div>
-      {isLead && reports !== null && (
-        <div style={{ padding: '10px 14px', borderTop: '1px solid var(--border)', fontSize: 12, color: 'var(--text-faint)' }}>
-          {submittedCount} of {sorted.length} submitted today
-        </div>
-      )}
-    </div>
-  )
 }
 
 // ────────────────────── Command Palette ──────────────────────
@@ -393,7 +288,6 @@ export function CommandPalette({ open, onClose, setRoute, openModal, role }) {
     const base = [
       { group: 'Navigate', cmds: [
         { id: 'go-home',      label: 'Go to Home',        icon: 'home',   kbd: ['G','H'], do: () => setRoute('home') },
-        { id: 'go-report',    label: 'Go to Daily Report', icon: 'report', kbd: ['G','R'], do: () => setRoute('report') },
         { id: 'go-emails',    label: 'Go to Email Log',   icon: 'mail',   kbd: ['G','E'], do: () => setRoute('emails') },
         { id: 'go-analytics', label: 'Go to Analytics',   icon: 'chart',  kbd: ['G','A'], do: () => setRoute('analytics') },
         { id: 'go-team',      label: 'Go to Team',        icon: 'users',  kbd: ['G','T'], do: () => setRoute('team') },
@@ -403,7 +297,6 @@ export function CommandPalette({ open, onClose, setRoute, openModal, role }) {
       ]},
       { group: 'Actions', cmds: [
         { id: 'new-email',  label: 'Log new email',           desc: 'Add a Missive entry',      icon: 'plus',   kbd: ['N'], do: () => { setRoute('emails'); setTimeout(() => openModal('focusEmail'), 50); } },
-        { id: 'file-report',label: "File today's report",     desc: 'Open the quick-log',        icon: 'flash',  kbd: ['R'], do: () => setRoute('report') },
         { id: 'bulk-paste', label: 'Bulk paste from Missive', desc: 'Paste 20+ links at once',   icon: 'upload', kbd: ['B'], do: () => { setRoute('emails'); setTimeout(() => openModal('bulkPaste'), 50); } },
         { id: 'export',     label: 'Export current view as CSV',                                  icon: 'download',kbd: ['E'],do: () => openModal('toast:Exported 312 rows to CSV') },
       ]},
@@ -413,7 +306,6 @@ export function CommandPalette({ open, onClose, setRoute, openModal, role }) {
       }))},
     ];
     if (role === 'lead') {
-      base[0].cmds.push({ id: 'go-review', label: 'Go to Review Queue', icon: 'eye',    do: () => setRoute('review') });
       base[0].cmds.push({ id: 'go-ldr',    label: 'Go to Leaderboard',  icon: 'trophy', do: () => setRoute('leaderboard') });
     }
     base.push({ group: 'Settings', cmds: [
@@ -514,16 +406,9 @@ export function ShortcutsPage() {
     ]},
     { title: 'Navigate', items: [
       ['Home', 'G H'],
-      ['Daily Report', 'G R'],
       ['Email Log', 'G E'],
       ['Analytics', 'G A'],
       ['Team', 'G T'],
-    ]},
-    { title: 'Daily Report', items: [
-      ['Enter value', '↵'],
-      ['Skip metric', 'TAB'],
-      ['Go back one step', '⌫⌫ (double)'],
-      ['Use ÷ +/− for nudge', '+ / −'],
     ]},
     { title: 'Email Log', items: [
       ['New entry', 'N'],

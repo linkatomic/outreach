@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react'
-import { TEAM, metricsFor, teamMembers as getTeamMembers,
+import { TEAM, teamMembers as getTeamMembers,
          Icon, isoNDaysAgo, fmtDateShort, fmtRel, pct, todayISO } from '../data.jsx'
-import { loadEmailLogsByDateRange, loadReport, loadReportsHistory,
-         loadAllReportsForDate, loadReportsByDateRange, loadActivityFeed } from '../lib/supabase.js'
+import { loadEmailLogsByDateRange, loadActivityFeed } from '../lib/supabase.js'
 
 // Tiny sparkline
 export function Sparkline({ data, height = 28 }) {
@@ -111,7 +110,7 @@ function ActivityFeed() {
   const [items, setItems] = useState([]);
 
   useEffect(() => {
-    loadActivityFeed().then(({ reports, emails }) => {
+    loadActivityFeed().then(({ emails }) => {
       const merged = [];
 
       // Group today's emails by member
@@ -125,12 +124,6 @@ function ActivityFeed() {
       for (const [memberId, { count, ts }] of emailsByMember) {
         const m = TEAM.find(t => t.id === memberId);
         if (m && count > 0) merged.push({ type: 'email', m, count, ts });
-      }
-
-      // Recent report submissions
-      for (const r of reports) {
-        const m = TEAM.find(t => t.id === r.member_id);
-        if (m) merged.push({ type: 'report', m, total: r.total || 0, ts: r.created_at });
       }
 
       merged.sort((a, b) => (b.ts || '') > (a.ts || '') ? 1 : -1);
@@ -150,23 +143,16 @@ function ActivityFeed() {
 
   return (
     <div className="feed">
-      {items.map((it, i) => {
-        const what = it.type === 'email'
-          ? `logged ${it.count} email${it.count !== 1 ? 's' : ''}`
-          : `submitted daily report · ${it.total} total`;
-        const chipLabel = it.type === 'email' ? 'email log' : `report · ${it.total}`;
-        const chipTone  = it.type === 'email' ? 'info' : 'accent';
-        return (
-          <div className="feed-row" key={i}>
-            <div className={`avatar ${it.m.color}`} style={{ flexShrink: 0 }}>{it.m.short}</div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div><span className="who">{it.m.name}</span> <span className="muted">{what}</span></div>
-              <div className="meta"><span className={`chip ${chipTone}`}>{chipLabel}</span></div>
-            </div>
-            <span className="faint mono" style={{ fontSize: 11 }}>{it.ts ? fmtRel(it.ts) : ''}</span>
+      {items.map((it, i) => (
+        <div className="feed-row" key={i}>
+          <div className={`avatar ${it.m.color}`} style={{ flexShrink: 0 }}>{it.m.short}</div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div><span className="who">{it.m.name}</span> <span className="muted">logged {it.count} email{it.count !== 1 ? 's' : ''}</span></div>
+            <div className="meta"><span className="chip info">email log</span></div>
           </div>
-        );
-      })}
+          <span className="faint mono" style={{ fontSize: 11 }}>{it.ts ? fmtRel(it.ts) : ''}</span>
+        </div>
+      ))}
     </div>
   );
 }
@@ -174,8 +160,6 @@ function ActivityFeed() {
 // ──────────────── MEMBER HOME ────────────────
 export function MemberHome({ me, setRoute }) {
   const [emailLogs, setEmailLogs]     = useState([]);
-  const [todayReport, setTodayReport] = useState(null);
-  const [allReports, setAllReports]   = useState([]);
   const [loading, setLoading]         = useState(true);
   const [now, setNow]                 = useState(new Date());
 
@@ -188,15 +172,9 @@ export function MemberHome({ me, setRoute }) {
 
   useEffect(() => {
     setLoading(true);
-    Promise.all([
-      loadEmailLogsByDateRange(isoNDaysAgo(13), null, me.id),
-      loadReport(me.id, today),
-      loadReportsHistory(me.id),
-    ]).then(([logs, report, history]) => {
-      setEmailLogs(logs);
-      setTodayReport(report);
-      setAllReports(history);
-    }).catch(console.error).finally(() => setLoading(false));
+    loadEmailLogsByDateRange(isoNDaysAgo(13), null, me.id)
+      .then(setEmailLogs)
+      .catch(console.error).finally(() => setLoading(false));
   }, [me.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const cnt = (fn) => emailCount(emailLogs.filter(fn));
@@ -206,19 +184,6 @@ export function MemberHome({ me, setRoute }) {
   const weekDelta   = prevWeek > 0 ? Math.round(((weekEmails - prevWeek) / prevWeek) * 100) : null;
   const spark14     = Array.from({ length: 14 }, (_, i) => cnt(e => e.date === isoNDaysAgo(13 - i)));
   const chart14     = Array.from({ length: 14 }, (_, i) => ({ date: isoNDaysAgo(13 - i), count: cnt(e => e.date === isoNDaysAgo(13 - i)) }));
-
-  // Streak: consecutive working days with filed report, back from today
-  const filedDates = new Set(allReports.map(r => r.date));
-  let streak = 0;
-  let si = filedDates.has(today) ? 0 : 1;
-  while (si < 60) {
-    const date = isoNDaysAgo(si);
-    if (new Date(date + 'T00:00:00').getDay() === 0) { si++; continue; }
-    if (filedDates.has(date)) { streak++; si++; } else break;
-  }
-
-  const todayMetrics = todayReport?.metrics || {};
-  const myMetrics    = metricsFor(me.id);
 
   if (loading) {
     return <div className="page" style={{ display: 'grid', placeItems: 'center', minHeight: 300 }}><div className="faint">Loading…</div></div>;
@@ -232,12 +197,11 @@ export function MemberHome({ me, setRoute }) {
           <div className="sub">{fmtNow(now)}</div>
         </div>
         <div className="actions">
-          <button className="btn" onClick={() => setRoute('emails')}><Icon name="plus" size={12} />Log email <span className="kbd">N</span></button>
-          <button className="btn primary" onClick={() => setRoute('report')}><Icon name="flash" size={12} />File today's report <span className="kbd">R</span></button>
+          <button className="btn primary" onClick={() => setRoute('emails')}><Icon name="plus" size={12} />Log email <span className="kbd">N</span></button>
         </div>
       </div>
 
-      <div className="grid grid-4" style={{ marginBottom: 16 }}>
+      <div className="grid grid-2" style={{ marginBottom: 16 }}>
         <div className="kpi">
           <div className="kpi-label">Today's emails</div>
           <div className="kpi-value">{todayEmails}<span style={{ color: 'var(--text-faint)', fontSize: 14 }}> / 30</span></div>
@@ -254,65 +218,12 @@ export function MemberHome({ me, setRoute }) {
           )}
           <Sparkline data={spark14} />
         </div>
-        <div className="kpi">
-          <div className="kpi-label">Today's report</div>
-          <div className="kpi-value" style={{ color: todayReport ? 'var(--accent)' : 'var(--text)' }}>
-            {todayReport ? 'Filed' : 'Pending'}
-          </div>
-          <div className="kpi-target">
-            {todayReport
-              ? `Submitted ${fmtRel(todayReport.created_at)}`
-              : 'Takes ~45 seconds in the numpad'}
-          </div>
-          {!todayReport && (
-            <button className="btn primary" style={{ marginTop: 4, alignSelf: 'flex-start' }} onClick={() => setRoute('report')}>
-              File now <Icon name="arrow" size={11} />
-            </button>
-          )}
-        </div>
-        <div className="kpi">
-          <div className="kpi-label">Filing streak</div>
-          <div className="kpi-value">{streak}<span style={{ color: 'var(--text-faint)', fontSize: 14 }}> days</span></div>
-          <div className="kpi-target">{streak > 0 ? 'Keep it up!' : 'File today to start'}</div>
-          <div style={{ display: 'flex', gap: 3, marginTop: 4 }}>
-            {Array.from({ length: 7 }).map((_, i) => (
-              <div key={i} style={{ flex: 1, height: 6, background: i < streak ? 'var(--accent)' : 'var(--surface-2)', borderRadius: 2 }}></div>
-            ))}
-          </div>
-        </div>
       </div>
 
-      <div className="grid grid-2-3" style={{ marginBottom: 16 }}>
-        <div className="card">
-          <div className="card-head"><h3>Your week</h3></div>
-          <div className="chart-wrap">
-            <LineChart data={chart14} />
-          </div>
-        </div>
-
-        <div className="card">
-          <div className="card-head">
-            <h3>Today, so far</h3>
-            <span className="faint mono" style={{ fontSize: 11 }}>{Object.keys(todayMetrics).filter(k => !k.startsWith('_')).length} metrics</span>
-          </div>
-          <div style={{ padding: '4px 0' }}>
-            {myMetrics.slice(0, 8).map(m => {
-              const v = todayMetrics[m.key] || 0;
-              const pctVal = m.target ? Math.min(100, (v / m.target) * 100) : (v > 0 ? 100 : 0);
-              return (
-                <div key={m.key} style={{ padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <Icon name={m.icon} size={12} />
-                  <span style={{ flex: 1, fontSize: 12 }}>{m.label}</span>
-                  <span className="mono tnum" style={{ fontSize: 12, color: v > 0 ? 'var(--text)' : 'var(--text-ghost)', minWidth: 28, textAlign: 'right' }}>{v || '—'}</span>
-                  {m.target > 0 && (
-                    <div className="bar thin" style={{ width: 50 }}>
-                      <div className="bar-fill" style={{ width: pctVal + '%', background: pctVal >= 100 ? 'var(--accent)' : 'var(--text-faint)' }}></div>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card-head"><h3>Your week</h3></div>
+        <div className="chart-wrap">
+          <LineChart data={chart14} />
         </div>
       </div>
 
@@ -327,8 +238,6 @@ export function MemberHome({ me, setRoute }) {
 // ──────────────── LEAD HOME ────────────────
 export function LeadHome({ me, setRoute }) {
   const [emailLogs, setEmailLogs]       = useState([]);
-  const [todayReports, setTodayReports] = useState([]);
-  const [recentReports, setRecentReports] = useState([]);
   const [loading, setLoading]           = useState(true);
   const [now, setNow]                   = useState(new Date());
 
@@ -342,15 +251,9 @@ export function LeadHome({ me, setRoute }) {
 
   useEffect(() => {
     setLoading(true);
-    Promise.all([
-      loadEmailLogsByDateRange(isoNDaysAgo(31)),
-      loadAllReportsForDate(today),
-      loadReportsByDateRange(isoNDaysAgo(25)),
-    ]).then(([logs, todayRpts, allRpts]) => {
-      setEmailLogs(logs);
-      setTodayReports(todayRpts);
-      setRecentReports(allRpts);
-    }).catch(console.error).finally(() => setLoading(false));
+    loadEmailLogsByDateRange(isoNDaysAgo(31))
+      .then(setEmailLogs)
+      .catch(console.error).finally(() => setLoading(false));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const isTeam = (id) => teamMembersList.some(m => m.id === id);
@@ -361,9 +264,6 @@ export function LeadHome({ me, setRoute }) {
   const teamWeek  = cnt(e => e.date >= isoNDaysAgo(6) && isTeam(e.member_id));
   const prevWeek  = cnt(e => e.date >= isoNDaysAgo(13) && e.date < isoNDaysAgo(7) && isTeam(e.member_id));
   const weekDelta = prevWeek > 0 ? Math.round(((teamWeek - prevWeek) / prevWeek) * 100) : null;
-
-  const reportsFiledToday  = teamMembersList.filter(m => todayReports.some(r => r.member_id === m.id)).length;
-  const pendingReporters   = teamMembersList.filter(m => !todayReports.some(r => r.member_id === m.id)).map(m => m.name.split(' ')[0]);
 
   // Per-member today counts for median/stddev
   const memberCounts  = teamMembersList.map(m => cnt(e => e.date === today && e.member_id === m.id));
@@ -378,8 +278,6 @@ export function LeadHome({ me, setRoute }) {
     count: cnt(e => e.date === isoNDaysAgo(13 - i) && isTeam(e.member_id)),
   }));
   const sparkData = trend14.map(d => d.count);
-
-  const reviewQueue = recentReports.filter(r => r.status === 'pending' && isTeam(r.member_id)).length;
 
   const monthStart = `${today.slice(0, 7)}-01`
   const leaderboard = teamMembersList.map(m => ({
@@ -402,17 +300,11 @@ export function LeadHome({ me, setRoute }) {
         </div>
         <div className="actions">
           <button className="btn"><Icon name="download" size={12} />Export</button>
-          <button className="btn" onClick={() => setRoute('review')}>
-            <Icon name="eye" size={12} />Review queue
-            {reviewQueue > 0 && (
-              <span className="badge" style={{ background: 'var(--accent)', color: 'var(--accent-ink)', marginLeft: 4, padding: '1px 5px', borderRadius: 4, fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700 }}>{reviewQueue}</span>
-            )}
-          </button>
           <button className="btn primary" onClick={() => setRoute('analytics')}><Icon name="chart" size={12} />Analytics</button>
         </div>
       </div>
 
-      <div className="grid grid-4" style={{ marginBottom: 16 }}>
+      <div className="grid grid-3" style={{ marginBottom: 16 }}>
         <div className="kpi">
           <div className="kpi-label">Team emails today</div>
           <div className="kpi-value">{teamEmailsToday}<span style={{ color: 'var(--text-faint)', fontSize: 14 }}> / {teamTargetToday}</span></div>
@@ -428,16 +320,6 @@ export function LeadHome({ me, setRoute }) {
             </div>
           )}
           <Sparkline data={sparkData} />
-        </div>
-        <div className="kpi">
-          <div className="kpi-label">Reports filed</div>
-          <div className="kpi-value">{reportsFiledToday}<span style={{ color: 'var(--text-faint)', fontSize: 14 }}> / {teamMembersList.length}</span></div>
-          <div className="bar thin"><div className="bar-fill" style={{ width: pct(reportsFiledToday, teamMembersList.length) + '%' }}></div></div>
-          <div className="kpi-target">
-            {pendingReporters.length > 0
-              ? `${pendingReporters.length} pending · ${pendingReporters.slice(0, 3).join(', ')}`
-              : 'All filed!'}
-          </div>
         </div>
         <div className="kpi">
           <div className="kpi-label">Avg per member</div>
@@ -458,16 +340,15 @@ export function LeadHome({ me, setRoute }) {
           <div className="card-head"><h3>Team status</h3><span className="faint" style={{ fontSize: 11 }}>now</span></div>
           <div style={{ padding: '4px 0' }}>
             {teamMembersList.map(m => {
-              const e     = cnt(log => log.date === today && log.member_id === m.id);
-              const filed = todayReports.some(r => r.member_id === m.id);
+              const e = cnt(log => log.date === today && log.member_id === m.id);
               return (
                 <div key={m.id} style={{ padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 10, borderBottom: '1px solid var(--border)' }}>
                   <div className={`avatar ${m.color}`}>{m.short}</div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 12.5, fontWeight: 500 }}>{m.name}</div>
-                    <div className="faint" style={{ fontSize: 11 }}>{e} emails · {filed ? 'report filed' : 'report pending'}</div>
+                    <div className="faint" style={{ fontSize: 11 }}>{e} emails today</div>
                   </div>
-                  <span className={`dot-status ${filed && e >= 25 ? 'ok' : e >= 15 ? 'warn' : 'danger'}`}></span>
+                  <span className={`dot-status ${e >= 25 ? 'ok' : e >= 15 ? 'warn' : 'danger'}`}></span>
                 </div>
               );
             })}
@@ -475,43 +356,9 @@ export function LeadHome({ me, setRoute }) {
         </div>
       </div>
 
-      <div className="grid grid-2" style={{ marginBottom: 16 }}>
-        <div className="card">
-          <div className="card-head">
-            <h3>Reporting pulse · last 26 days</h3>
-            <span className="faint mono" style={{ fontSize: 11 }}>{teamMembersList.length} × 26 cells</span>
-          </div>
-          <div style={{ padding: 16 }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              {teamMembersList.map(m => (
-                <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <div style={{ width: 80, fontSize: 11, color: 'var(--text-dim)' }}>{m.name}</div>
-                  <div style={{ flex: 1, display: 'grid', gridTemplateColumns: 'repeat(26, 1fr)', gap: 2 }}>
-                    {Array.from({ length: 26 }).map((_, i) => {
-                      const date  = isoNDaysAgo(25 - i);
-                      const r     = recentReports.find(rr => rr.member_id === m.id && rr.date === date);
-                      const total = r?.total || 0;
-                      const lvl   = total === 0 ? 0 : total < 30 ? 1 : total < 60 ? 2 : total < 100 ? 3 : 4;
-                      const bg    = lvl === 0 ? 'var(--surface-2)' : `color-mix(in srgb, var(--accent) ${15 + lvl * 20}%, transparent)`;
-                      return <div key={i} style={{ aspectRatio: '1 / 1', background: bg, borderRadius: 2 }} title={`${fmtDateShort(date)}: ${total}`}></div>;
-                    })}
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end', marginTop: 12, fontSize: 10, color: 'var(--text-faint)' }}>
-              <span>less</span>
-              {[0, 1, 2, 3, 4].map(l => (
-                <div key={l} style={{ width: 10, height: 10, background: l === 0 ? 'var(--surface-2)' : `color-mix(in srgb, var(--accent) ${15 + l * 20}%, transparent)`, borderRadius: 2 }}></div>
-              ))}
-              <span>more</span>
-            </div>
-          </div>
-        </div>
-        <div className="card">
-          <div className="card-head"><h3>Activity</h3></div>
-          <ActivityFeed />
-        </div>
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card-head"><h3>Activity</h3></div>
+        <ActivityFeed />
       </div>
 
       <div className="card">

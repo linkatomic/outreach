@@ -9,12 +9,6 @@
     "api/crisp-export.js": { "maxDuration": 10 },
     "api/missive-export.js": { "maxDuration": 20 }
   },
-  "crons": [
-    {
-      "path": "/api/cron/midnight-check",
-      "schedule": "30 18 * * *"
-    }
-  ],
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/$1" },
     { "source": "/(.*)", "destination": "/index.html" }

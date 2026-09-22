@@ -1,9 +1,9 @@
 import { Icon } from '../data.jsx'
 
 const ROUTE_LABELS = {
-  home: 'Home', report: 'Daily Report', emails: 'Email Log',
+  home: 'Home', emails: 'Email Log',
   analytics: 'Analytics', team: 'Team', ideas: 'Ideas', tasks: 'Tasks',
-  tools: 'Tools', review: 'Review Queue', leaderboard: 'Leaderboard',
+  tools: 'Tools', leaderboard: 'Leaderboard',
   brief: 'Brief', settings: 'Settings', shortcuts: 'Shortcuts',
   'lc-home': 'LC Home', 'lc-clients': 'Clients',
   'lc-orders': 'Order Sheet', 'lc-team': 'LC Team',

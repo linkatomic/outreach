@@ -36,51 +36,6 @@ export async function getProfile(userId) {
   return data
 }
 
-// ── Reports ───────────────────────────────────────────
-
-export async function saveReport({ memberId, date, metrics, note, total }) {
-  const { error } = await supabase
-    .from('daily_reports')
-    .upsert({ member_id: memberId, date, metrics, note, total }, { onConflict: 'member_id,date' })
-  if (error) throw error
-}
-
-export async function loadReport(memberId, date) {
-  const { data, error } = await supabase
-    .from('daily_reports')
-    .select('*')
-    .eq('member_id', memberId)
-    .eq('date', date)
-    .maybeSingle()
-  if (error) throw error
-  return data
-}
-
-export async function loadReportsHistory(memberId) {
-  const { data, error } = await supabase
-    .from('daily_reports')
-    .select('*')
-    .eq('member_id', memberId)
-    .order('date', { ascending: false })
-  if (error) throw error
-  return data || []
-}
-
-export async function loadMostRecentReport(memberId) {
-  const today = new Date();
-  const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
-  const { data, error } = await supabase
-    .from('daily_reports')
-    .select('*')
-    .eq('member_id', memberId)
-    .lt('date', todayStr)
-    .order('date', { ascending: false })
-    .limit(1)
-    .maybeSingle()
-  if (error) throw error
-  return data
-}
-
 // ── Email Logs ────────────────────────────────────────
 
 function localDateStr(daysAgo = 0) {
@@ -314,16 +269,6 @@ export async function deleteEmail(id) {
   if (error) throw error;
 }
 
-export async function getEmailCountForDate(memberId, date) {
-  const { data } = await supabase
-    .from('email_logs')
-    .select('replies')
-    .eq('member_id', memberId)
-    .eq('date', date)
-  if (!data) return 0
-  return data.reduce((sum, row) => sum + 1 + (row.replies || 0), 0)
-}
-
 export async function getEmailCountToday(memberId) {
   const { data } = await supabase
     .from('email_logs')
@@ -459,15 +404,6 @@ export async function loadPriceTable() {
   }))
 }
 
-export async function updateReportStatus(memberId, date, status) {
-  const { error } = await supabase
-    .from('daily_reports')
-    .update({ status })
-    .eq('member_id', memberId)
-    .eq('date', date)
-  if (error) throw error
-}
-
 export async function loadEmailLogsByDateRange(startDate, endDate = null, memberId = null) {
   let query = supabase
     .from('email_logs')
@@ -481,36 +417,15 @@ export async function loadEmailLogsByDateRange(startDate, endDate = null, member
   return data || []
 }
 
-export async function loadReportsByDateRange(startDate, endDate = null) {
-  let query = supabase
-    .from('daily_reports')
-    .select('member_id, date, metrics, total, status')
-    .gte('date', startDate)
-    .order('date', { ascending: false })
-  if (endDate) query = query.lte('date', endDate)
-  const { data, error } = await query
-  if (error) throw error
-  return data || []
-}
-
 export async function loadActivityFeed() {
   const today = localDateStr();
-  const yesterday = localDateStr(1);
-  const [reportsResult, emailsResult] = await Promise.all([
-    supabase
-      .from('daily_reports')
-      .select('member_id, date, total, created_at')
-      .gte('date', yesterday)
-      .order('created_at', { ascending: false })
-      .limit(20),
-    supabase
-      .from('email_logs')
-      .select('member_id, replies, created_at')
-      .eq('date', today)
-      .order('created_at', { ascending: false })
-      .limit(100),
-  ]);
-  return { reports: reportsResult.data || [], emails: emailsResult.data || [] };
+  const { data } = await supabase
+    .from('email_logs')
+    .select('member_id, replies, created_at')
+    .eq('date', today)
+    .order('created_at', { ascending: false })
+    .limit(100);
+  return { emails: data || [] };
 }
 
 // ── Ultimate Sheet Parser History ──────────────────────
@@ -534,15 +449,6 @@ export async function loadUltimateSheetParserHistory(memberId = null) {
     .limit(200)
   if (memberId) query = query.eq('member_id', memberId)
   const { data, error } = await query
-  if (error) throw error
-  return data || []
-}
-
-export async function loadAllReportsForDate(date) {
-  const { data, error } = await supabase
-    .from('daily_reports')
-    .select('*')
-    .eq('date', date)
   if (error) throw error
   return data || []
 }

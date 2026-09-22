@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Icon, CORE_TASK_ICONS } from '../data.jsx'
+import { Icon } from '../data.jsx'
 import { TOOLS } from './Tools.jsx'
 import {
   loadFullRoster, adminCreateUser, adminUpdateProfile, adminSetActive,
@@ -138,96 +138,6 @@ function TeamCheckboxes({ value, onChange }) {
   )
 }
 
-// ─────────── Responsibilities (core_tasks) editor ───────────
-
-function slugify(label) {
-  return 'core_' + label.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40)
-}
-
-function ResponsibilityRow({ task, onChange, onRemove }) {
-  function set(field, val) { onChange({ ...task, [field]: val }) }
-  return (
-    <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 10 }}>
-        <Field label="Label">
-          <input style={inputStyle} value={task.label}
-                 onChange={e => { const label = e.target.value; onChange({ ...task, label, key: task._autoKey === true ? slugify(label || 'task') : task.key }) }}
-                 placeholder="e.g. Client Requirements Outreach" />
-        </Field>
-        <Field label="Icon">
-          <select style={selStyle} value={task.icon || 'mail'} onChange={e => set('icon', e.target.value)}>
-            {CORE_TASK_ICONS.map(i => <option key={i} value={i}>{i}</option>)}
-          </select>
-        </Field>
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
-        <Field label="Priority">
-          <select style={selStyle} value={task.role} onChange={e => set('role', e.target.value)}>
-            <option value="primary">Primary (hard target)</option>
-            <option value="secondary">Secondary (backup)</option>
-          </select>
-        </Field>
-        <Field label="Type">
-          <select style={selStyle} value={task.type || 'number'} onChange={e => set('type', e.target.value === 'checkbox' ? 'checkbox' : undefined)}>
-            <option value="number">Numeric target</option>
-            <option value="checkbox">Checkbox (done/not done)</option>
-          </select>
-        </Field>
-        {task.type === 'checkbox' ? (
-          <Field label="Must complete">
-            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, height: 36 }}>
-              <input type="checkbox" checked={!!task.mustComplete} onChange={e => set('mustComplete', e.target.checked)} />
-              Counts as missed if unchecked
-            </label>
-          </Field>
-        ) : (
-          <Field label="Target">
-            <input style={inputStyle} type="number" min="0" value={task.target ?? 0} onChange={e => set('target', Number(e.target.value) || 0)} />
-          </Field>
-        )}
-        <Field label="Target label">
-          <input style={inputStyle} value={task.targetLabel || ''} onChange={e => set('targetLabel', e.target.value)} placeholder="e.g. 25 responses" />
-        </Field>
-      </div>
-
-      <Field label="Description">
-        <input style={inputStyle} value={task.desc || ''} onChange={e => set('desc', e.target.value)} placeholder="What this responsibility covers" />
-      </Field>
-
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span style={{ fontSize: 11, color: 'var(--text-faint)', fontFamily: 'var(--font-mono)' }}>{task.key}</span>
-        <button type="button" onClick={onRemove} style={{ fontSize: 12, fontWeight: 700, color: '#fb7185', background: 'none', border: 'none', cursor: 'pointer' }}>
-          Remove
-        </button>
-      </div>
-    </div>
-  )
-}
-
-function ResponsibilitiesEditor({ tasks, onChange }) {
-  function update(i, task) { const next = [...tasks]; next[i] = task; onChange(next) }
-  function remove(i) { onChange(tasks.filter((_, idx) => idx !== i)) }
-  function add() {
-    onChange([...tasks, { key: `core_task_${Date.now()}`, label: '', unit: '', target: 0, targetLabel: '', role: 'primary', icon: 'mail', desc: '', _autoKey: true }])
-  }
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      {tasks.length === 0 && (
-        <div style={{ fontSize: 12, color: 'var(--text-faint)', padding: '8px 0' }}>
-          No responsibilities assigned. Members with none only see the standard daily metrics.
-        </div>
-      )}
-      {tasks.map((t, i) => (
-        <ResponsibilityRow key={i} task={t} onChange={task => update(i, task)} onRemove={() => remove(i)} />
-      ))}
-      <button type="button" onClick={add} className="btn ghost" style={{ alignSelf: 'flex-start' }}>
-        <Icon name="plus" size={12} />Add responsibility
-      </button>
-    </div>
-  )
-}
-
 // ─────────── Create user modal ───────────
 
 function CreateUserModal({ rows, onClose, onCreated }) {
@@ -346,21 +256,18 @@ function EditUserModal({ user, rows, onClose, onSaved }) {
   const [color, setColor] = useState(user.color)
   const [joinedDate, setJoinedDate] = useState(user.joined_date || '')
   const [dualAccess, setDualAccess] = useState(!!user.dual_access)
-  const [coreTasks, setCoreTasks] = useState(user.core_tasks || [])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
-  const [tab, setTab] = useState('profile')
 
   const canSubmit = name.trim() && email.trim() && teams.length > 0
 
   async function handleSave() {
     setSaving(true); setError('')
     try {
-      const cleanTasks = coreTasks.map(({ _autoKey, ...t }) => t)
       const trimmedName = name.trim()
       await adminUpdateProfile(user.id, {
         name: trimmedName, short: derivedFields(trimmedName).short, email: email.trim(), role, teams, color,
-        joined_date: joinedDate, dual_access: dualAccess, core_tasks: cleanTasks,
+        joined_date: joinedDate, dual_access: dualAccess,
       })
       await loadAndApplyRoster()
       onSaved()
@@ -380,59 +287,39 @@ function EditUserModal({ user, rows, onClose, onSaved }) {
           <button className="btn ghost" onClick={onClose}><Icon name="x" size={13} /></button>
         </div>
 
-        <div style={{ display: 'flex', gap: 4, padding: '10px 20px 0' }}>
-          {[['profile', 'Profile'], ['responsibilities', 'Responsibilities']].map(([id, label]) => (
-            <button key={id} type="button" onClick={() => setTab(id)}
-                    style={{
-                      padding: '7px 12px', borderRadius: '8px 8px 0 0', border: 'none', cursor: 'pointer',
-                      fontSize: 12, fontWeight: 700, fontFamily: 'var(--font-sans)',
-                      background: tab === id ? 'var(--surface-2)' : 'transparent',
-                      color: tab === id ? 'var(--text)' : 'var(--text-faint)',
-                    }}>
-              {label}
-            </button>
-          ))}
-        </div>
-
         <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 16, maxHeight: '60vh', overflowY: 'auto' }}>
-          {tab === 'profile' ? (
-            <>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-                <Field label="Full name">
-                  <input style={inputStyle} value={name} onChange={e => setName(e.target.value)} />
-                </Field>
-                <Field label="Email (login)">
-                  <input style={inputStyle} type="email" value={email} onChange={e => setEmail(e.target.value)} />
-                </Field>
-              </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+            <Field label="Full name">
+              <input style={inputStyle} value={name} onChange={e => setName(e.target.value)} />
+            </Field>
+            <Field label="Email (login)">
+              <input style={inputStyle} type="email" value={email} onChange={e => setEmail(e.target.value)} />
+            </Field>
+          </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-                <Field label="Role">
-                  <select style={selStyle} value={role} onChange={e => setRole(e.target.value)}>
-                    {ROLE_OPTIONS.map(r => <option key={r.id} value={r.id}>{r.label}</option>)}
-                  </select>
-                </Field>
-                <Field label="Teams">
-                  <TeamCheckboxes value={teams} onChange={setTeams} />
-                </Field>
-              </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+            <Field label="Role">
+              <select style={selStyle} value={role} onChange={e => setRole(e.target.value)}>
+                {ROLE_OPTIONS.map(r => <option key={r.id} value={r.id}>{r.label}</option>)}
+              </select>
+            </Field>
+            <Field label="Teams">
+              <TeamCheckboxes value={teams} onChange={setTeams} />
+            </Field>
+          </div>
 
-              <Field label="Joined date">
-                <input style={inputStyle} type="date" value={joinedDate} onChange={e => setJoinedDate(e.target.value)} />
-              </Field>
+          <Field label="Joined date">
+            <input style={inputStyle} type="date" value={joinedDate} onChange={e => setJoinedDate(e.target.value)} />
+          </Field>
 
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
-                <input type="checkbox" checked={dualAccess} onChange={e => setDualAccess(e.target.checked)} />
-                Dual access — unlock the other department's navigation for this person
-              </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
+            <input type="checkbox" checked={dualAccess} onChange={e => setDualAccess(e.target.checked)} />
+            Dual access — unlock the other department's navigation for this person
+          </label>
 
-              <Field label="Avatar color">
-                <ColorPicker value={color} onChange={setColor} rows={rows} excludeId={user.id} />
-              </Field>
-            </>
-          ) : (
-            <ResponsibilitiesEditor tasks={coreTasks} onChange={setCoreTasks} />
-          )}
+          <Field label="Avatar color">
+            <ColorPicker value={color} onChange={setColor} rows={rows} excludeId={user.id} />
+          </Field>
 
           {error && <div style={{ fontSize: 12, color: '#fb7185' }}>{error}</div>}
         </div>
@@ -523,8 +410,8 @@ function DeleteConfirmModal({ user, onClose, onDeleted }) {
         <div className="modal-head"><h2>Delete {user.name}?</h2><button className="btn ghost" onClick={onClose}><Icon name="x" size={13} /></button></div>
         <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div style={{ fontSize: 13, color: 'var(--text-dim)', lineHeight: 1.6 }}>
-            This permanently removes their login and roster entry. Their historical daily reports,
-            emails and tasks are <strong>not</strong> deleted — those stay under their member ID.
+            This permanently removes their login and roster entry. Their historical emails
+            and tasks are <strong>not</strong> deleted — those stay under their member ID.
             This can't be undone. Consider <strong>Deactivate</strong> instead if you just want to
             block access.
           </div>

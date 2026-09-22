@@ -1,14 +1,13 @@
 import { useState, useEffect, useRef } from 'react'
-import { TEAM, ACCENT_PRESETS, hasDualAccess, todayISO } from './data.jsx'
+import { TEAM, ACCENT_PRESETS, hasDualAccess } from './data.jsx'
 import { LC_STAFF } from './pages/LiveChatTeam.jsx'
-import { supabase, getProfile, getProfileByMemberId, saveUserAccent, loadReport } from './lib/supabase.js'
+import { supabase, getProfile, getProfileByMemberId, saveUserAccent } from './lib/supabase.js'
 import { loadAndApplyRoster } from './lib/roster.js'
 import { useTweaks, TweaksPanel, TweakSection, TweakToggle } from './components/TweaksPanel.jsx'
 import { Sidebar, Topbar, CommandPalette, Toast, ShortcutsPage } from './components/Shell.jsx'
 import { MemberHome, LeadHome } from './pages/Home.jsx'
-import { DailyReportPage } from './pages/Report.jsx'
 import { EmailLogPage } from './pages/Emails.jsx'
-import { AnalyticsPage, TeamPage, LeaderboardPage, ReviewPage, MemberDetailPanel, SettingsPage } from './pages/Rest.jsx'
+import { AnalyticsPage, TeamPage, LeaderboardPage, MemberDetailPanel, SettingsPage } from './pages/Rest.jsx'
 import { BriefPage } from './pages/Brief.jsx'
 import { LoginPage } from './pages/Login.jsx'
 import { IdeasPage } from './pages/Ideas.jsx'
@@ -70,7 +69,6 @@ export default function App() {
   const [cmdOpen, setCmdOpen]       = useState(false);
   const [toast, setToast]           = useState(null);
   const [loginError, setLoginError] = useState(null);
-  const [notifOpen, setNotifOpen]   = useState(false);
   const [detail, setDetail]         = useState(null);
   const [emailFocus, setEmailFocus] = useState(0);
   const [bulkPaste, setBulkPaste]   = useState(0);
@@ -85,17 +83,6 @@ export default function App() {
 
   // Role used for nav guards (reflects effectiveMe when impersonating)
   const role = effectiveMe?.role || 'member';
-
-  // Whether effectiveMe has already filed today's daily report (sidebar badge)
-  const [todayDone, setTodayDone] = useState(false);
-  useEffect(() => {
-    if (!effectiveMe) { setTodayDone(false); return; }
-    let cancelled = false;
-    loadReport(effectiveMe.id, todayISO())
-      .then(r => { if (!cancelled) setTodayDone(!!r); })
-      .catch(() => { if (!cancelled) setTodayDone(false); });
-    return () => { cancelled = true; };
-  }, [effectiveMe?.id, route]);
 
   // livechat-only users always land in the livechat department
   useEffect(() => {
@@ -280,7 +267,7 @@ export default function App() {
       if (e.key === '?') { e.preventDefault(); setRoute('shortcuts'); return; }
       if (e.key === '/') { e.preventDefault(); setCmdOpen(true); return; }
       if (gPressed) {
-        const map = { h: 'home', r: 'report', e: 'emails', a: 'analytics', t: 'team', i: 'ideas', k: 'tasks', w: 'tools' };
+        const map = { h: 'home', e: 'emails', a: 'analytics', t: 'team', i: 'ideas', k: 'tasks', w: 'tools' };
         const dest = map[e.key.toLowerCase()];
         if (dest) { e.preventDefault(); setRoute(dest); }
         gPressed = false; clearTimeout(gTimer); return;
@@ -320,12 +307,10 @@ export default function App() {
 
     switch (route) {
       case 'home':       return isManager ? <LeadHome me={m} setRoute={setRoute} /> : <MemberHome me={m} setRoute={setRoute} />;
-      case 'report':     return <DailyReportPage me={m} setRoute={setRoute} showToast={showToast} />;
       case 'emails':     return <EmailLogPage me={m} setRoute={setRoute} showToast={showToast} focusEmailOnMount={emailFocus} bulkPasteOnMount={bulkPaste} />;
       case 'analytics':  return <AnalyticsPage setRoute={setRoute} />;
       case 'team':       return <TeamPage role={role} me={m} setRoute={setRoute} openDetailFor={setDetail} />;
       case 'leaderboard': return <LeaderboardPage setRoute={setRoute} openDetailFor={setDetail} />;
-      case 'review':     return <ReviewPage setRoute={setRoute} showToast={showToast} />;
       case 'settings':   return <SettingsPage theme={theme} toggleTheme={() => setTweak('dark', !t.dark)} role={role} accent={accent} setAccent={setAccent} />;
       case 'shortcuts':  return <ShortcutsPage />;
       case 'brief':      return isManager ? <BriefPage /> : <MemberHome me={m} setRoute={setRoute} />;
@@ -392,18 +377,17 @@ export default function App() {
     <div className="app">
       <Sidebar route={route} setRoute={setRoute} role={role} me={me} allUsers={ALL_USERS}
                impersonatedId={impersonatedId}
-               openCmdK={() => setCmdOpen(true)} todayDone={todayDone}
+               openCmdK={() => setCmdOpen(true)}
                onLogout={() => { setImpersonatedId(null); supabase.auth.signOut(); }}
                dept={dept} setDept={setDept} onlineIds={onlineIds} />
       <div className="main">
         <Topbar route={route} role={role}
                 theme={theme} toggleTheme={() => setTweak('dark', !t.dark)}
                 openCmdK={() => setCmdOpen(true)}
-                notifOpen={notifOpen} setNotifOpen={setNotifOpen}
                 onLogout={() => { setImpersonatedId(null); supabase.auth.signOut(); }}
                 me={me} allUsers={ALL_USERS}
                 impersonatedId={impersonatedId} setImpersonatedId={setImpersonatedId} />
-        <div className="canvas" onClick={() => { if (notifOpen) setNotifOpen(false); }}>
+        <div className="canvas">
           {renderPage()}
         </div>
       </div>
