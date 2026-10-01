@@ -6,10 +6,14 @@
 
 import { extractNavLinks, findPagesWithAI } from './_lib/pageDiscovery.js'
 
+// Polish path guesses added directly (kontakt/o-nas/polityka-prywatnosci) rather than
+// relying solely on the AI fallback below -- that fallback only runs once the homepage
+// itself has already loaded, so a static guess that lands immediately is one less thing
+// that can go wrong for a language this common in this account's domain lists.
 const PAGE_CONFIGS = [
-  { type: 'Contact', paths: ['/contact', '/contact-us', '/contact.html', '/contactus', '/get-in-touch', '/reach-us'] },
-  { type: 'About',   paths: ['/about', '/about-us', '/about.html', '/aboutus', '/our-story', '/team'] },
-  { type: 'Privacy', paths: ['/privacy-policy', '/privacy', '/privacy.html', '/legal/privacy', '/policies/privacy'] },
+  { type: 'Contact', paths: ['/contact', '/contact-us', '/contact.html', '/contactus', '/get-in-touch', '/reach-us', '/kontakt', '/kontakt.html'] },
+  { type: 'About',   paths: ['/about', '/about-us', '/about.html', '/aboutus', '/our-story', '/team', '/o-nas', '/o-firmie'] },
+  { type: 'Privacy', paths: ['/privacy-policy', '/privacy', '/privacy.html', '/legal/privacy', '/policies/privacy', '/polityka-prywatnosci', '/polityka-prywatnosci.html'] },
 ]
 const TYPE_KEY = { Contact: 'contact', About: 'about', Privacy: 'privacy' }
 
