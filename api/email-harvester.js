@@ -71,7 +71,7 @@ function extractEmails(html) {
   })
 }
 
-async function fetchPage(url, timeoutMs = 7000) {
+async function fetchPage(url, timeoutMs = 5000) {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
   try {
@@ -94,14 +94,24 @@ async function fetchPage(url, timeoutMs = 7000) {
   }
 }
 
+// Candidate paths fire concurrently per protocol instead of one at a time — trying all 6
+// guesses serially (plus an http fallback for each) could take 6 * 2 * timeoutMs on a
+// slow/dead server, which is exactly what was blowing past Vercel's 30s maxDuration and
+// getting the whole function killed (not a clean per-domain failure). Racing them in two
+// waves (all https guesses, then all http guesses only if none of those landed) bounds
+// this page type's cost to roughly 2 * timeoutMs regardless of how many paths are tried.
 async function checkPageType(domain, config) {
-  for (const path of config.paths) {
-    const result = await fetchPage(`https://${domain}${path}`)
-      || await fetchPage(`http://${domain}${path}`)
-    if (result) {
-      const emails = extractEmails(result.html)
-      return { type: config.type, url: result.url, emails, fetched: true }
-    }
+  const httpsHits = await Promise.all(config.paths.map(path => fetchPage(`https://${domain}${path}`)))
+  let result = httpsHits.find(Boolean)
+
+  if (!result) {
+    const httpHits = await Promise.all(config.paths.map(path => fetchPage(`http://${domain}${path}`)))
+    result = httpHits.find(Boolean)
+  }
+
+  if (result) {
+    const emails = extractEmails(result.html)
+    return { type: config.type, url: result.url, emails, fetched: true }
   }
   return { type: config.type, url: `https://${domain}${config.paths[0]}`, emails: [], fetched: false }
 }
@@ -136,15 +146,36 @@ async function discoverPages(domain) {
   return [homePage, ...otherPages]
 }
 
+// Backstop against vercel.json's maxDuration (30s) killing the function outright, which
+// produced an abrupt infra-level timeout instead of a clean per-domain failure the frontend
+// already knows how to show and retry. The concurrency fix above should make this rare, but
+// a domain with a genuinely slow (not dead) server, or one that falls through to the AI
+// fallback's extra OpenAI round trip, can still add up — this guarantees a real response
+// before Vercel ever gets the chance to kill it.
+const DOMAIN_BUDGET_MS = 25000
+
+function withDeadline(promise, ms) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error('HARVEST_TIMED_OUT')), ms)),
+  ])
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
 
   const { domain: rawDomain } = req.body || {}
   if (!rawDomain) return res.status(400).json({ error: 'domain is required' })
 
-  const domain    = cleanDomain(rawDomain)
-  const pages     = await discoverPages(domain)
-  const allEmails = [...new Set(pages.flatMap(p => p.emails))]
-
-  return res.json({ domain, pages, allEmails })
+  const domain = cleanDomain(rawDomain)
+  try {
+    const pages = await withDeadline(discoverPages(domain), DOMAIN_BUDGET_MS)
+    const allEmails = [...new Set(pages.flatMap(p => p.emails))]
+    return res.json({ domain, pages, allEmails })
+  } catch (err) {
+    if (err.message === 'HARVEST_TIMED_OUT') {
+      return res.status(504).json({ error: 'Site took too long to respond (timed out)' })
+    }
+    throw err
+  }
 }
