@@ -125,7 +125,7 @@ function ResultsTable({ results, emailFreq, retryingSet }) {
           </tr>
         </thead>
         <tbody>
-          {results.map((r, i) => (
+          {results.filter(Boolean).map((r, i) => (
             <ResultRow key={i} result={r} emailFreq={emailFreq} isRetrying={retryingSet.has(r.domain)} />
           ))}
         </tbody>
@@ -137,7 +137,7 @@ function ResultsTable({ results, emailFreq, retryingSet }) {
 // ── History item ──────────────────────────────────────────
 
 function HistoryItem({ entry, onLoad, onDelete }) {
-  const done        = (entry.results || []).filter(r => r.status !== 'pending')
+  const done        = (entry.results || []).filter(Boolean).filter(r => r.status !== 'pending')
   const withEmails  = done.filter(r => (r.allEmails?.length || 0) > 0)
   const totalEmails = [...new Set(done.flatMap(r => r.allEmails || []))].length
 
@@ -185,7 +185,12 @@ export function EmailHarvester() {
   useEffect(() => {
     const draft = loadDraft(TOOL_KEY)
     if (!draft || !(draft.results || []).length) return
-    const clean = draft.results.map(r =>
+    // Defensive: a stored results array (localStorage here, Supabase for history) can carry
+    // a stray null/undefined entry from data saved by an older version of this code —
+    // JSON.stringify silently turns an array hole into `null`. Drop those before touching
+    // .status on anything, since that crashed the whole page on mount with no recovery for
+    // whoever already had one saved.
+    const clean = draft.results.filter(Boolean).map(r =>
       r.status === 'pending' ? { domain: r.domain, error: 'Interrupted', pages: [], allEmails: [] } : r
     )
     setWebsiteText(draft.websiteText || '')
@@ -251,7 +256,7 @@ export function EmailHarvester() {
     setRunning(false)
     setProgress(null)
     if (!results.length) return
-    const stopped = results.map(r =>
+    const stopped = results.filter(Boolean).map(r =>
       r.status === 'pending' ? { domain: r.domain, error: 'Stopped', pages: [], allEmails: [] } : r
     )
     setResults(stopped)
@@ -265,7 +270,7 @@ export function EmailHarvester() {
     // error, HTTP error) — a hard failure used to be silently unretryable from here.
     const targets = results
       .map((r, i) => ({ r, i }))
-      .filter(({ r }) => r.status !== 'pending' && (r.error || (r.allEmails?.length || 0) === 0))
+      .filter(({ r }) => r && r.status !== 'pending' && (r.error || (r.allEmails?.length || 0) === 0))
     if (!targets.length) return
 
     setRetryingSet(new Set(targets.map(({ r }) => r.domain)))
@@ -299,7 +304,7 @@ export function EmailHarvester() {
   function loadFromHistory(entry) {
     runIdRef.current = entry.id
     setWebsiteText(entry.websiteText || '')
-    setResults(entry.results || [])
+    setResults((entry.results || []).filter(Boolean))
     setSheetStatus(entry.sheetUrl ? { url: entry.sheetUrl } : null)
     setRestored(false)
     setHasNewEmails(false)
@@ -307,7 +312,7 @@ export function EmailHarvester() {
     setTab('run')
   }
 
-  const doneResults  = results.filter(r => r.status !== 'pending')
+  const doneResults  = results.filter(Boolean).filter(r => r.status !== 'pending')
   const withEmails   = doneResults.filter(r => (r.allEmails?.length || 0) > 0)
   const withNone     = doneResults.filter(r => !r.error && !(r.allEmails?.length))
   const withError    = doneResults.filter(r => r.error)
