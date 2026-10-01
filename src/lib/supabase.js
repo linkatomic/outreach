@@ -3,7 +3,17 @@ import { createClient } from '@supabase/supabase-js'
 const SUPABASE_URL = 'https://mhoncmvynerqsswmdqin.supabase.co'
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1ob25jbXZ5bmVycXNzd21kcWluIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk3Njg4OTYsImV4cCI6MjA5NTM0NDg5Nn0.vhMvZ6Ve4kCJE8T95wxjtVoW6RphVHJTFZH-h5YLWlk'
 
-export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+// detectSessionInUrl (Supabase's default) parses any #access_token=... fragment straight
+// out of the current URL on every page load — meant for magic-link/OAuth redirect flows,
+// which this app never uses (sign-in is password-only, see signIn() below). Left on, a
+// stale token fragment from an old bookmarked/saved link (months-expired, per the gotrue
+// "issued over 120s ago" / negative-expiry warnings this caused) gets auto-applied as the
+// active session, 403s against the real API, and crashes rendering with no recovery.
+// Disabling it removes the whole bug class: a plain anon client only ever uses the session
+// explicitly restored from its own storage or set via signInWithPassword.
+export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: { detectSessionInUrl: false },
+})
 
 // ── Auth ──────────────────────────────────────────────
 export async function signIn(email, password) {

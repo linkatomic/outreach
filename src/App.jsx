@@ -237,8 +237,14 @@ export default function App() {
         });
       }
     } catch (err) {
+      // Whatever broke here (a bad/expired token being one real case we've seen — a stale
+      // auth fragment from an old bookmarked link got persisted as the active session and
+      // every reload kept retrying that same dead token), there's no useful way to keep
+      // using a session that can't load its own profile. Clear it so the next load is a
+      // clean slate instead of silently repeating the same failure forever.
+      await supabase.auth.signOut().catch(() => {});
       setMe(null);
-      setLoginError(err?.message || 'Failed to load profile. Contact your admin.');
+      setLoginError(err?.message || 'Failed to load profile. Please sign in again.');
     } finally {
       setAuthLoading(false);
     }
