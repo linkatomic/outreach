@@ -213,7 +213,10 @@ export function LcNotion({ me }) {
   const [rows,      setRows]      = useState([])
   const [sheetBusy, setSheetBusy] = useState(false)
   const [sheetErr,  setSheetErr]  = useState('')
-  const [sheetWriteErr, setSheetWriteErr] = useState('') // write-back-to-sheet failure (non-fatal — cards were already created)
+  // Status of writing UID/costs back into the sheet after Create — surfaced as a persistent
+  // banner (not tucked inside the Step 1 card) since it runs right as the page switches to the
+  // "finished" results screen and would otherwise go unseen.
+  const [sheetWriteStatus, setSheetWriteStatus] = useState(null) // null | 'writing' | 'done' | { error }
   // Column layout of the loaded sheet: how many columns it has, and which column (if any)
   // already holds UID / Publication Cost / Writing Cost — -1 means "not present yet, append it".
   const [sheetMeta, setSheetMeta] = useState({ colCount: 0, uidCol: -1, pubCol: -1, writingCol: -1 })
@@ -333,9 +336,16 @@ export function LcNotion({ me }) {
 
   async function handleCreate() {
     if (!rows.length) return
-    setCreating(true); setFinished(false); setSheetWriteErr('')
+    setCreating(true); setFinished(false); setSheetWriteStatus(null)
     setProg({ done: 0, total: rows.length, errors: [] })
     const gplMap = await fetchGplBatch(rows.map(r => r.domain))
+    if (gplMap.size) {
+      // Diagnostic only — Writing Cost's word-count field name is a guess (no live GPL sample
+      // was available while building this). If Writing Cost keeps coming back empty, open the
+      // browser console after Create and paste this log so the real field name can be fixed.
+      const [sampleDomain, sampleSite] = gplMap.entries().next().value
+      console.debug('[LcNotion] sample GPL site response (for Writing Cost word-count lookup):', sampleDomain, sampleSite)
+    }
     const errors = []
     const successCards = []
     const sheetWrites = [] // { rowNum, uid, publicationCost, writingCost } for rows that succeeded
@@ -389,10 +399,19 @@ export function LcNotion({ me }) {
         cards: successCards,
       }).catch(() => {})
 
-      const sheetId     = extractSheetId(sheetUrl.trim())
-      const tabSheetId  = tabs.find(t => t.name === selTab)?.sheetId
+      const sheetId    = extractSheetId(sheetUrl.trim())
+      const tabSheetId = tabs.find(t => t.name === selTab)?.sheetId
       if (sheetId && tabSheetId != null) {
-        writeMetaBackToSheet(sheetId, tabSheetId, sheetWrites).catch(err => setSheetWriteErr(err.message))
+        setSheetWriteStatus('writing')
+        try {
+          await writeMetaBackToSheet(sheetId, tabSheetId, sheetWrites)
+          setSheetWriteStatus('done')
+        } catch (err) {
+          console.error('[LcNotion] writeMetaBackToSheet failed:', err)
+          setSheetWriteStatus({ error: err.message })
+        }
+      } else {
+        setSheetWriteStatus({ error: `Could not resolve the sheet tab's ID (sheetId=${sheetId}, tab="${selTab}") — try reloading the sheet before Create.` })
       }
     }
 
@@ -401,7 +420,7 @@ export function LcNotion({ me }) {
 
   function reset() {
     setFinished(false); setCreating(false); setRows([]); setTabs([])
-    setSelTab(''); setSheetUrl(''); setSheetErr(''); setSheetWriteErr('')
+    setSelTab(''); setSheetUrl(''); setSheetErr(''); setSheetWriteStatus(null)
     setSheetMeta({ colCount: 0, uidCol: -1, pubCol: -1, writingCol: -1 })
     setCommon({ ...DEFAULTS, orderProcessBy: RELAY_TO_NOTION_NAME[me?.name] || me?.name || '' })
     setProg({ done: 0, total: 0, errors: [] })
@@ -420,6 +439,24 @@ export function LcNotion({ me }) {
           <div className="sub">Bulk-create Notion pages from an Order Sheet tab</div>
         </div>
       </div>
+
+      {/* Persistent (not hidden behind the finished/results screen) — writing UID/costs back to
+          the sheet happens right as Create finishes, so its status needs to survive that switch. */}
+      {sheetWriteStatus === 'writing' && (
+        <div className="card" style={{ marginBottom: 16, padding: '10px 16px', fontSize: 12, color: 'var(--text-faint)' }}>
+          Writing UID / Publication Cost / Writing Cost back into the sheet…
+        </div>
+      )}
+      {sheetWriteStatus === 'done' && (
+        <div className="card" style={{ marginBottom: 16, padding: '10px 16px', fontSize: 12, color: '#4ade80' }}>
+          ✓ UID / Publication Cost / Writing Cost written to hidden columns at the end of the sheet.
+        </div>
+      )}
+      {sheetWriteStatus?.error && (
+        <div className="card" style={{ marginBottom: 16, padding: '10px 16px', fontSize: 12, color: '#f87171' }}>
+          Cards were created in Notion, but writing UID/costs back to the sheet failed: {sheetWriteStatus.error}
+        </div>
+      )}
 
       {/* ── Connection test ──────────────────────────── */}
       <div className="card" style={{ marginBottom: 16, padding: 16, display: 'flex', alignItems: 'center', gap: 14 }}>
@@ -475,11 +512,6 @@ export function LcNotion({ me }) {
         </div>
 
         {sheetErr && <div style={{ marginTop: 10, fontSize: 12, color: '#f87171' }}>{sheetErr}</div>}
-        {sheetWriteErr && (
-          <div style={{ marginTop: 10, fontSize: 12, color: '#f87171' }}>
-            Cards were created, but writing UID/costs back to the sheet failed: {sheetWriteErr}
-          </div>
-        )}
 
         {tabs.length > 1 && (
           <div style={{ marginTop: 12, display: 'flex', gap: 10, alignItems: 'center' }}>
