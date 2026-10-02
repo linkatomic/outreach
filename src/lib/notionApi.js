@@ -84,10 +84,10 @@ export async function fetchGplBatch(domains) {
   return map
 }
 
-// Word count isn't under one fixed key across GPL's responses, so check every spelling we've
-// seen before falling back — on the addon first (it's addon-specific), then the vendor, then
-// the site itself.
-const WORD_COUNT_KEYS = ['word_count', 'wordCount', 'words', 'min_words', 'minWords', 'word_limit', 'wordLimit']
+// Confirmed from GPL's "Search Publishers" API doc: this is a site-level field (not on the
+// addon or vendor) — the minimum article length the publisher requires. The other spellings
+// are kept as a harmless fallback in case a different endpoint ever shapes it differently.
+const WORD_COUNT_KEYS = ['article_min_length', 'word_count', 'wordCount', 'words', 'min_words', 'minWords', 'word_limit', 'wordLimit']
 function findWordCount(obj) {
   if (!obj) return undefined
   for (const k of WORD_COUNT_KEYS) {

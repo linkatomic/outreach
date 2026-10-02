@@ -339,13 +339,6 @@ export function LcNotion({ me }) {
     setCreating(true); setFinished(false); setSheetWriteStatus(null)
     setProg({ done: 0, total: rows.length, errors: [] })
     const gplMap = await fetchGplBatch(rows.map(r => r.domain))
-    if (gplMap.size) {
-      // Diagnostic only — Writing Cost's word-count field name is a guess (no live GPL sample
-      // was available while building this). If Writing Cost keeps coming back empty, open the
-      // browser console after Create and paste this log so the real field name can be fixed.
-      const [sampleDomain, sampleSite] = gplMap.entries().next().value
-      console.debug('[LcNotion] sample GPL site response (for Writing Cost word-count lookup):', sampleDomain, sampleSite)
-    }
     const errors = []
     const successCards = []
     const sheetWrites = [] // { rowNum, uid, publicationCost, writingCost } for rows that succeeded
