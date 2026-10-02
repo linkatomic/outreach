@@ -62,7 +62,7 @@ const DEFAULTS = {
   orderStatus: 'Sent For Publication', clientName: '', clientSheet: '',
   orderFrom: 'GUESTPOSTLINKS', orderType: 'Article Publication', orderIn: 'Bulk',
   postType: '', paymentStatus: 'Need to Check', note: 'Master Sheet',
-  publicationCost: '', orderUrl: '',
+  publicationCost: '', writingCost: '', orderUrl: '',
   orderProcessBy: '', sentForPublication: '', dateOfPublication: '',
 }
 
@@ -469,6 +469,12 @@ export function LcNotion({ me }) {
           <Field label="Publication Cost">
             <Inp type="number" value={common.publicationCost} onChange={v => set('publicationCost', v)} placeholder="0.00" />
           </Field>
+          <Field label="Writing Cost">
+            <Inp type="number" value={common.writingCost} onChange={v => set('writingCost', v)} placeholder="0.00" />
+          </Field>
+          <div style={{ gridColumn: '1 / -1', fontSize: 11, color: 'var(--text-faint)', marginTop: -8 }}>
+            A 10% discount is applied automatically — e.g. enter 71.9 and Notion's Publication Cost will show 64.71
+          </div>
 
           <Divider />
 

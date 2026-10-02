@@ -103,6 +103,15 @@ export function extractGplInfo(siteData, niche) {
 
 // ── Property builder ──────────────────────────────────────
 
+// Publication Cost and Writing Cost are entered as the raw/quoted price, but the price
+// actually written to Notion is always post 10% discount — e.g. a $71.9 publication cost
+// is stored as $64.71, a $10 writing cost as $9.00. Rounded to cents to avoid floating-point
+// noise (71.9 * 0.9 is 64.70999999999999 in plain JS).
+const DISCOUNT_RATE = 0.9 // 10% off
+function applyDiscount(n) {
+  return Math.round(n * DISCOUNT_RATE * 100) / 100
+}
+
 export function buildNotionProperties({ orderId, domain, vendor, vendorPrice, actualPaid, currency, common }) {
   const txt  = v => v ? [{ text: { content: String(v) } }] : undefined
   const sel  = v => v ? { name: String(v) } : undefined
@@ -128,7 +137,7 @@ export function buildNotionProperties({ orderId, domain, vendor, vendorPrice, ac
 
   // Common fields
   const { orderStatus, clientName, clientSheet, orderFrom, orderType, orderIn,
-          postType, paymentStatus, note, publicationCost, orderUrl,
+          postType, paymentStatus, note, publicationCost, writingCost, orderUrl,
           orderProcessBy, sentForPublication, dateOfPublication } = common
 
   if (orderStatus)          p['Order Status']          = { status: stat(orderStatus) }
@@ -141,7 +150,9 @@ export function buildNotionProperties({ orderId, domain, vendor, vendorPrice, ac
   if (paymentStatus)        p['Payment Status']         = { status: stat(paymentStatus) }
   if (note)                 p['Note']                   = { rich_text: txt(note) }
   const pc = toNum(publicationCost)
-  if (pc != null)           p['Publication Cost']       = { number: pc }
+  if (pc != null)           p['Publication Cost']       = { number: applyDiscount(pc) }
+  const wc = toNum(writingCost)
+  if (wc != null)           p['Writing Cost']           = { number: applyDiscount(wc) }
   if (orderUrl)             p['Order URL']              = { url: orderUrl }
   if (orderProcessBy)       p['Order Process By']       = { rich_text: txt(orderProcessBy) }
   if (sentForPublication)   p['Sent for Publication']   = { people: [{ object: 'user', id: sentForPublication }] }
