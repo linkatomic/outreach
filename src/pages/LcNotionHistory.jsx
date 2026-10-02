@@ -86,6 +86,10 @@ export function LcNotionHistory() {
   const setPs  = (id, fn)  => setPubState(p   => ({ ...p, [id]: fn(p[id] || {}) }))
 
   // ── shared sheet reader ───────────────────────────────────────
+  // Keys by both UID (if the sheet has a "UID" column) and domain. UID is preferred when a
+  // card has one saved, since domain alone collides when a client bulk-orders the same
+  // website multiple times with different article docs — the last same-domain sheet row
+  // would otherwise silently win for every card sharing that domain.
   async function readSheetMap(batch, colMatcher, colLabel) {
     const sheetId = extractSheetId(batch.sheet_url)
     if (!sheetId) throw new Error('Invalid sheet URL saved in batch')
@@ -93,15 +97,20 @@ export function LcNotionHistory() {
     if (rows.length < 2) throw new Error('Sheet has no data rows')
     const header    = rows[0].map(h => String(h ?? '').trim().toLowerCase())
     const domainIdx = Math.max(header.findIndex(h => h === 'domain'), 1)
+    const uidIdx    = header.findIndex(h => h === 'uid')
     const colIdx    = header.findIndex(colMatcher)
     if (colIdx < 0) throw new Error(`"${colLabel}" column not found in sheet`)
-    const map = new Map()
+    const byUid    = new Map()
+    const byDomain = new Map()
     for (const row of rows.slice(1)) {
       const domain = String(row[domainIdx] ?? '').trim().toLowerCase()
+      const uid    = uidIdx >= 0 ? String(row[uidIdx] ?? '').trim() : ''
       const val    = String(row[colIdx]    ?? '').trim()
-      if (domain && val) map.set(domain, val)
+      if (!val) continue
+      if (uid)    byUid.set(uid, val)
+      if (domain) byDomain.set(domain, val)
     }
-    return map
+    return { byUid, byDomain }
   }
 
   // ── Fill Article Docs ─────────────────────────────────────────
@@ -109,14 +118,17 @@ export function LcNotionHistory() {
     const batchId = batch.id
     setFs(batchId, { phase: 'loading' })
     try {
-      const docMap = await readSheetMap(batch, h => h.includes('article doc'), 'Article Doc')
-      const cards  = (batch.cards || []).filter(c => c.id && c.domain && docMap.has(c.domain.toLowerCase()))
+      const { byUid, byDomain } = await readSheetMap(batch, h => h.includes('article doc'), 'Article Doc')
+      const valueFor = card => (card.uid && byUid.has(card.uid))
+        ? byUid.get(card.uid)
+        : (card.domain ? byDomain.get(card.domain.toLowerCase()) : undefined)
+      const cards  = (batch.cards || []).filter(c => c.id && valueFor(c) != null)
       const skipped = (batch.cards?.length || 0) - cards.length
       if (!cards.length) { setFs(batchId, { phase: 'done', done: 0, total: 0, skipped, errors: [], msg: 'No Article Docs found in sheet.' }); return }
       setFs(batchId, { phase: 'updating', done: 0, total: cards.length, skipped, errors: [] })
       await batchUpdate(
         cards,
-        card => ({ 'Article DOC': { url: docMap.get(card.domain.toLowerCase()) } }),
+        card => ({ 'Article DOC': { url: valueFor(card) } }),
         (done, errors) => setFs(batchId, { phase: 'updating', done, total: cards.length, skipped, errors: [...errors] }),
         errors => setFs(batchId, { phase: 'done', done: cards.length - errors.length, total: cards.length, skipped, errors })
       )
@@ -168,8 +180,11 @@ export function LcNotionHistory() {
 
     setSh(batchId, { phase: 'reading', done: 0, total: cards.length })
 
-    // Step 1: read live link from each Notion page
-    const liveLinks = new Map() // normDomain → url
+    // Step 1: read live link from each Notion page, keyed by the card's own UID when saved
+    // (falls back to domain) — same domain-collision concern as "Fill Article Docs" above,
+    // just in the opposite direction: without a UID, a bulk order repeating one domain would
+    // get the SAME live link written to every one of that domain's sheet rows.
+    const liveLinks = new Map() // uid-or-normDomain → url
     const readErrors = []
     for (let i = 0; i < cards.length; i += CONCURRENCY) {
       const batchStart = Date.now()
@@ -178,7 +193,7 @@ export function LcNotionHistory() {
       results.forEach((r, bi) => {
         if (r.status === 'fulfilled') {
           const url = r.value?.properties?.['Live link']?.url
-          if (url) liveLinks.set(normDomain(slice[bi].domain), url)
+          if (url) liveLinks.set(slice[bi].uid || normDomain(slice[bi].domain), url)
         } else {
           readErrors.push(`${slice[bi].domain}: ${r.reason?.message || 'read failed'}`)
         }
@@ -193,7 +208,7 @@ export function LcNotionHistory() {
       return
     }
 
-    // Step 2: read sheet to find domain + live link column positions
+    // Step 2: read sheet to find domain + uid + live link column positions
     setSh(batchId, { phase: 'writing', done: 0, total: liveLinks.size })
     try {
       const sheetId = extractSheetId(batch.sheet_url)
@@ -202,14 +217,16 @@ export function LcNotionHistory() {
 
       const header   = rows[0].map(h => String(h ?? '').trim().toLowerCase())
       const domainIdx = Math.max(header.findIndex(h => h === 'domain'), 1)
+      const uidIdx    = header.findIndex(h => h === 'uid')
       const liveIdx   = header.findIndex(h => h.includes('live link') || h.includes('live url') || h === 'live')
       if (liveIdx < 0) throw new Error('"Live Link" column not found in sheet header')
 
       const liveCol = colLetter(liveIdx)
       const updates = []
       for (let r = 1; r < rows.length; r++) {
+        const uid    = uidIdx >= 0 ? String(rows[r][uidIdx] ?? '').trim() : ''
         const domain = normDomain(rows[r][domainIdx])
-        const url    = liveLinks.get(domain)
+        const url    = (uid && liveLinks.has(uid)) ? liveLinks.get(uid) : liveLinks.get(domain)
         if (url) updates.push({ range: `'${batch.sheet_tab}'!${liveCol}${r + 1}`, values: [[url]] })
       }
 

@@ -253,9 +253,14 @@ export function LcNotion({ me }) {
       const hdr = raw[0].map(h => String(h ?? '').trim().toLowerCase())
       const oi = Math.max(hdr.findIndex(h => h.includes('order id') || h === 'orderid'), 0)
       const di = hdr.findIndex(h => h === 'domain') >= 0 ? hdr.findIndex(h => h === 'domain') : 1
+      const ui = hdr.findIndex(h => h === 'uid') // optional column — disambiguates bulk orders repeating the same domain
       setRows(
         raw.slice(1)
-          .map(r => ({ orderId: String(r[oi] ?? '').trim(), domain: String(r[di] ?? '').trim() }))
+          .map(r => ({
+            orderId: String(r[oi] ?? '').trim(),
+            domain: String(r[di] ?? '').trim(),
+            uid: ui >= 0 ? String(r[ui] ?? '').trim() : '',
+          }))
           .filter(r => r.orderId && r.domain)
       )
     } catch (e) { setSheetErr(e.message) }
@@ -284,7 +289,7 @@ export function LcNotion({ me }) {
         batch.map(row => {
           const gpl = extractGplInfo(gplMap.get(row.domain.toLowerCase()), common.postType)
           return createWithRetry(buildNotionProperties({ ...row, ...gpl, common }))
-            .then(res => ({ id: res.id, url: res.url, title: `${row.orderId} - ${row.domain}`, domain: row.domain }))
+            .then(res => ({ id: res.id, url: res.url, title: `${row.orderId} - ${row.domain}`, domain: row.domain, uid: row.uid || undefined }))
         })
       )
 
@@ -383,6 +388,12 @@ export function LcNotion({ me }) {
             style={{ whiteSpace: 'nowrap' }}>
             {sheetBusy ? 'Loading…' : 'Load Sheet'}
           </button>
+        </div>
+
+        <div style={{ marginTop: 10, fontSize: 11, color: 'var(--text-faint)' }}>
+          Optional: add a "UID" column with a unique value per row — this keeps Notion History's
+          "Fill Article Docs" and "Sync Live Links → Sheet" matching the right row when the same
+          domain is ordered more than once in a batch. Safe to leave out otherwise.
         </div>
 
         {sheetErr && <div style={{ marginTop: 10, fontSize: 12, color: '#f87171' }}>{sheetErr}</div>}
