@@ -84,6 +84,31 @@ export async function fetchGplBatch(domains) {
   return map
 }
 
+// Word count isn't under one fixed key across GPL's responses, so check every spelling we've
+// seen before falling back — on the addon first (it's addon-specific), then the vendor, then
+// the site itself.
+const WORD_COUNT_KEYS = ['word_count', 'wordCount', 'words', 'min_words', 'minWords', 'word_limit', 'wordLimit']
+function findWordCount(obj) {
+  if (!obj) return undefined
+  for (const k of WORD_COUNT_KEYS) {
+    const v = obj[k]
+    if (v !== undefined && v !== null && v !== '' && !isNaN(+v)) return +v
+  }
+  return undefined
+}
+
+// Flat per-article writing-cost tiers by word count (pre-discount — the 10% in
+// buildNotionProperties applies on top of whatever this returns, same as Publication Cost).
+// Below 600 words there's no defined rate, so the caller falls back to a manual value.
+function writingCostForWordCount(words) {
+  if (words == null || isNaN(words)) return undefined
+  if (words >= 3000) return 45
+  if (words >= 2000) return 30
+  if (words >= 1000) return 15
+  if (words >= 600)  return 10
+  return undefined
+}
+
 export function extractGplInfo(siteData, niche) {
   if (!siteData?.vendors?.length) return {}
   const vendor = siteData.vendors.find(v => v.is_primary && !v.is_disable)
@@ -93,11 +118,19 @@ export function extractGplInfo(siteData, niche) {
   const addon = vendor.addons?.find(a => a.label === nicheKey)
              ?? vendor.addons?.find(a => a.label === 'general')
              ?? vendor.addons?.[0]
+  const buyerPrice = addon?.buyer_price
+  const wordCount  = findWordCount(addon) ?? findWordCount(vendor) ?? findWordCount(siteData)
   return {
     vendor:      vendor.name ?? vendor.vendor_name ?? '',
     vendorPrice: addon?.admin_price ?? '',
     actualPaid:  addon?.actualPrice ?? '',
     currency:    vendor.currency ?? '',
+    // Auto-fetched per site — Publication Cost from GPL's buyer price (what the client is
+    // charged), Writing Cost from the word-count tier table above. Either can be undefined
+    // (missing GPL data for this site, or a word count below the lowest tier); the caller
+    // falls back to a manual value in that case.
+    publicationCost: (buyerPrice != null && buyerPrice !== '' && !isNaN(+buyerPrice)) ? +buyerPrice : undefined,
+    writingCost: writingCostForWordCount(wordCount),
   }
 }
 
