@@ -207,6 +207,7 @@ export function LcNotion({ me }) {
   const [rows,      setRows]      = useState([])
   const [sheetBusy, setSheetBusy] = useState(false)
   const [sheetErr,  setSheetErr]  = useState('')
+  const [sheetHasCosts, setSheetHasCosts] = useState({ pub: false, writing: false }) // which cost columns the loaded sheet has, if any
 
   const [common, setCommon] = useState(() => ({
     ...DEFAULTS,
@@ -254,15 +255,24 @@ export function LcNotion({ me }) {
       const oi = Math.max(hdr.findIndex(h => h.includes('order id') || h === 'orderid'), 0)
       const di = hdr.findIndex(h => h === 'domain') >= 0 ? hdr.findIndex(h => h === 'domain') : 1
       const ui = hdr.findIndex(h => h === 'uid') // optional column — disambiguates bulk orders repeating the same domain
+      // Optional per-site cost columns — costs normally differ site to site within a batch,
+      // so when the sheet carries its own "Publication Cost"/"Writing Cost" columns those win
+      // per row; the Batch Settings fields below only act as a fallback for rows/sheets that
+      // don't have them.
+      const pci = hdr.findIndex(h => h.includes('publication cost'))
+      const wci = hdr.findIndex(h => h.includes('writing cost'))
       setRows(
         raw.slice(1)
           .map(r => ({
             orderId: String(r[oi] ?? '').trim(),
             domain: String(r[di] ?? '').trim(),
             uid: ui >= 0 ? String(r[ui] ?? '').trim() : '',
+            publicationCost: pci >= 0 ? String(r[pci] ?? '').trim() : '',
+            writingCost: wci >= 0 ? String(r[wci] ?? '').trim() : '',
           }))
           .filter(r => r.orderId && r.domain)
       )
+      setSheetHasCosts({ pub: pci >= 0, writing: wci >= 0 })
     } catch (e) { setSheetErr(e.message) }
     finally { setSheetBusy(false) }
   }
@@ -288,7 +298,14 @@ export function LcNotion({ me }) {
       const results = await Promise.allSettled(
         batch.map(row => {
           const gpl = extractGplInfo(gplMap.get(row.domain.toLowerCase()), common.postType)
-          return createWithRetry(buildNotionProperties({ ...row, ...gpl, common }))
+          // Per-row cost from the sheet wins when present; the Batch Settings fields are only
+          // a fallback for rows/sheets without their own Publication/Writing Cost columns.
+          const rowCommon = {
+            ...common,
+            publicationCost: row.publicationCost || common.publicationCost,
+            writingCost:     row.writingCost     || common.writingCost,
+          }
+          return createWithRetry(buildNotionProperties({ ...row, ...gpl, common: rowCommon }))
             .then(res => ({ id: res.id, url: res.url, title: `${row.orderId} - ${row.domain}`, domain: row.domain, uid: row.uid || undefined }))
         })
       )
@@ -326,6 +343,7 @@ export function LcNotion({ me }) {
   function reset() {
     setFinished(false); setCreating(false); setRows([]); setTabs([])
     setSelTab(''); setSheetUrl(''); setSheetErr('')
+    setSheetHasCosts({ pub: false, writing: false })
     setCommon({ ...DEFAULTS, orderProcessBy: RELAY_TO_NOTION_NAME[me?.name] || me?.name || '' })
     setProg({ done: 0, total: 0, errors: [] })
   }
@@ -391,9 +409,10 @@ export function LcNotion({ me }) {
         </div>
 
         <div style={{ marginTop: 10, fontSize: 11, color: 'var(--text-faint)' }}>
-          Optional: add a "UID" column with a unique value per row — this keeps Notion History's
-          "Fill Article Docs" and "Sync Live Links → Sheet" matching the right row when the same
-          domain is ordered more than once in a batch. Safe to leave out otherwise.
+          Optional columns: "UID" (a unique value per row — keeps Notion History's "Fill Article
+          Docs" and "Sync Live Links → Sheet" matching the right row when the same domain is
+          ordered more than once in a batch), and "Publication Cost" / "Writing Cost" (read per
+          row automatically when present — see Batch Settings below). Safe to leave any of these out.
         </div>
 
         {sheetErr && <div style={{ marginTop: 10, fontSize: 12, color: '#f87171' }}>{sheetErr}</div>}
@@ -477,14 +496,22 @@ export function LcNotion({ me }) {
             <Inp value={common.note} onChange={v => set('note', v)} placeholder="e.g. Master Sheet" />
           </Field>
 
-          <Field label="Publication Cost">
+          <Field label={sheetHasCosts.pub ? 'Publication Cost (fallback)' : 'Publication Cost'}>
             <Inp type="number" value={common.publicationCost} onChange={v => set('publicationCost', v)} placeholder="0.00" />
           </Field>
-          <Field label="Writing Cost">
+          <Field label={sheetHasCosts.writing ? 'Writing Cost (fallback)' : 'Writing Cost'}>
             <Inp type="number" value={common.writingCost} onChange={v => set('writingCost', v)} placeholder="0.00" />
           </Field>
           <div style={{ gridColumn: '1 / -1', fontSize: 11, color: 'var(--text-faint)', marginTop: -8 }}>
-            A 10% discount is applied automatically — e.g. enter 71.9 and Notion's Publication Cost will show 64.71
+            A 10% discount is applied automatically — e.g. enter 71.9 and Notion's Publication Cost will show 64.71.
+            {(sheetHasCosts.pub || sheetHasCosts.writing) ? (
+              <span style={{ color: '#4ade80' }}>
+                {' '}✓ Sheet has its own {sheetHasCosts.pub && sheetHasCosts.writing ? 'Publication Cost & Writing Cost columns' : sheetHasCosts.pub ? 'Publication Cost column' : 'Writing Cost column'} —
+                each site's own value is used; the field{sheetHasCosts.pub && sheetHasCosts.writing ? 's' : ''} above {sheetHasCosts.pub && sheetHasCosts.writing ? 'only apply' : 'only applies'} to rows missing one.
+              </span>
+            ) : (
+              rows.length > 0 && <span> No per-site cost columns found in this sheet — the value above applies to every card.</span>
+            )}
           </div>
 
           <Divider />
