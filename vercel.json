@@ -7,7 +7,8 @@
     "api/admin-users.js": { "maxDuration": 15 },
     "api/admin-tools.js": { "maxDuration": 15 },
     "api/crisp-export.js": { "maxDuration": 10 },
-    "api/missive-export.js": { "maxDuration": 20 }
+    "api/missive-export.js": { "maxDuration": 20 },
+    "api/ahrefs.js": { "maxDuration": 20 }
   },
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/$1" },
