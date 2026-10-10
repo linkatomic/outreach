@@ -1,21 +1,14 @@
 // POST /api/email-harvester
 // Body: { domain: string }
 // Fetches Home, Contact, About, Privacy pages and returns all emails found.
-// Non-English contact/about/privacy pages (e.g. German "Kontakt") are found via an AI
-// fallback over the site's own nav links when the English-slug guesses come up empty.
 
-import { extractNavLinks, findPagesWithAI } from './_lib/pageDiscovery.js'
-
-// Polish path guesses added directly (kontakt/o-nas/polityka-prywatnosci) rather than
-// relying solely on the AI fallback below -- that fallback only runs once the homepage
-// itself has already loaded, so a static guess that lands immediately is one less thing
-// that can go wrong for a language this common in this account's domain lists.
+// Polish path guesses included directly (kontakt/o-nas/polityka-prywatnosci) alongside the
+// English ones, since that's a language common in this account's domain lists.
 const PAGE_CONFIGS = [
   { type: 'Contact', paths: ['/contact', '/contact-us', '/contact.html', '/contactus', '/get-in-touch', '/reach-us', '/kontakt', '/kontakt.html'] },
   { type: 'About',   paths: ['/about', '/about-us', '/about.html', '/aboutus', '/our-story', '/team', '/o-nas', '/o-firmie'] },
   { type: 'Privacy', paths: ['/privacy-policy', '/privacy', '/privacy.html', '/legal/privacy', '/policies/privacy', '/polityka-prywatnosci', '/polityka-prywatnosci.html'] },
 ]
-const TYPE_KEY = { Contact: 'contact', About: 'about', Privacy: 'privacy' }
 
 const EMAIL_RE  = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g
 const SKIP_EXTS = /\.(png|jpg|jpeg|gif|svg|webp|ico|css|js|woff|woff2|ttf|eot|otf|map)$/i
@@ -128,34 +121,14 @@ async function discoverPages(domain) {
 
   const otherPages = await Promise.all(PAGE_CONFIGS.map(cfg => checkPageType(domain, cfg)))
 
-  // AI fallback — only for page types the English-slug guesses missed, and only when we
-  // have a homepage to pull real nav links from.
-  const missing = otherPages.filter(p => !p.fetched).map(p => TYPE_KEY[p.type])
-  if (missing.length && homeResult) {
-    const navLinks = extractNavLinks(homeResult.html, homeResult.url)
-    const found = await findPagesWithAI(domain, navLinks, missing)
-    for (const page of otherPages) {
-      const key = TYPE_KEY[page.type]
-      if (page.fetched || !found[key]) continue
-      const result = await fetchPage(found[key])
-      if (result) {
-        page.url = result.url
-        page.emails = extractEmails(result.html)
-        page.fetched = true
-        page.foundVia = 'ai'
-      }
-    }
-  }
-
   return [homePage, ...otherPages]
 }
 
 // Backstop against vercel.json's maxDuration (30s) killing the function outright, which
 // produced an abrupt infra-level timeout instead of a clean per-domain failure the frontend
 // already knows how to show and retry. The concurrency fix above should make this rare, but
-// a domain with a genuinely slow (not dead) server, or one that falls through to the AI
-// fallback's extra OpenAI round trip, can still add up — this guarantees a real response
-// before Vercel ever gets the chance to kill it.
+// a domain with a genuinely slow (not dead) server can still add up — this guarantees a real
+// response before Vercel ever gets the chance to kill it.
 const DOMAIN_BUDGET_MS = 25000
 
 function withDeadline(promise, ms) {

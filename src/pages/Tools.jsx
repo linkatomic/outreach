@@ -1094,7 +1094,7 @@ function BuyerPriceLookup({ priceMap, loading, error }) {
 // the tool_access table, without any code change or deploy.
 
 export const TOOLS = [
-  { id: 'ultimate-sheet-parser', title: 'Ultimate Sheet Parser', desc: 'AI + manual column assignment, GPL vendor price comparison, and DA/PA/Ascore enrichment', icon: 'zap', tag: 'Sheets', section: 'outreach' },
+  { id: 'ultimate-sheet-parser', title: 'Ultimate Sheet Parser', desc: 'Manual column assignment, GPL vendor price comparison, and DA/PA/Ascore enrichment', icon: 'zap', tag: 'Sheets', section: 'outreach' },
   { id: 'combined-calc',  title: 'Currency & % Calculator', desc: 'Apply % discount/markup, convert currency, get post price with buyer/reseller lookup',                       icon: 'globe',    tag: 'Pricing', section: 'outreach'  },
   { id: 'price-calc',     title: 'Price Calculator',        desc: 'Convert admin price to buyer & reseller price instantly',                                                     icon: 'tool',     tag: 'Pricing', section: 'outreach'  },
   { id: 'buyer-lookup',   title: 'Buyer → Admin Lookup',    desc: 'Search a buyer price (e.g. 34 for 34.9) and get the best matching admin price instantly',                       icon: 'search',   tag: 'Pricing', section: 'outreach'  },
