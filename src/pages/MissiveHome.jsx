@@ -39,9 +39,9 @@ export function MissiveHome({ me, setRoute }) {
 
   const stats = [
     { label: 'Emails Sent',    value: loading ? '—' : log.length,        icon: 'mail',    color: 'var(--accent)' },
-    { label: 'Sent Today',     value: loading ? '—' : sentToday,         icon: 'activity', color: '#4ade80' },
-    { label: 'Saved Templates', value: loading ? '—' : templates.length, icon: 'layers',  color: '#60a5fa' },
-    { label: 'Not Yet Sent',   value: loading ? '—' : pendingInBatches,  icon: 'clock',   color: '#f59e0b' },
+    { label: 'Sent Today',     value: loading ? '—' : sentToday,         icon: 'activity', color: 'var(--ok)' },
+    { label: 'Saved Templates', value: loading ? '—' : templates.length, icon: 'layers',  color: 'var(--info)' },
+    { label: 'Not Yet Sent',   value: loading ? '—' : pendingInBatches,  icon: 'clock',   color: 'var(--warn)' },
   ]
 
   const tools = [
@@ -116,27 +116,28 @@ export function MissiveHome({ me, setRoute }) {
         ) : recentSends.length === 0 ? (
           <div style={{ padding: '24px 16px', fontSize: 13, color: 'var(--text-faint)' }}>No emails sent yet.</div>
         ) : (
-          <div className="card-pad" style={{ padding: 0 }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-              <tbody>
-                {recentSends.map(entry => (
-                  <tr key={entry.id} style={{ borderTop: '1px solid var(--border)' }}>
-                    <td style={{ padding: '10px 16px', whiteSpace: 'nowrap', color: 'var(--text-faint)', fontSize: 12 }}>{new Date(entry.sent_at).toLocaleString()}</td>
-                    <td style={{ padding: '10px 16px' }}>
-                      {entry.recipient_name ? `${entry.recipient_name} ` : ''}
-                      <span style={{ color: 'var(--text-faint)' }}>&lt;{entry.recipient_email}&gt;</span>
-                    </td>
-                    <td style={{ padding: '10px 16px' }}>{entry.subject || <span style={{ color: 'var(--text-faint)' }}>—</span>}</td>
-                    <td style={{ padding: '10px 16px' }}>
-                      {entry.web_url
-                        ? <a href={entry.web_url} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>Open →</a>
-                        : <span style={{ color: 'var(--text-faint)' }}>—</span>}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <table className="table">
+            <thead>
+              <tr><th>Sent</th><th>Recipient</th><th>Subject</th><th>Missive</th></tr>
+            </thead>
+            <tbody>
+              {recentSends.map(entry => (
+                <tr key={entry.id}>
+                  <td className="muted" style={{ whiteSpace: 'nowrap' }}>{new Date(entry.sent_at).toLocaleString()}</td>
+                  <td style={{ whiteSpace: 'normal' }}>
+                    {entry.recipient_name ? `${entry.recipient_name} ` : ''}
+                    <span className="faint">&lt;{entry.recipient_email}&gt;</span>
+                  </td>
+                  <td style={{ whiteSpace: 'normal' }}>{entry.subject || <span className="faint">—</span>}</td>
+                  <td>
+                    {entry.web_url
+                      ? <a href={entry.web_url} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>Open →</a>
+                      : <span className="faint">—</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         )}
       </div>
     </div>

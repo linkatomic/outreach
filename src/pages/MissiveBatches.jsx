@@ -48,16 +48,20 @@ function batchReplyCount(b) {
   return (b.rows || []).filter(r => r.hasReply).length
 }
 
-const labelStyle = { fontSize: 11, fontWeight: 700, color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6, display: 'block' }
-const inputStyle = { width: '100%', fontSize: 13 }
-const textareaStyle = { ...inputStyle, minHeight: 90, lineHeight: 1.5, resize: 'vertical' }
-const sectionHeadStyle = { fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-faint)', marginBottom: 16 }
+const textareaStyle = { minHeight: 110, lineHeight: 1.5, resize: 'vertical' }
 
-const STATUS_STYLE = {
-  pending: { color: 'var(--text-faint)', label: 'Pending' },
-  sending: { color: '#60a5fa', label: 'Sending…' },
-  sent:    { color: '#4ade80', label: '✓ Sent' },
-  error:   { color: '#f87171', label: '✗ Failed' },
+const STATUS_CHIP = {
+  pending: { cls: '', label: 'Pending' },
+  sending: { cls: 'info', label: 'Sending…' },
+  sent:    { cls: 'ok', label: 'Sent' },
+  error:   { cls: 'danger', label: 'Failed' },
+}
+
+function SaveChip({ status }) {
+  if (!status) return null
+  if (status === 'saving') return <span className="chip">Saving…</span>
+  if (status === 'saved') return <span className="chip ok">✓ Saved</span>
+  return <span className="chip danger">{status}</span>
 }
 
 // Reused by both the "New Batch" form and the active batch's own settings.
@@ -65,27 +69,20 @@ function LabelPicker({ labels, filter, onFilterChange, selected, onToggle }) {
   const filtered = filter.trim() ? labels.filter(l => l.name.toLowerCase().includes(filter.trim().toLowerCase())) : labels
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-        <span style={{ ...labelStyle, marginBottom: 0 }}>
+      <div className="row-flex" style={{ justifyContent: 'space-between', marginBottom: 10 }}>
+        <span className="label" style={{ marginBottom: 0 }}>
           Missive labels {labels.length > 0 && <span>· {labels.length} loaded</span>} {selected.length > 0 && <span style={{ color: 'var(--accent)' }}>· {selected.length} selected</span>}
         </span>
-        <input className="input" style={{ width: 200, fontSize: 12 }} placeholder="Filter labels…" value={filter} onChange={e => onFilterChange(e.target.value)} />
+        <input className="input" style={{ width: 200, height: 26, fontSize: 12 }} placeholder="Filter labels…" value={filter} onChange={e => onFilterChange(e.target.value)} />
       </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, maxHeight: 160, overflowY: 'auto', padding: '2px 2px 0' }}>
-        {labels.length === 0 && <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>No shared labels found for this organization.</span>}
-        {labels.length > 0 && filtered.length === 0 && <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>No labels match "{filter}".</span>}
+        {labels.length === 0 && <span className="faint" style={{ fontSize: 12 }}>No shared labels found for this organization.</span>}
+        {labels.length > 0 && filtered.length === 0 && <span className="faint" style={{ fontSize: 12 }}>No labels match "{filter}".</span>}
         {filtered.map(l => {
           const on = selected.includes(l.id)
           return (
-            <button key={l.id} onClick={() => onToggle(l.id)} type="button"
-              style={{
-                fontSize: 12, padding: '5px 12px', borderRadius: 999, cursor: 'pointer',
-                border: `1px solid ${on ? 'var(--accent)' : 'var(--border)'}`,
-                background: on ? 'color-mix(in srgb, var(--accent) 18%, transparent)' : 'var(--surface)',
-                color: on ? 'var(--accent)' : 'var(--text-dim)',
-                fontWeight: on ? 600 : 400,
-                transition: 'background .12s, border-color .12s, color .12s',
-              }}>
+            <button key={l.id} onClick={() => onToggle(l.id)} type="button" className={`chip${on ? ' accent' : ''}`}
+              style={{ cursor: 'pointer', padding: '4px 10px', fontFamily: 'inherit' }}>
               {l.name}
             </button>
           )
@@ -100,7 +97,7 @@ export function MissiveBatches({ me, setRoute }) {
     return (
       <div className="page" style={{ maxWidth: 600 }}>
         <div className="page-head"><div><h1>Batches</h1></div></div>
-        <div className="card" style={{ padding: 20, fontSize: 13, color: 'var(--text-faint)' }}>
+        <div className="card card-pad" style={{ fontSize: 13, color: 'var(--text-faint)' }}>
           This tool is restricted to a specific user.
         </div>
       </div>
@@ -334,147 +331,152 @@ export function MissiveBatches({ me, setRoute }) {
       <div className="page-head">
         <div>
           <h1>Batches</h1>
-          <div className="sub">Bulk-prepare individual emails, sent one at a time via Missive — Dev only</div>
+          <div className="sub">Bulk-prepare individual emails, sent one at a time via Missive</div>
         </div>
       </div>
 
       {/* ── Compose defaults for newly added recipients ─── */}
-      <div className="card" style={{ marginBottom: 20, padding: 20 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
-          <div style={{ ...sectionHeadStyle, marginBottom: 0 }}>Defaults for newly added recipients</div>
+      <div className="card" style={{ marginBottom: 20 }}>
+        <div className="card-head">
+          <h3>Defaults for newly added recipients</h3>
           {templates.length > 0 && (
-            <select className="input" style={{ fontSize: 12, width: 'auto' }} value={templateId || ''} onChange={e => loadTemplateIntoDefaults(e.target.value)}>
-              <option value="">— pick a saved template —</option>
-              {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-            </select>
+            <div className="actions">
+              <select className="input" style={{ width: 220 }} value={templateId || ''} onChange={e => loadTemplateIntoDefaults(e.target.value)}>
+                <option value="">— pick a saved template —</option>
+                {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+            </div>
           )}
         </div>
+        <div className="card-pad">
+          {orgError && <div style={{ fontSize: 12, color: 'var(--danger)', marginBottom: 14 }}>{orgError}</div>}
 
-        {orgError && <div style={{ fontSize: 12, color: '#f87171', marginBottom: 14 }}>{orgError}</div>}
-
-        <div style={{ fontSize: 11, color: 'var(--text-faint)', marginBottom: 16, lineHeight: 1.5 }}>
-          Pick a saved template above, or write one-off defaults here — both just pre-fill newly added
-          recipients, who can still be edited individually afterward. Manage named templates and From
-          addresses on the <a style={{ color: 'var(--accent)', cursor: 'pointer' }} onClick={() => setRoute?.('missive-sender')}>Email Sender</a> page.
-        </div>
-
-        <div style={{ marginBottom: 16 }}>
-          <span style={labelStyle}>Subject</span>
-          <input className="input" style={inputStyle} value={defaults.subject} onChange={e => setDefaults(d => ({ ...d, subject: e.target.value }))} placeholder="e.g. Quick question about {{name}}'s site" />
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
-          <div>
-            <span style={labelStyle}>Template</span>
-            <textarea className="input" style={{ ...textareaStyle, minHeight: 150 }} value={defaults.template} onChange={e => setDefaults(d => ({ ...d, template: e.target.value }))} />
+          <div className="faint" style={{ fontSize: 12, marginBottom: 16, lineHeight: 1.5 }}>
+            Pick a saved template above, or write one-off defaults here — both just pre-fill newly added
+            recipients, who can still be edited individually afterward. Manage named templates and From
+            addresses on the <a style={{ color: 'var(--accent)', cursor: 'pointer' }} onClick={() => setRoute?.('missive-sender')}>Email Sender</a> page.
           </div>
-          <div>
-            <span style={labelStyle}>Signature</span>
-            <textarea className="input" style={{ ...textareaStyle, minHeight: 150 }} value={defaults.signature} onChange={e => setDefaults(d => ({ ...d, signature: e.target.value }))} />
-          </div>
-        </div>
 
-        <div>
-          <span style={labelStyle}>Default From</span>
-          <select className="input" style={inputStyle} value={defaults.from} onChange={e => setDefaults(d => ({ ...d, from: e.target.value }))}>
-            {fromAddresses.map(f => <option key={f.address} value={f.address}>{f.name ? `${f.name} <${f.address}>` : f.address}</option>)}
-          </select>
+          <div style={{ marginBottom: 16 }}>
+            <span className="label">Subject</span>
+            <input className="input" value={defaults.subject} onChange={e => setDefaults(d => ({ ...d, subject: e.target.value }))} placeholder="e.g. Quick question about {{name}}'s site" />
+          </div>
+          <div className="grid grid-2" style={{ marginBottom: 20 }}>
+            <div>
+              <span className="label">Template</span>
+              <textarea className="input" style={textareaStyle} value={defaults.template} onChange={e => setDefaults(d => ({ ...d, template: e.target.value }))} />
+            </div>
+            <div>
+              <span className="label">Signature</span>
+              <textarea className="input" style={textareaStyle} value={defaults.signature} onChange={e => setDefaults(d => ({ ...d, signature: e.target.value }))} />
+            </div>
+          </div>
+
+          <div>
+            <span className="label">Default From</span>
+            <select className="input" value={defaults.from} onChange={e => setDefaults(d => ({ ...d, from: e.target.value }))}>
+              {fromAddresses.map(f => <option key={f.address} value={f.address}>{f.name ? `${f.name} <${f.address}>` : f.address}</option>)}
+            </select>
+          </div>
         </div>
       </div>
 
       {/* ── Batch tabs ─────────────────────────────────── */}
-      <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 16, flexWrap: 'wrap' }}>
+      <div className="row-flex" style={{ justifyContent: 'space-between', marginBottom: 2 }}>
+        <span className="label" style={{ marginBottom: 0 }}>Batches</span>
+        <button className="btn ghost" onClick={() => checkAllReplies(batches)} disabled={checkingReplies} style={{ fontSize: 12 }}>
+          <Icon name="activity" size={12} /> {checkingReplies ? 'Checking…' : 'Check replies'}
+        </button>
+      </div>
+      <div className="tabs" style={{ flexWrap: 'wrap' }}>
         {batches.map(b => {
           const replyCount = batchReplyCount(b)
           const active = b.id === activeBatchId
           return (
-            <button key={b.id} onClick={() => setActiveBatchId(b.id)} type="button"
-              style={{
-                display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '7px 14px', borderRadius: 8, cursor: 'pointer',
-                border: `1px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
-                background: active ? 'color-mix(in srgb, var(--accent) 15%, transparent)' : 'var(--surface)',
-                color: active ? 'var(--accent)' : 'var(--text-dim)',
-                fontWeight: active ? 700 : 400,
-              }}>
-              {replyCount > 0 && <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#f87171', flexShrink: 0 }} />}
+            <div key={b.id} className={`tab${active ? ' active' : ''}`} onClick={() => setActiveBatchId(b.id)}>
+              {replyCount > 0 && <span className="dot-status danger" />}
               {batchLabel(b)}
-              <span style={{ opacity: 0.6 }}>· {(b.rows || []).length}</span>
-              {replyCount > 0 && <span style={{ fontSize: 10, fontWeight: 700, color: '#f87171' }}>{replyCount} repl{replyCount === 1 ? 'y' : 'ies'}</span>}
-            </button>
+              <span className="count">{(b.rows || []).length}</span>
+              {replyCount > 0 && <span className="chip danger" style={{ fontSize: 10 }}>{replyCount} repl{replyCount === 1 ? 'y' : 'ies'}</span>}
+            </div>
           )
         })}
-        <button className="btn ghost" onClick={openNewBatchForm} style={{ fontSize: 12, whiteSpace: 'nowrap' }}>+ New Batch</button>
-        <button className="btn ghost" onClick={() => checkAllReplies(batches)} disabled={checkingReplies} style={{ fontSize: 12, whiteSpace: 'nowrap', marginLeft: 'auto' }}>
-          {checkingReplies ? 'Checking…' : '↻ Check replies'}
-        </button>
+        <div className="tab" onClick={openNewBatchForm} style={{ color: 'var(--accent)' }}>
+          <Icon name="plus" size={12} /> New batch
+        </div>
       </div>
 
       {/* ── New batch form ─────────────────────────────── */}
       {newBatchOpen && (
-        <div className="card" style={{ marginBottom: 20, padding: 20 }}>
-          <div style={sectionHeadStyle}>New Batch</div>
-          <div style={{ marginBottom: 16 }}>
-            <span style={labelStyle}>Name</span>
-            <input className="input" style={inputStyle} autoFocus value={newBatchName} onChange={e => setNewBatchName(e.target.value)}
-              placeholder={'e.g. "CBD niche outreach — Oct batch"'} onKeyDown={e => e.key === 'Enter' && createBatch()} />
-          </div>
-          <div style={{ marginBottom: 16 }}>
-            <span style={labelStyle}>Team</span>
-            <select className="input" style={inputStyle} value={newBatchTeamId} onChange={e => setNewBatchTeamId(e.target.value)}>
-              <option value="">— none —</option>
-              {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-            </select>
-          </div>
-          <div style={{ marginBottom: 16 }}>
-            <LabelPicker labels={labels} filter={newBatchLabelFilter} onFilterChange={setNewBatchLabelFilter}
-              selected={newBatchLabelIds} onToggle={id => setNewBatchLabelIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])} />
-          </div>
-          {newBatchError && <div style={{ fontSize: 12, color: '#f87171', marginBottom: 12 }}>{newBatchError}</div>}
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button className="btn" onClick={createBatch} disabled={creatingBatch || !newBatchName.trim()}>
-              {creatingBatch ? 'Creating…' : 'Create Batch'}
-            </button>
-            <button className="btn ghost" onClick={() => setNewBatchOpen(false)}>Cancel</button>
+        <div className="card" style={{ marginBottom: 20 }}>
+          <div className="card-head"><h3>New Batch</h3></div>
+          <div className="card-pad">
+            <div style={{ marginBottom: 16 }}>
+              <span className="label">Name</span>
+              <input className="input" autoFocus value={newBatchName} onChange={e => setNewBatchName(e.target.value)}
+                placeholder={'e.g. "CBD niche outreach — Oct batch"'} onKeyDown={e => e.key === 'Enter' && createBatch()} />
+            </div>
+            <div style={{ marginBottom: 16 }}>
+              <span className="label">Team</span>
+              <select className="input" value={newBatchTeamId} onChange={e => setNewBatchTeamId(e.target.value)}>
+                <option value="">— none —</option>
+                {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+            </div>
+            <div style={{ marginBottom: 16 }}>
+              <LabelPicker labels={labels} filter={newBatchLabelFilter} onFilterChange={setNewBatchLabelFilter}
+                selected={newBatchLabelIds} onToggle={id => setNewBatchLabelIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])} />
+            </div>
+            {newBatchError && <div style={{ fontSize: 12, color: 'var(--danger)', marginBottom: 12 }}>{newBatchError}</div>}
+            <div className="row-flex">
+              <button className="btn primary" onClick={createBatch} disabled={creatingBatch || !newBatchName.trim()}>
+                {creatingBatch ? 'Creating…' : 'Create Batch'}
+              </button>
+              <button className="btn ghost" onClick={() => setNewBatchOpen(false)}>Cancel</button>
+            </div>
           </div>
         </div>
       )}
 
       {/* ── Active batch ───────────────────────────────── */}
       {!activeBatch ? (
-        <div className="card" style={{ padding: 32, textAlign: 'center', color: 'var(--text-faint)', fontSize: 13 }}>
-          {batches.length === 0 ? 'No batches yet — create one to start adding recipients.' : 'Select a batch above, or create a new one.'}
+        <div className="card" style={{ padding: 48, textAlign: 'center' }}>
+          <div className="faint" style={{ fontSize: 13 }}>
+            {batches.length === 0 ? 'No batches yet — create one to start adding recipients.' : 'Select a batch above, or create a new one.'}
+          </div>
         </div>
       ) : (
         <>
-          <div className="card" style={{ marginBottom: 20, padding: 20 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
-              <input className="input" style={{ fontSize: 15, fontWeight: 700, flex: 1, minWidth: 200 }} value={batchName}
+          <div className="card" style={{ marginBottom: 20 }}>
+            <div className="card-head">
+              <input className="input" style={{ fontSize: 14, fontWeight: 600, border: 'none', background: 'transparent', padding: 0, height: 'auto' }} value={batchName}
                 onChange={e => setBatchName(e.target.value)} placeholder="Batch name" />
-              {saveStatus === 'saving' && <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>Saving…</span>}
-              {saveStatus === 'saved' && <span style={{ fontSize: 11, color: '#4ade80' }}>✓ Saved</span>}
-              {saveStatus && saveStatus !== 'saving' && saveStatus !== 'saved' && <span style={{ fontSize: 11, color: '#f87171' }}>{saveStatus}</span>}
+              <div className="actions"><SaveChip status={saveStatus} /></div>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 16, marginBottom: 16 }}>
-              <div>
-                <span style={labelStyle}>Team</span>
-                <select className="input" style={inputStyle} value={batchTeamId} onChange={e => setBatchTeamId(e.target.value)}>
+            <div className="card-pad">
+              <div style={{ marginBottom: 16 }}>
+                <span className="label">Team</span>
+                <select className="input" value={batchTeamId} onChange={e => setBatchTeamId(e.target.value)}>
                   <option value="">— none —</option>
                   {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                 </select>
               </div>
+              <LabelPicker labels={labels} filter={labelFilter} onFilterChange={setLabelFilter}
+                selected={batchLabelIds} onToggle={id => setBatchLabelIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])} />
             </div>
-            <LabelPicker labels={labels} filter={labelFilter} onFilterChange={setLabelFilter}
-              selected={batchLabelIds} onToggle={id => setBatchLabelIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])} />
           </div>
 
           {/* ── Bulk add ───────────────────────────────── */}
-          <div className="card" style={{ marginBottom: 20, padding: 20 }}>
-            <div style={sectionHeadStyle}>Add recipients in bulk</div>
-            <textarea className="input" style={{ ...textareaStyle, minHeight: 120, fontFamily: 'var(--font-mono, monospace)' }}
-              placeholder={'One per line:\nJane Doe, jane@example.com\njohn@example.com'}
-              value={bulkText} onChange={e => setBulkText(e.target.value)} />
-            <button className="btn" onClick={addBulkRows} disabled={!bulkText.trim()} style={{ marginTop: 12 }}>
-              Add {parseBulkLines(bulkText).length || ''} recipient{parseBulkLines(bulkText).length === 1 ? '' : 's'}
-            </button>
+          <div className="card" style={{ marginBottom: 20 }}>
+            <div className="card-head"><h3>Add recipients in bulk</h3></div>
+            <div className="card-pad">
+              <textarea className="input" style={{ ...textareaStyle, minHeight: 100, fontFamily: 'var(--font-mono)' }}
+                placeholder={'One per line:\nJane Doe, jane@example.com\njohn@example.com'}
+                value={bulkText} onChange={e => setBulkText(e.target.value)} />
+              <button className="btn primary" onClick={addBulkRows} disabled={!bulkText.trim()} style={{ marginTop: 12 }}>
+                Add {parseBulkLines(bulkText).length || ''} recipient{parseBulkLines(bulkText).length === 1 ? '' : 's'}
+              </button>
+            </div>
           </div>
 
           {/* ── Recipients ─────────────────────────────── */}
@@ -483,69 +485,61 @@ export function MissiveBatches({ me, setRoute }) {
               <div className="card-head">
                 <div>
                   <h3>Recipients</h3>
-                  <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 2 }}>
-                    {rows.length} total · {pendingCount} not yet sent
-                  </div>
+                  <span className="sub">{rows.length} total · {pendingCount} not yet sent</span>
                 </div>
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: 16 }}>
-                {rows.map(row => {
-                  const st = STATUS_STYLE[row.status]
+              <div className="card-pad" style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+                {rows.map((row, i) => {
+                  const st = STATUS_CHIP[row.status]
                   return (
-                    <div key={row.id} className="card" style={{ padding: 16, background: 'rgba(255,255,255,.02)' }}>
+                    <div key={row.id} style={{ padding: '18px 0', borderTop: i === 0 ? 'none' : '1px solid var(--border)' }}>
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: 12, marginBottom: 14, alignItems: 'end' }}>
                         <div>
-                          <span style={labelStyle}>Name</span>
-                          <input className="input" style={inputStyle} value={row.name} onChange={e => updateRow(row.id, { name: e.target.value })} />
+                          <span className="label">Name</span>
+                          <input className="input" value={row.name} onChange={e => updateRow(row.id, { name: e.target.value })} />
                         </div>
                         <div>
-                          <span style={labelStyle}>Email</span>
-                          <input className="input" style={inputStyle} value={row.email} onChange={e => updateRow(row.id, { email: e.target.value })} />
+                          <span className="label">Email</span>
+                          <input className="input" value={row.email} onChange={e => updateRow(row.id, { email: e.target.value })} />
                         </div>
                         <div>
-                          <span style={labelStyle}>From</span>
-                          <select className="input" style={inputStyle} value={row.from} onChange={e => updateRow(row.id, { from: e.target.value })}>
+                          <span className="label">From</span>
+                          <select className="input" value={row.from} onChange={e => updateRow(row.id, { from: e.target.value })}>
                             {fromAddresses.map(f => <option key={f.address} value={f.address}>{f.name ? `${f.name} <${f.address}>` : f.address}</option>)}
                           </select>
                         </div>
-                        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                          <span style={{ fontSize: 12, fontWeight: 600, color: st.color, whiteSpace: 'nowrap' }}>{st.label}</span>
-                          <button className="btn" disabled={row.status === 'sending' || !row.email}
-                            onClick={() => sendRow(row)}
-                            style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
+                        <div className="row-flex">
+                          <span className={`chip${st.cls ? ' ' + st.cls : ''}`}>{st.label}</span>
+                          <button className="btn" disabled={row.status === 'sending' || !row.email} onClick={() => sendRow(row)}>
                             {row.status === 'sent' ? 'Re-send' : 'Send'}
                           </button>
-                          <button className="btn ghost" onClick={() => removeRow(row.id)} style={{ fontSize: 12, padding: '4px 8px' }}>
+                          <button className="btn ghost" onClick={() => removeRow(row.id)} style={{ padding: '0 8px' }}>
                             <Icon name="trash" size={13} />
                           </button>
                         </div>
                       </div>
                       <div style={{ marginBottom: 14 }}>
-                        <span style={labelStyle}>Subject</span>
-                        <input className="input" style={inputStyle} value={row.subject} onChange={e => updateRow(row.id, { subject: e.target.value })} />
+                        <span className="label">Subject</span>
+                        <input className="input" value={row.subject} onChange={e => updateRow(row.id, { subject: e.target.value })} />
                       </div>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                      <div className="grid grid-2">
                         <div>
-                          <span style={labelStyle}>Template</span>
+                          <span className="label">Template</span>
                           <textarea className="input" style={textareaStyle} value={row.template} onChange={e => updateRow(row.id, { template: e.target.value })} />
                         </div>
                         <div>
-                          <span style={labelStyle}>Signature</span>
+                          <span className="label">Signature</span>
                           <textarea className="input" style={textareaStyle} value={row.signature} onChange={e => updateRow(row.id, { signature: e.target.value })} />
                         </div>
                       </div>
                       {row.status === 'error' && row.error && (
-                        <div style={{ marginTop: 10, fontSize: 12, color: '#f87171' }}>{row.error}</div>
+                        <div style={{ marginTop: 10, fontSize: 12, color: 'var(--danger)' }}>{row.error}</div>
                       )}
                       {row.status === 'sent' && row.sentAt && (
-                        <div style={{ marginTop: 10, fontSize: 11, color: 'var(--text-faint)', display: 'flex', gap: 10, alignItems: 'center' }}>
-                          <span>Sent {new Date(row.sentAt).toLocaleString()}</span>
+                        <div className="row-flex" style={{ marginTop: 10, fontSize: 11 }}>
+                          <span className="faint">Sent {new Date(row.sentAt).toLocaleString()}</span>
                           {row.webUrl && <a href={row.webUrl} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>View in Missive →</a>}
-                          {row.hasReply && (
-                            <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontWeight: 700, color: '#f87171' }}>
-                              <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#f87171' }} /> Reply received
-                            </span>
-                          )}
+                          {row.hasReply && <span className="chip danger"><span className="dot-status danger" /> Reply received</span>}
                         </div>
                       )}
                     </div>
@@ -563,38 +557,31 @@ export function MissiveBatches({ me, setRoute }) {
           <div className="card-head">
             <div>
               <h3>Sent Log</h3>
-              <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 2 }}>{sentLog.length} emails sent, all batches</div>
+              <span className="sub">{sentLog.length} emails sent, all batches</span>
             </div>
           </div>
-          <div className="card-pad" style={{ padding: 0 }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-              <thead>
-                <tr style={{ textAlign: 'left', fontSize: 11, color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                  <th style={{ padding: '8px 16px' }}>Sent</th>
-                  <th style={{ padding: '8px 16px' }}>Recipient</th>
-                  <th style={{ padding: '8px 16px' }}>Subject</th>
-                  <th style={{ padding: '8px 16px' }}>Missive</th>
+          <table className="table">
+            <thead>
+              <tr><th>Sent</th><th>Recipient</th><th>Subject</th><th>Missive</th></tr>
+            </thead>
+            <tbody>
+              {sentLog.map(entry => (
+                <tr key={entry.id}>
+                  <td className="muted" style={{ whiteSpace: 'nowrap' }}>{new Date(entry.sent_at).toLocaleString()}</td>
+                  <td style={{ whiteSpace: 'normal' }}>
+                    {entry.recipient_name ? `${entry.recipient_name} ` : ''}
+                    <span className="faint">&lt;{entry.recipient_email}&gt;</span>
+                  </td>
+                  <td style={{ whiteSpace: 'normal' }}>{entry.subject || <span className="faint">—</span>}</td>
+                  <td>
+                    {entry.web_url
+                      ? <a href={entry.web_url} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>Open →</a>
+                      : <span className="faint">—</span>}
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {sentLog.map(entry => (
-                  <tr key={entry.id} style={{ borderTop: '1px solid var(--border)' }}>
-                    <td style={{ padding: '8px 16px', whiteSpace: 'nowrap', color: 'var(--text-faint)', fontSize: 12 }}>{new Date(entry.sent_at).toLocaleString()}</td>
-                    <td style={{ padding: '8px 16px' }}>
-                      {entry.recipient_name ? `${entry.recipient_name} ` : ''}
-                      <span style={{ color: 'var(--text-faint)' }}>&lt;{entry.recipient_email}&gt;</span>
-                    </td>
-                    <td style={{ padding: '8px 16px' }}>{entry.subject || <span style={{ color: 'var(--text-faint)' }}>—</span>}</td>
-                    <td style={{ padding: '8px 16px' }}>
-                      {entry.web_url
-                        ? <a href={entry.web_url} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>Open →</a>
-                        : <span style={{ color: 'var(--text-faint)' }}>—</span>}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </div>

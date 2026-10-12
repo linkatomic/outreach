@@ -32,10 +32,14 @@ function saveFromAddresses(list) {
 
 const BLANK_DRAFT = { subject: '', template: 'Hi {{name}},\n\n', signature: '' }
 
-const labelStyle = { fontSize: 11, fontWeight: 700, color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6, display: 'block' }
-const inputStyle = { width: '100%', fontSize: 13 }
-const textareaStyle = { ...inputStyle, minHeight: 90, lineHeight: 1.5, resize: 'vertical' }
-const sectionHeadStyle = { fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-faint)', marginBottom: 16 }
+const textareaStyle = { minHeight: 140, lineHeight: 1.5, resize: 'vertical' }
+
+function SaveChip({ status }) {
+  if (!status) return null
+  if (status === 'saving') return <span className="chip">Saving…</span>
+  if (status === 'saved') return <span className="chip ok">✓ Saved</span>
+  return <span className="chip danger">{status}</span>
+}
 
 // Email Sender is the template/sender-identity library — managing *what* gets sent
 // (named templates) and *who* it's sent from (From addresses). Picking a template and
@@ -45,7 +49,7 @@ export function PersonalEmailSender({ me }) {
     return (
       <div className="page" style={{ maxWidth: 600 }}>
         <div className="page-head"><div><h1>Email Sender</h1></div></div>
-        <div className="card" style={{ padding: 20, fontSize: 13, color: 'var(--text-faint)' }}>
+        <div className="card card-pad" style={{ fontSize: 13, color: 'var(--text-faint)' }}>
           This tool is restricted to a specific user.
         </div>
       </div>
@@ -81,6 +85,7 @@ export function PersonalEmailSender({ me }) {
     setTemplateId(t.id)
     setTemplateName(t.name)
     setDraft({ subject: t.subject, template: t.template, signature: t.signature })
+    setTemplateStatus('')
   }
 
   function newTemplate() {
@@ -125,74 +130,73 @@ export function PersonalEmailSender({ me }) {
   }
 
   return (
-    <div className="page" style={{ maxWidth: 1000 }}>
+    <div className="page" style={{ maxWidth: 880 }}>
       <div className="page-head">
         <div>
           <h1>Email Sender</h1>
-          <div className="sub">Manage saved templates and sending addresses — used when creating a batch</div>
+          <div className="sub">Saved templates and sending addresses — used when creating a batch</div>
         </div>
       </div>
 
       {/* ── From Addresses ─────────────────────────────── */}
-      <div className="card" style={{ marginBottom: 20, padding: 20 }}>
-        <div style={sectionHeadStyle}>From addresses</div>
-        <div style={{ fontSize: 11, color: 'var(--text-faint)', marginBottom: 16, lineHeight: 1.5 }}>
-          One per line, "Name &lt;email&gt;". These show up as "From" choices when sending from the Batches page.
-        </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-          <textarea className="input" style={{ ...inputStyle, minHeight: 72, resize: 'vertical', fontFamily: 'var(--font-mono, monospace)' }} rows={3}
-            value={fromEditorText} onChange={e => setFromEditorText(e.target.value)} />
-          <button className="btn ghost" onClick={applyFromAddresses} style={{ fontSize: 12, whiteSpace: 'nowrap', flexShrink: 0 }}>Apply</button>
+      <div className="card" style={{ marginBottom: 20 }}>
+        <div className="card-head"><h3>From addresses</h3></div>
+        <div className="card-pad">
+          <div className="faint" style={{ fontSize: 12, marginBottom: 12, lineHeight: 1.5 }}>
+            One per line, "Name &lt;email&gt;". These show up as "From" choices when sending from the Batches page.
+          </div>
+          <div className="row-flex" style={{ alignItems: 'flex-start' }}>
+            <textarea className="input" style={{ minHeight: 72, resize: 'vertical', fontFamily: 'var(--font-mono)' }} rows={3}
+              value={fromEditorText} onChange={e => setFromEditorText(e.target.value)} />
+            <button className="btn" onClick={applyFromAddresses} style={{ flexShrink: 0 }}>Apply</button>
+          </div>
         </div>
       </div>
 
       {/* ── Templates ───────────────────────────────────── */}
-      <div className="card" style={{ padding: 20 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
-          <div style={{ ...sectionHeadStyle, marginBottom: 0 }}>Templates</div>
+      <div className="card">
+        <div className="card-head">
+          <h3>Templates</h3>
           {templates.length > 0 && (
-            <select className="input" style={{ fontSize: 12, width: 'auto' }} value={templateId || ''} onChange={e => e.target.value ? loadTemplate(e.target.value) : newTemplate()}>
-              <option value="">— new template —</option>
-              {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-            </select>
+            <div className="actions">
+              <select className="input" style={{ width: 220 }} value={templateId || ''} onChange={e => e.target.value ? loadTemplate(e.target.value) : newTemplate()}>
+                <option value="">— new template —</option>
+                {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+            </div>
           )}
         </div>
-
-        <div style={{ fontSize: 11, color: 'var(--text-faint)', marginBottom: 16, lineHeight: 1.5 }}>
-          Use <code>{'{{name}}'}</code> for each recipient's name, and <code>**bold**</code> or a line starting with
-          "<code>- </code>" for a bullet list — both render properly in the sent email. Leave Signature blank to
-          automatically use whatever signature is already configured in Missive for the sending address.
-        </div>
-
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 16, padding: 12, background: 'rgba(255,255,255,.02)', borderRadius: 8, border: '1px solid var(--border)' }}>
-          <input className="input" style={{ flex: 1, fontSize: 13 }} placeholder={'Template name, e.g. "Guest post pitch v1"'}
-            value={templateName} onChange={e => { setTemplateName(e.target.value); setTemplateStatus('') }} />
-          <button className="btn" onClick={() => saveTemplate(!templateId)} disabled={!templateName.trim()} style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
-            {templateId ? 'Update' : 'Save as new'}
-          </button>
-          {templateId && (
-            <button className="btn ghost" onClick={() => saveTemplate(true)} style={{ fontSize: 12, whiteSpace: 'nowrap' }}>Save as copy</button>
-          )}
-          {templateId && (
-            <button className="btn ghost" onClick={removeTemplate} style={{ fontSize: 12, padding: '4px 8px' }}><Icon name="trash" size={13} /></button>
-          )}
-          {templateStatus === 'saving' && <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>Saving…</span>}
-          {templateStatus === 'saved' && <span style={{ fontSize: 11, color: '#4ade80' }}>✓ Saved</span>}
-          {templateStatus && templateStatus !== 'saving' && templateStatus !== 'saved' && <span style={{ fontSize: 11, color: '#f87171' }}>{templateStatus}</span>}
-        </div>
-
-        <div style={{ marginBottom: 16 }}>
-          <span style={labelStyle}>Subject</span>
-          <input className="input" style={inputStyle} value={draft.subject} onChange={e => setDraft(d => ({ ...d, subject: e.target.value }))} placeholder="e.g. Quick question about {{name}}'s site" />
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
-          <div>
-            <span style={labelStyle}>Template</span>
-            <textarea className="input" style={{ ...textareaStyle, minHeight: 150 }} value={draft.template} onChange={e => setDraft(d => ({ ...d, template: e.target.value }))} />
+        <div className="card-pad">
+          <div className="faint" style={{ fontSize: 12, marginBottom: 16, lineHeight: 1.5 }}>
+            Use <code>{'{{name}}'}</code> for each recipient's name, and <code>**bold**</code> or a line starting with
+            "<code>- </code>" for a bullet list — both render properly in the sent email. Leave Signature blank to
+            automatically use whatever signature is already configured in Missive for the sending address.
           </div>
-          <div>
-            <span style={labelStyle}>Signature</span>
-            <textarea className="input" style={{ ...textareaStyle, minHeight: 150 }} value={draft.signature} onChange={e => setDraft(d => ({ ...d, signature: e.target.value }))} />
+
+          <div className="row-flex" style={{ marginBottom: 20 }}>
+            <input className="input" style={{ flex: 1 }} placeholder={'Template name, e.g. "Guest post pitch v1"'}
+              value={templateName} onChange={e => { setTemplateName(e.target.value); setTemplateStatus('') }} />
+            <button className="btn primary" onClick={() => saveTemplate(!templateId)} disabled={!templateName.trim()}>
+              {templateId ? 'Update' : 'Save as new'}
+            </button>
+            {templateId && <button className="btn ghost" onClick={() => saveTemplate(true)}>Save as copy</button>}
+            {templateId && <button className="btn ghost" onClick={removeTemplate} style={{ padding: '0 8px' }}><Icon name="trash" size={13} /></button>}
+            <SaveChip status={templateStatus} />
+          </div>
+
+          <div style={{ marginBottom: 16 }}>
+            <span className="label">Subject</span>
+            <input className="input" value={draft.subject} onChange={e => setDraft(d => ({ ...d, subject: e.target.value }))} placeholder="e.g. Quick question about {{name}}'s site" />
+          </div>
+          <div className="grid grid-2">
+            <div>
+              <span className="label">Template</span>
+              <textarea className="input" style={textareaStyle} value={draft.template} onChange={e => setDraft(d => ({ ...d, template: e.target.value }))} />
+            </div>
+            <div>
+              <span className="label">Signature</span>
+              <textarea className="input" style={textareaStyle} value={draft.signature} onChange={e => setDraft(d => ({ ...d, signature: e.target.value }))} />
+            </div>
           </div>
         </div>
       </div>
