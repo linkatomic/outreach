@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Icon } from '../data.jsx'
 import {
   listPersonalSenderOrganizations, listPersonalSenderTeams, listPersonalSenderLabels, sendPersonalEmail,
-  savePersonalEmailBatch, loadPersonalEmailBatches,
+  savePersonalEmailBatch, loadPersonalEmailBatches, loadPersonalEmailSentLog,
 } from '../lib/supabase.js'
 
 // Dev Pandya's member_id slug — client-side `me.id` is always this short TEAM/
@@ -48,11 +48,14 @@ function mkRow({ name, email }, defaults) {
     status: 'pending', // 'pending' | 'sending' | 'sent' | 'error'
     error: '',
     sentAt: null,
+    webUrl: null,
   }
 }
 
 const labelStyle = { fontSize: 11, fontWeight: 700, color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6, display: 'block' }
 const inputStyle = { width: '100%', fontSize: 13 }
+const textareaStyle = { ...inputStyle, minHeight: 90, lineHeight: 1.5, resize: 'vertical' }
+const sectionHeadStyle = { fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-faint)', marginBottom: 16 }
 
 const STATUS_STYLE = {
   pending: { color: 'var(--text-faint)', label: 'Pending' },
@@ -81,6 +84,7 @@ export function PersonalEmailSender({ me }) {
   const [teamId, setTeamId] = useState('')
 
   const [labels, setLabels] = useState([])
+  const [labelFilter, setLabelFilter] = useState('')
   const [selectedLabelIds, setSelectedLabelIds] = useState([])
 
   const [fromAddresses, setFromAddresses] = useState(loadFromAddresses)
@@ -101,11 +105,14 @@ export function PersonalEmailSender({ me }) {
   const [saveStatus, setSaveStatus] = useState('') // '' | 'saving' | 'saved' | error message
   const saveTimer = useRef(null)
 
+  const [sentLog, setSentLog] = useState([])
+
   useEffect(() => {
     listPersonalSenderOrganizations()
       .then(orgs => { setOrganizations(orgs); if (orgs.length) setOrganizationId(orgs[0].id) })
       .catch(err => setOrgError(err.message))
     loadPersonalEmailBatches().then(setBatches).catch(() => {})
+    loadPersonalEmailSentLog().then(setSentLog).catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -166,7 +173,7 @@ export function PersonalEmailSender({ me }) {
     updateRow(row.id, { status: 'sending', error: '' })
     const fromEntry = fromAddresses.find(f => f.address === row.from) || fromAddresses[0]
     try {
-      await sendPersonalEmail({
+      const result = await sendPersonalEmail({
         to: { address: row.email, name: row.name },
         from: fromEntry,
         subject: row.subject,
@@ -174,8 +181,14 @@ export function PersonalEmailSender({ me }) {
         signature: row.signature,
         team: teamId || undefined,
         sharedLabelIds: selectedLabelIds,
+        batchId,
       })
-      updateRow(row.id, { status: 'sent', sentAt: new Date().toISOString() })
+      const sentAt = new Date().toISOString()
+      updateRow(row.id, { status: 'sent', sentAt, webUrl: result.webUrl || null })
+      setSentLog(prev => [{
+        id: uid(), sent_at: sentAt, recipient_name: row.name, recipient_email: row.email,
+        subject: row.subject, web_url: result.webUrl || null,
+      }, ...prev])
     } catch (err) {
       updateRow(row.id, { status: 'error', error: err.message })
     }
@@ -193,6 +206,9 @@ export function PersonalEmailSender({ me }) {
   }
 
   const pendingCount = rows.filter(r => r.status === 'pending' || r.status === 'error').length
+  const filteredLabels = labelFilter.trim()
+    ? labels.filter(l => l.name.toLowerCase().includes(labelFilter.trim().toLowerCase()))
+    : labels
 
   return (
     <div className="page" style={{ maxWidth: 1000 }}>
@@ -206,7 +222,7 @@ export function PersonalEmailSender({ me }) {
           {saveStatus === 'saved' && <span style={{ fontSize: 11, color: '#4ade80' }}>✓ Saved</span>}
           {saveStatus && saveStatus !== 'saving' && saveStatus !== 'saved' && <span style={{ fontSize: 11, color: '#f87171' }}>{saveStatus}</span>}
           {batches.length > 0 && (
-            <select className="input" style={{ fontSize: 12 }} value={batchId || ''} onChange={e => {
+            <select className="input" style={{ fontSize: 12, width: 'auto' }} value={batchId || ''} onChange={e => {
               const b = batches.find(x => x.id === e.target.value)
               if (b) loadBatch(b)
             }}>
@@ -214,17 +230,15 @@ export function PersonalEmailSender({ me }) {
               {batches.map(b => <option key={b.id} value={b.id}>{new Date(b.created_at).toLocaleString()} · {(b.rows || []).length} recipients</option>)}
             </select>
           )}
-          <button className="btn ghost" onClick={newBatch} style={{ fontSize: 12 }}>+ New batch</button>
+          <button className="btn ghost" onClick={newBatch} style={{ fontSize: 12, whiteSpace: 'nowrap' }}>+ New batch</button>
         </div>
       </div>
 
       {/* ── Pre-defined settings ─────────────────────── */}
-      <div className="card" style={{ marginBottom: 16, padding: 20 }}>
-        <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-faint)', marginBottom: 14 }}>
-          Settings
-        </div>
-        {orgError && <div style={{ fontSize: 12, color: '#f87171', marginBottom: 10 }}>{orgError}</div>}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px 20px', marginBottom: 16 }}>
+      <div className="card" style={{ marginBottom: 20, padding: 20 }}>
+        <div style={sectionHeadStyle}>Settings</div>
+        {orgError && <div style={{ fontSize: 12, color: '#f87171', marginBottom: 14 }}>{orgError}</div>}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px 20px', marginBottom: 20 }}>
           <div>
             <span style={labelStyle}>Team</span>
             <select className="input" style={inputStyle} value={teamId} onChange={e => setTeamId(e.target.value)}>
@@ -240,66 +254,78 @@ export function PersonalEmailSender({ me }) {
           </div>
         </div>
 
-        <span style={labelStyle}>Missive Labels (applied to every send)</span>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+          <span style={{ ...labelStyle, marginBottom: 0 }}>
+            Missive labels (applied to every send) {selectedLabelIds.length > 0 && <span style={{ color: 'var(--accent)' }}>· {selectedLabelIds.length} selected</span>}
+          </span>
+          <input className="input" style={{ width: 200, fontSize: 12 }} placeholder="Filter labels…" value={labelFilter} onChange={e => setLabelFilter(e.target.value)} />
+        </div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 20, maxHeight: 180, overflowY: 'auto', padding: '2px 2px 0' }}>
           {labels.length === 0 && <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>No shared labels found for this organization.</span>}
-          {labels.map(l => (
-            <label key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, padding: '4px 10px', borderRadius: 6, border: '1px solid var(--border)', cursor: 'pointer', background: selectedLabelIds.includes(l.id) ? 'color-mix(in srgb, var(--accent) 15%, transparent)' : 'transparent' }}>
-              <input type="checkbox" checked={selectedLabelIds.includes(l.id)} onChange={() => toggleLabel(l.id)} />
-              {l.name}
-            </label>
-          ))}
+          {labels.length > 0 && filteredLabels.length === 0 && <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>No labels match "{labelFilter}".</span>}
+          {filteredLabels.map(l => {
+            const on = selectedLabelIds.includes(l.id)
+            return (
+              <button key={l.id} onClick={() => toggleLabel(l.id)} type="button"
+                style={{
+                  fontSize: 12, padding: '5px 12px', borderRadius: 999, cursor: 'pointer',
+                  border: `1px solid ${on ? 'var(--accent)' : 'var(--border)'}`,
+                  background: on ? 'color-mix(in srgb, var(--accent) 18%, transparent)' : 'var(--surface)',
+                  color: on ? 'var(--accent)' : 'var(--text-dim)',
+                  fontWeight: on ? 600 : 400,
+                  transition: 'background .12s, border-color .12s, color .12s',
+                }}>
+                {l.name}
+              </button>
+            )
+          })}
         </div>
 
         <span style={labelStyle}>From addresses (one per line, "Name &lt;email&gt;")</span>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <textarea className="input" style={{ ...inputStyle, fontFamily: 'var(--font-mono, monospace)' }} rows={2}
+        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+          <textarea className="input" style={{ ...inputStyle, minHeight: 56, resize: 'vertical', fontFamily: 'var(--font-mono, monospace)' }} rows={2}
             value={fromEditorText} onChange={e => setFromEditorText(e.target.value)} />
-          <button className="btn ghost" onClick={applyFromAddresses} style={{ fontSize: 12, whiteSpace: 'nowrap' }}>Apply</button>
+          <button className="btn ghost" onClick={applyFromAddresses} style={{ fontSize: 12, whiteSpace: 'nowrap', flexShrink: 0 }}>Apply</button>
         </div>
       </div>
 
       {/* ── Defaults for new rows ─────────────────────── */}
-      <div className="card" style={{ marginBottom: 16, padding: 20 }}>
-        <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-faint)', marginBottom: 14 }}>
-          Defaults for newly added recipients
+      <div className="card" style={{ marginBottom: 20, padding: 20 }}>
+        <div style={sectionHeadStyle}>Defaults for newly added recipients</div>
+        <div style={{ fontSize: 11, color: 'var(--text-faint)', marginBottom: 16, lineHeight: 1.5 }}>
+          Use <code>{'{{name}}'}</code> in the template or signature — it's replaced with each recipient's name. Each
+          recipient's subject/template/signature/from can still be edited individually after adding.
         </div>
-        <div style={{ fontSize: 11, color: 'var(--text-faint)', marginBottom: 12 }}>
-          Use <code>{'{{name}}'}</code> in the template or signature — it's replaced with each recipient's name. Each recipient's
-          subject/template/signature/from can still be edited individually after adding.
-        </div>
-        <div style={{ marginBottom: 12 }}>
+        <div style={{ marginBottom: 16 }}>
           <span style={labelStyle}>Subject</span>
           <input className="input" style={inputStyle} value={defaults.subject} onChange={e => setDefaults(d => ({ ...d, subject: e.target.value }))} placeholder="e.g. Quick question about {{name}}'s site" />
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
           <div>
             <span style={labelStyle}>Template</span>
-            <textarea className="input" style={inputStyle} rows={6} value={defaults.template} onChange={e => setDefaults(d => ({ ...d, template: e.target.value }))} />
+            <textarea className="input" style={{ ...textareaStyle, minHeight: 150 }} value={defaults.template} onChange={e => setDefaults(d => ({ ...d, template: e.target.value }))} />
           </div>
           <div>
             <span style={labelStyle}>Signature</span>
-            <textarea className="input" style={inputStyle} rows={6} value={defaults.signature} onChange={e => setDefaults(d => ({ ...d, signature: e.target.value }))} />
+            <textarea className="input" style={{ ...textareaStyle, minHeight: 150 }} value={defaults.signature} onChange={e => setDefaults(d => ({ ...d, signature: e.target.value }))} />
           </div>
         </div>
       </div>
 
       {/* ── Bulk add ───────────────────────────────────── */}
-      <div className="card" style={{ marginBottom: 16, padding: 20 }}>
-        <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-faint)', marginBottom: 14 }}>
-          Add recipients in bulk
-        </div>
-        <textarea className="input" style={{ ...inputStyle, fontFamily: 'var(--font-mono, monospace)' }} rows={5}
+      <div className="card" style={{ marginBottom: 20, padding: 20 }}>
+        <div style={sectionHeadStyle}>Add recipients in bulk</div>
+        <textarea className="input" style={{ ...textareaStyle, minHeight: 120, fontFamily: 'var(--font-mono, monospace)' }}
           placeholder={'One per line:\nJane Doe, jane@example.com\njohn@example.com'}
           value={bulkText} onChange={e => setBulkText(e.target.value)} />
-        <button className="btn" onClick={addBulkRows} disabled={!bulkText.trim()} style={{ marginTop: 10 }}>
+        <button className="btn" onClick={addBulkRows} disabled={!bulkText.trim()} style={{ marginTop: 12 }}>
           Add {parseBulkLines(bulkText).length || ''} recipient{parseBulkLines(bulkText).length === 1 ? '' : 's'}
         </button>
       </div>
 
       {/* ── Recipients ─────────────────────────────────── */}
       {rows.length > 0 && (
-        <div className="card">
+        <div className="card" style={{ marginBottom: 20 }}>
           <div className="card-head">
             <div>
               <h3>Recipients</h3>
@@ -308,12 +334,12 @@ export function PersonalEmailSender({ me }) {
               </div>
             </div>
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: 16 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: 16 }}>
             {rows.map(row => {
               const st = STATUS_STYLE[row.status]
               return (
-                <div key={row.id} className="card" style={{ padding: 14, background: 'rgba(255,255,255,.015)' }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: 10, marginBottom: 10, alignItems: 'end' }}>
+                <div key={row.id} className="card" style={{ padding: 16, background: 'rgba(255,255,255,.02)' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: 12, marginBottom: 14, alignItems: 'end' }}>
                     <div>
                       <span style={labelStyle}>Name</span>
                       <input className="input" style={inputStyle} value={row.name} onChange={e => updateRow(row.id, { name: e.target.value })} />
@@ -328,7 +354,7 @@ export function PersonalEmailSender({ me }) {
                         {fromAddresses.map(f => <option key={f.address} value={f.address}>{f.name ? `${f.name} <${f.address}>` : f.address}</option>)}
                       </select>
                     </div>
-                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                       <span style={{ fontSize: 12, fontWeight: 600, color: st.color, whiteSpace: 'nowrap' }}>{st.label}</span>
                       <button className="btn" disabled={row.status === 'sending' || !row.email}
                         onClick={() => sendRow(row)}
@@ -340,29 +366,73 @@ export function PersonalEmailSender({ me }) {
                       </button>
                     </div>
                   </div>
-                  <div style={{ marginBottom: 10 }}>
+                  <div style={{ marginBottom: 14 }}>
                     <span style={labelStyle}>Subject</span>
                     <input className="input" style={inputStyle} value={row.subject} onChange={e => updateRow(row.id, { subject: e.target.value })} />
                   </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                     <div>
                       <span style={labelStyle}>Template</span>
-                      <textarea className="input" style={inputStyle} rows={3} value={row.template} onChange={e => updateRow(row.id, { template: e.target.value })} />
+                      <textarea className="input" style={textareaStyle} value={row.template} onChange={e => updateRow(row.id, { template: e.target.value })} />
                     </div>
                     <div>
                       <span style={labelStyle}>Signature</span>
-                      <textarea className="input" style={inputStyle} rows={3} value={row.signature} onChange={e => updateRow(row.id, { signature: e.target.value })} />
+                      <textarea className="input" style={textareaStyle} value={row.signature} onChange={e => updateRow(row.id, { signature: e.target.value })} />
                     </div>
                   </div>
                   {row.status === 'error' && row.error && (
-                    <div style={{ marginTop: 8, fontSize: 12, color: '#f87171' }}>{row.error}</div>
+                    <div style={{ marginTop: 10, fontSize: 12, color: '#f87171' }}>{row.error}</div>
                   )}
                   {row.status === 'sent' && row.sentAt && (
-                    <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-faint)' }}>Sent {new Date(row.sentAt).toLocaleString()}</div>
+                    <div style={{ marginTop: 10, fontSize: 11, color: 'var(--text-faint)', display: 'flex', gap: 10, alignItems: 'center' }}>
+                      <span>Sent {new Date(row.sentAt).toLocaleString()}</span>
+                      {row.webUrl && <a href={row.webUrl} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>View in Missive →</a>}
+                    </div>
                   )}
                 </div>
               )
             })}
+          </div>
+        </div>
+      )}
+
+      {/* ── Sent log ───────────────────────────────────── */}
+      {sentLog.length > 0 && (
+        <div className="card">
+          <div className="card-head">
+            <div>
+              <h3>Sent Log</h3>
+              <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 2 }}>{sentLog.length} emails sent, all batches</div>
+            </div>
+          </div>
+          <div className="card-pad" style={{ padding: 0 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <thead>
+                <tr style={{ textAlign: 'left', fontSize: 11, color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  <th style={{ padding: '8px 16px' }}>Sent</th>
+                  <th style={{ padding: '8px 16px' }}>Recipient</th>
+                  <th style={{ padding: '8px 16px' }}>Subject</th>
+                  <th style={{ padding: '8px 16px' }}>Missive</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sentLog.map(entry => (
+                  <tr key={entry.id} style={{ borderTop: '1px solid var(--border)' }}>
+                    <td style={{ padding: '8px 16px', whiteSpace: 'nowrap', color: 'var(--text-faint)', fontSize: 12 }}>{new Date(entry.sent_at).toLocaleString()}</td>
+                    <td style={{ padding: '8px 16px' }}>
+                      {entry.recipient_name ? `${entry.recipient_name} ` : ''}
+                      <span style={{ color: 'var(--text-faint)' }}>&lt;{entry.recipient_email}&gt;</span>
+                    </td>
+                    <td style={{ padding: '8px 16px' }}>{entry.subject || <span style={{ color: 'var(--text-faint)' }}>—</span>}</td>
+                    <td style={{ padding: '8px 16px' }}>
+                      {entry.web_url
+                        ? <a href={entry.web_url} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>Open →</a>
+                        : <span style={{ color: 'var(--text-faint)' }}>—</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       )}

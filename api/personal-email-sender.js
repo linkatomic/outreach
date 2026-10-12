@@ -4,7 +4,7 @@
 // Dev's own personal Missive API token (MISSIVE_PERSONAL_API_TOKEN), not the shared
 // export token other Missive tools use.
 
-import { requireExactUser } from './_lib/supabaseAdmin.js'
+import { requireExactUser, supabaseAdmin } from './_lib/supabaseAdmin.js'
 import { missivePersonalRequest } from './_lib/missive.js'
 
 // Dev Pandya's real Supabase user_profiles.id (UUID) — requireExactUser checks this against
@@ -34,8 +34,20 @@ function applyMergeFields(text, name) {
   return String(text ?? '').replace(/\{\{\s*name\s*\}\}/gi, name || '')
 }
 
-async function handleSend(payload) {
-  const { to, from, subject, template, signature, team, sharedLabelIds } = payload
+// The reference doc doesn't publish the exact shape of a sent draft's response (only that
+// some POSTs return 201 with no body at all) — hedge across every plausible key a conversation
+// id might come back under, on either the top-level body or a nested `drafts` object.
+function extractConversationId(result) {
+  const candidates = [result?.drafts, result]
+  for (const obj of candidates) {
+    const id = obj?.conversation?.id || obj?.conversation_id || obj?.conversation
+    if (typeof id === 'string' && id) return id
+  }
+  return null
+}
+
+async function handleSend(caller, payload) {
+  const { to, from, subject, template, signature, team, sharedLabelIds, batchId } = payload
   if (!to?.address) throw new Error('Recipient email is required')
   if (!from?.address) throw new Error('From address is required')
   if (!subject) throw new Error('Subject is required')
@@ -53,10 +65,36 @@ async function handleSend(payload) {
   if (team) draft.team = team
   if (Array.isArray(sharedLabelIds) && sharedLabelIds.length) draft.add_shared_labels = sharedLabelIds
 
-  return missivePersonalRequest('/drafts', {
+  const result = await missivePersonalRequest('/drafts', {
     method: 'POST',
     body: JSON.stringify({ drafts: draft }),
   })
+
+  // The send already happened by this point — a failure resolving the link or writing the
+  // log must never surface as a send failure, just a send with no link recorded.
+  let conversationId = null
+  let webUrl = null
+  try {
+    conversationId = extractConversationId(result)
+    if (conversationId) {
+      const convBody = await missivePersonalRequest(`/conversations/${conversationId}`)
+      webUrl = convBody?.conversations?.web_url || convBody?.conversation?.web_url || null
+    }
+  } catch { /* link lookup is best-effort */ }
+
+  try {
+    await supabaseAdmin.from('personal_email_sent_log').insert({
+      user_id: caller.id,
+      batch_id: batchId || null,
+      recipient_name: to.name || null,
+      recipient_email: to.address,
+      subject,
+      conversation_id: conversationId,
+      web_url: webUrl,
+    })
+  } catch { /* logging is best-effort — never fail a successful send over it */ }
+
+  return { conversationId, webUrl }
 }
 
 export default async function handler(req, res) {
@@ -88,8 +126,8 @@ export default async function handler(req, res) {
     }
 
     if (action === 'send') {
-      const result = await handleSend(payload)
-      return res.json({ ok: true, result })
+      const { conversationId, webUrl } = await handleSend(caller, payload)
+      return res.json({ ok: true, conversationId, webUrl })
     }
 
     return res.status(400).json({ error: `Unknown action: ${action}` })

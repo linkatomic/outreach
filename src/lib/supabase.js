@@ -599,3 +599,13 @@ export function listPersonalSenderLabels(organizationId) {
 export function sendPersonalEmail(payload) {
   return personalSenderCall('send', payload)
 }
+
+export async function loadPersonalEmailSentLog() {
+  const { data, error } = await supabase
+    .from('personal_email_sent_log')
+    .select('*')
+    .order('sent_at', { ascending: false })
+    .limit(500)
+  if (error) throw error
+  return data || []
+}
