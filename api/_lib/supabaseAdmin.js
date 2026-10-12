@@ -11,7 +11,7 @@ export const supabaseAdmin = createClient(SUPABASE_URL, process.env.SUPABASE_SER
 
 // Verifies the caller's Supabase session token and returns their profile,
 // or writes a 401/403 and returns null on failure.
-async function getCallerProfile(req, res) {
+export async function getCallerProfile(req, res) {
   const authHeader = req.headers.authorization || ''
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null
   if (!token) {
@@ -69,6 +69,19 @@ export async function requireToolAccess(req, res, toolId) {
 
   if (access?.mode === 'selected' && !(access.allowed_member_ids || []).includes(profile.member_id)) {
     res.status(403).json({ error: 'You do not have access to this tool' })
+    return null
+  }
+  return profile
+}
+
+// Requires the caller to be this exact user — no lead/super bypass, unlike
+// requireToolAccess. For a tool that's personal to one specific person (sends email as
+// them, using their own credentials) rather than role- or allowlist-gated.
+export async function requireExactUser(req, res, userId) {
+  const profile = await getCallerProfile(req, res)
+  if (!profile) return null
+  if (profile.id !== userId) {
+    res.status(403).json({ error: 'This tool is restricted to a specific user' })
     return null
   }
   return profile

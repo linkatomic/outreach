@@ -1,6 +1,11 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { TEAM, Icon, fmtDateShort, fmtRel, hasDualAccess } from '../data.jsx'
 
+// Dev Pandya's Supabase user_profiles.id — the Personal Email Sender nav item is personal
+// to this one specific person, not role- or allowlist-gated. Keep in sync with the matching
+// constant in src/pages/PersonalEmailSender.jsx and api/personal-email-sender.js.
+const PERSONAL_SENDER_USER_ID = 'a680f0f2-2ae2-4dc0-a094-5bbd1eb8cf7f'
+
 // ────────────────────── Sidebar ──────────────────────
 export function Sidebar({ route, setRoute, role, me, allUsers = [], impersonatedId, openCmdK, onLogout, dept, setDept, onlineIds = new Set() }) {
   const navItems = [
@@ -33,7 +38,13 @@ export function Sidebar({ route, setRoute, role, me, allUsers = [], impersonated
 
   // tools-only users get exactly one nav item and nothing in "More" — no settings, no shortcuts
   const isToolsOnly = me.role === 'tools-only';
-  const visibleNavItems = isToolsOnly ? navItems.filter(it => it.id === 'tools') : navItems;
+  // Personal to Dev — shown for him alone, including while someone else impersonates him.
+  const canSeePersonalSender = (impersonatedId || me.id) === PERSONAL_SENDER_USER_ID;
+  const visibleNavItems = isToolsOnly
+    ? navItems.filter(it => it.id === 'tools')
+    : canSeePersonalSender
+      ? [...navItems, { id: 'personal-sender', label: 'Email Sender', icon: 'mail' }]
+      : navItems;
 
   // Only lead/super (the two specific admin roles) can see Active Users
   const showActiveUsers = (me.role === 'lead' || me.role === 'super') && !impersonatedId;

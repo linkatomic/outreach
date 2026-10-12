@@ -541,3 +541,61 @@ export async function loadNotionHistory() {
   if (error) throw error
   return data || []
 }
+
+// ── Personal Email Sender (Dev only) ──────────────────────
+// Batches are RLS-scoped to auth.uid() = user_id, so these never need an explicit
+// member filter — Supabase only ever returns/accepts the caller's own rows.
+
+export async function savePersonalEmailBatch({ id, batchName, teamId, sharedLabelIds, rows }) {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Not signed in')
+  const payload = {
+    user_id: user.id,
+    batch_name: batchName || null,
+    team_id: teamId || null,
+    shared_label_ids: sharedLabelIds || [],
+    rows: rows || [],
+    updated_at: new Date().toISOString(),
+  }
+  const query = id
+    ? supabase.from('personal_email_batches').update(payload).eq('id', id)
+    : supabase.from('personal_email_batches').insert(payload)
+  const { data, error } = await query.select().single()
+  if (error) throw error
+  return data
+}
+
+export async function loadPersonalEmailBatches() {
+  const { data, error } = await supabase
+    .from('personal_email_batches')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(50)
+  if (error) throw error
+  return data || []
+}
+
+async function personalSenderCall(action, payload) {
+  const { data: { session } } = await supabase.auth.getSession()
+  const res = await fetch('/api/personal-email-sender', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token || ''}` },
+    body: JSON.stringify({ action, payload }),
+  })
+  const body = await res.json()
+  if (!res.ok) throw new Error(body.error || `Request failed (${res.status})`)
+  return body
+}
+
+export function listPersonalSenderOrganizations() {
+  return personalSenderCall('listOrganizations', {}).then(r => r.organizations)
+}
+export function listPersonalSenderTeams(organizationId) {
+  return personalSenderCall('listTeams', { organizationId }).then(r => r.teams)
+}
+export function listPersonalSenderLabels(organizationId) {
+  return personalSenderCall('listSharedLabels', { organizationId }).then(r => r.labels)
+}
+export function sendPersonalEmail(payload) {
+  return personalSenderCall('send', payload)
+}

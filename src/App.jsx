@@ -13,6 +13,7 @@ import { LoginPage } from './pages/Login.jsx'
 import { IdeasPage } from './pages/Ideas.jsx'
 import { TasksPage } from './pages/Tasks.jsx'
 import { ToolsPage } from './pages/Tools.jsx'
+import { PersonalEmailSender } from './pages/PersonalEmailSender.jsx'
 import { LiveChatHome } from './pages/LiveChatHome.jsx'
 import { LiveChatTeam } from './pages/LiveChatTeam.jsx'
 import { LiveChatClients } from './pages/LiveChat.jsx'
@@ -323,6 +324,7 @@ export default function App() {
       case 'ideas':      return <IdeasPage me={m} showToast={showToast} />;
       case 'tasks':      return <TasksPage me={m} showToast={showToast} />;
       case 'tools':      return <ToolsPage me={m} role={role} />;
+      case 'personal-sender': return <PersonalEmailSender me={m} />;
       case 'lc-home':    return <LiveChatHome me={m} />;
       case 'lc-clients': return <LiveChatClients me={m} />;
       case 'lc-price-finder': return <LiveChatPriceFinder />;
