@@ -47,7 +47,7 @@ function extractConversationId(result) {
 }
 
 async function handleSend(caller, payload) {
-  const { to, from, subject, template, signature, team, sharedLabelIds, batchId } = payload
+  const { to, from, subject, template, signature, team, sharedLabelIds, organizationId, batchId } = payload
   if (!to?.address) throw new Error('Recipient email is required')
   if (!from?.address) throw new Error('From address is required')
   if (!subject) throw new Error('Subject is required')
@@ -63,7 +63,12 @@ async function handleSend(caller, payload) {
     send: true,
   }
   if (team) draft.team = team
-  if (Array.isArray(sharedLabelIds) && sharedLabelIds.length) draft.add_shared_labels = sharedLabelIds
+  if (Array.isArray(sharedLabelIds) && sharedLabelIds.length) {
+    draft.add_shared_labels = sharedLabelIds
+    // Missive requires `organization` on the draft whenever add_shared_labels is set.
+    if (!organizationId) throw new Error('organizationId is required to apply shared labels')
+    draft.organization = organizationId
+  }
 
   const result = await missivePersonalRequest('/drafts', {
     method: 'POST',

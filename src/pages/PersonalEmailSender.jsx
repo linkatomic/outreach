@@ -181,6 +181,7 @@ export function PersonalEmailSender({ me }) {
         signature: row.signature,
         team: teamId || undefined,
         sharedLabelIds: selectedLabelIds,
+        organizationId,
         batchId,
       })
       const sentAt = new Date().toISOString()
