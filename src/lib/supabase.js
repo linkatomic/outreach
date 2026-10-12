@@ -599,6 +599,9 @@ export function listPersonalSenderLabels(organizationId) {
 export function sendPersonalEmail(payload) {
   return personalSenderCall('send', payload)
 }
+export function checkPersonalEmailReplies(entries) {
+  return personalSenderCall('checkReplies', { entries }).then(r => r.results)
+}
 
 export async function loadPersonalEmailSentLog() {
   const { data, error } = await supabase

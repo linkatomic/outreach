@@ -62,13 +62,46 @@ function applyMergeFields(text, name) {
 // the conversation up the proven way: the same GET /v1/conversations?all=true&email=...
 // filter missive-export.js's "chats with a specific person" feature already uses successfully.
 // Conversations list newest-first by last_activity_at; prefer an exact subject match (we set
-// it ourselves) in case this contact has other recent, unrelated conversations.
+// it ourselves) in case this contact has other recent, unrelated conversations. messages_count
+// is captured as the reply-detection baseline — checkReplies later compares against it.
 async function resolveConversationLink(to, subject) {
   const params = new URLSearchParams({ all: 'true', email: to.address, limit: '5' })
   const body = await missivePersonalRequest(`/conversations?${params}`)
   const candidates = body.conversations || []
   const match = candidates.find(c => c.subject === subject || c.latest_message_subject === subject) || candidates[0]
-  return match ? { conversationId: match.id, webUrl: match.web_url || null } : { conversationId: null, webUrl: null }
+  return match
+    ? { conversationId: match.id, webUrl: match.web_url || null, messagesCount: match.messages_count ?? null }
+    : { conversationId: null, webUrl: null, messagesCount: null }
+}
+
+// Re-fetches each conversation and compares its current messages_count against the baseline
+// captured at send time — a higher count means new activity (almost certainly a reply, since
+// we don't send follow-up messages into these conversations ourselves). No webhook/push
+// mechanism is wired up, so this is pull-based: called on page load and on a manual refresh.
+async function checkReplies(entries) {
+  const CONCURRENCY = 3
+  const results = []
+  for (let i = 0; i < entries.length; i += CONCURRENCY) {
+    const slice = entries.slice(i, i + CONCURRENCY)
+    const settled = await Promise.allSettled(slice.map(e => missivePersonalRequest(`/conversations/${e.conversationId}`)))
+    settled.forEach((r, bi) => {
+      const entry = slice[bi]
+      if (r.status === 'fulfilled') {
+        // Single-conversation envelope key isn't confirmed either way — hedge both, same as
+        // missive-export.js's getConversation handler already does.
+        const raw = r.value?.conversation || r.value?.conversations
+        const currentCount = raw?.messages_count ?? null
+        results.push({
+          conversationId: entry.conversationId,
+          currentCount,
+          hasReply: currentCount != null && entry.baselineCount != null && currentCount > entry.baselineCount,
+        })
+      } else {
+        results.push({ conversationId: entry.conversationId, error: r.reason?.message || 'Failed' })
+      }
+    })
+  }
+  return results
 }
 
 async function handleSend(caller, payload) {
@@ -115,8 +148,9 @@ async function handleSend(caller, payload) {
   // log must never surface as a send failure, just a send with no link recorded.
   let conversationId = null
   let webUrl = null
+  let messagesCount = null
   try {
-    ;({ conversationId, webUrl } = await resolveConversationLink(to, subject))
+    ;({ conversationId, webUrl, messagesCount } = await resolveConversationLink(to, subject))
   } catch { /* link lookup is best-effort */ }
 
   try {
@@ -131,7 +165,7 @@ async function handleSend(caller, payload) {
     })
   } catch { /* logging is best-effort — never fail a successful send over it */ }
 
-  return { conversationId, webUrl }
+  return { conversationId, webUrl, messagesCount }
 }
 
 export default async function handler(req, res) {
@@ -162,8 +196,14 @@ export default async function handler(req, res) {
     }
 
     if (action === 'send') {
-      const { conversationId, webUrl } = await handleSend(caller, payload)
-      return res.json({ ok: true, conversationId, webUrl })
+      const { conversationId, webUrl, messagesCount } = await handleSend(caller, payload)
+      return res.json({ ok: true, conversationId, webUrl, messagesCount })
+    }
+
+    if (action === 'checkReplies') {
+      const { entries } = payload
+      if (!Array.isArray(entries) || !entries.length) return res.json({ results: [] })
+      return res.json({ results: await checkReplies(entries) })
     }
 
     return res.status(400).json({ error: `Unknown action: ${action}` })

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Icon } from '../data.jsx'
 import {
   listPersonalSenderOrganizations, listPersonalSenderTeams, listPersonalSenderLabels, sendPersonalEmail,
-  savePersonalEmailBatch, loadPersonalEmailBatches, loadPersonalEmailSentLog,
+  checkPersonalEmailReplies, savePersonalEmailBatch, loadPersonalEmailBatches, loadPersonalEmailSentLog,
   loadPersonalEmailTemplates, savePersonalEmailTemplate, deletePersonalEmailTemplate,
 } from '../lib/supabase.js'
 
@@ -56,7 +56,17 @@ function mkRow({ name, email }, defaults) {
     error: '',
     sentAt: null,
     webUrl: null,
+    conversationId: null,
+    messagesCountAtSend: null,
+    hasReply: false,
   }
+}
+
+function batchLabel(b) {
+  return b.batch_name?.trim() || `Batch · ${new Date(b.created_at).toLocaleDateString()}`
+}
+function batchReplyCount(b) {
+  return (b.rows || []).filter(r => r.hasReply).length
 }
 
 const labelStyle = { fontSize: 11, fontWeight: 700, color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6, display: 'block' }
@@ -69,6 +79,41 @@ const STATUS_STYLE = {
   sending: { color: '#60a5fa', label: 'Sending…' },
   sent:    { color: '#4ade80', label: '✓ Sent' },
   error:   { color: '#f87171', label: '✗ Failed' },
+}
+
+// Reused by both the "New Batch" form and the active batch's own settings.
+function LabelPicker({ labels, filter, onFilterChange, selected, onToggle }) {
+  const filtered = filter.trim() ? labels.filter(l => l.name.toLowerCase().includes(filter.trim().toLowerCase())) : labels
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+        <span style={{ ...labelStyle, marginBottom: 0 }}>
+          Missive labels {labels.length > 0 && <span>· {labels.length} loaded</span>} {selected.length > 0 && <span style={{ color: 'var(--accent)' }}>· {selected.length} selected</span>}
+        </span>
+        <input className="input" style={{ width: 200, fontSize: 12 }} placeholder="Filter labels…" value={filter} onChange={e => onFilterChange(e.target.value)} />
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, maxHeight: 160, overflowY: 'auto', padding: '2px 2px 0' }}>
+        {labels.length === 0 && <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>No shared labels found for this organization.</span>}
+        {labels.length > 0 && filtered.length === 0 && <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>No labels match "{filter}".</span>}
+        {filtered.map(l => {
+          const on = selected.includes(l.id)
+          return (
+            <button key={l.id} onClick={() => onToggle(l.id)} type="button"
+              style={{
+                fontSize: 12, padding: '5px 12px', borderRadius: 999, cursor: 'pointer',
+                border: `1px solid ${on ? 'var(--accent)' : 'var(--border)'}`,
+                background: on ? 'color-mix(in srgb, var(--accent) 18%, transparent)' : 'var(--surface)',
+                color: on ? 'var(--accent)' : 'var(--text-dim)',
+                fontWeight: on ? 600 : 400,
+                transition: 'background .12s, border-color .12s, color .12s',
+              }}>
+              {l.name}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
 }
 
 export function PersonalEmailSender({ me }) {
@@ -88,11 +133,8 @@ export function PersonalEmailSender({ me }) {
   const [orgError, setOrgError] = useState('')
 
   const [teams, setTeams] = useState([])
-  const [teamId, setTeamId] = useState('')
-
   const [labels, setLabels] = useState([])
   const [labelFilter, setLabelFilter] = useState('')
-  const [selectedLabelIds, setSelectedLabelIds] = useState([])
 
   const [fromAddresses, setFromAddresses] = useState(loadFromAddresses)
   const [fromEditorText, setFromEditorText] = useState(() => loadFromAddresses().map(f => `${f.name} <${f.address}>`).join('\n'))
@@ -106,23 +148,92 @@ export function PersonalEmailSender({ me }) {
   const [templateName, setTemplateName] = useState('')
   const [templateStatus, setTemplateStatus] = useState('') // '' | 'saving' | 'saved' | error message
 
-  const [bulkText, setBulkText] = useState('')
-  const [rows, setRows] = useState([])
-
-  const [batchId, setBatchId] = useState(null)
+  // Batches — each one is its own named, explicitly-created recipient list + Team/Labels,
+  // shown as its own tab. No more silent "a batch gets created the moment you add a row".
   const [batches, setBatches] = useState([])
+  const [activeBatchId, setActiveBatchId] = useState(null)
+  const [checkingReplies, setCheckingReplies] = useState(false)
+  // checkAllReplies can be invoked (from the mount effect) before activeBatchId has caught up
+  // to a just-set value in the same tick — a ref always reads the live value regardless of
+  // when the function closing over it was created.
+  const activeBatchIdRef = useRef(null)
+  useEffect(() => { activeBatchIdRef.current = activeBatchId }, [activeBatchId])
+
+  const [newBatchOpen, setNewBatchOpen] = useState(false)
+  const [newBatchName, setNewBatchName] = useState('')
+  const [newBatchTeamId, setNewBatchTeamId] = useState('')
+  const [newBatchLabelIds, setNewBatchLabelIds] = useState([])
+  const [newBatchLabelFilter, setNewBatchLabelFilter] = useState('')
+  const [creatingBatch, setCreatingBatch] = useState(false)
+  const [newBatchError, setNewBatchError] = useState('')
+
+  // The active batch's own working copy — loaded in when its tab is selected, auto-saved back.
+  const [batchName, setBatchName] = useState('')
+  const [batchTeamId, setBatchTeamId] = useState('')
+  const [batchLabelIds, setBatchLabelIds] = useState([])
+  const [rows, setRows] = useState([])
   const [saveStatus, setSaveStatus] = useState('') // '' | 'saving' | 'saved' | error message
   const saveTimer = useRef(null)
 
+  const [bulkText, setBulkText] = useState('')
+
   const [sentLog, setSentLog] = useState([])
+
+  // Re-checks every batch's sent rows for new replies (message count grew since send) and
+  // persists any changed hasReply flags back to their batches. Takes the batch list explicitly
+  // (rather than reading state) so it works the same whether called with freshly-loaded data
+  // on mount or with the current `batches` state from a manual refresh click.
+  async function checkAllReplies(batchList) {
+    const entries = []
+    for (const b of batchList) {
+      for (const r of (b.rows || [])) {
+        if (r.conversationId && r.messagesCountAtSend != null) {
+          entries.push({ conversationId: r.conversationId, baselineCount: r.messagesCountAtSend })
+        }
+      }
+    }
+    if (!entries.length) return
+    setCheckingReplies(true)
+    try {
+      const results = await checkPersonalEmailReplies(entries)
+      const byConv = new Map(results.map(r => [r.conversationId, r]))
+      const touched = new Set()
+      const updated = batchList.map(b => {
+        let changed = false
+        const newRows = (b.rows || []).map(r => {
+          const res = r.conversationId && byConv.get(r.conversationId)
+          if (!res) return r
+          const hasReply = !!res.hasReply
+          if (hasReply !== !!r.hasReply) changed = true
+          return { ...r, hasReply }
+        })
+        if (changed) touched.add(b.id)
+        return { ...b, rows: newRows }
+      })
+      setBatches(updated)
+      setRows(prevRows => {
+        const active = updated.find(b => b.id === activeBatchIdRef.current)
+        return active ? active.rows : prevRows
+      })
+      await Promise.all(updated.filter(b => touched.has(b.id)).map(b =>
+        savePersonalEmailBatch({ id: b.id, batchName: b.batch_name, teamId: b.team_id, sharedLabelIds: b.shared_label_ids, rows: b.rows }).catch(() => {})
+      ))
+    } catch { /* best-effort — a failed check just leaves badges as they were */ }
+    finally { setCheckingReplies(false) }
+  }
 
   useEffect(() => {
     listPersonalSenderOrganizations()
       .then(orgs => { setOrganizations(orgs); if (orgs.length) setOrganizationId(orgs[0].id) })
       .catch(err => setOrgError(err.message))
-    loadPersonalEmailBatches().then(setBatches).catch(() => {})
+    loadPersonalEmailBatches().then(bs => {
+      setBatches(bs)
+      if (bs.length) setActiveBatchId(bs[0].id) // newest first — land on the most recent batch
+      checkAllReplies(bs)
+    }).catch(() => {})
     loadPersonalEmailSentLog().then(setSentLog).catch(() => {})
     loadPersonalEmailTemplates().then(setTemplates).catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
@@ -131,16 +242,26 @@ export function PersonalEmailSender({ me }) {
     listPersonalSenderLabels(organizationId).then(setLabels).catch(() => setLabels([]))
   }, [organizationId])
 
-  // Auto-save the batch (debounced) whenever rows/settings change, so a refresh never
-  // loses progress. Only once there's at least one row — nothing to save before that.
+  // Switching tabs loads that batch's own rows/name/team/labels into the working state below.
   useEffect(() => {
-    if (!rows.length) return
+    const b = batches.find(x => x.id === activeBatchId)
+    if (!b) { setRows([]); setBatchName(''); setBatchTeamId(''); setBatchLabelIds([]); return }
+    setRows(b.rows || [])
+    setBatchName(b.batch_name || '')
+    setBatchTeamId(b.team_id || '')
+    setBatchLabelIds(b.shared_label_ids || [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeBatchId])
+
+  // Auto-saves the active batch (debounced) whenever its rows/name/team/labels change.
+  useEffect(() => {
+    if (!activeBatchId) return
     setSaveStatus('saving')
     clearTimeout(saveTimer.current)
     saveTimer.current = setTimeout(async () => {
       try {
-        const saved = await savePersonalEmailBatch({ id: batchId, teamId, sharedLabelIds: selectedLabelIds, rows })
-        if (!batchId) setBatchId(saved.id)
+        const saved = await savePersonalEmailBatch({ id: activeBatchId, batchName, teamId: batchTeamId, sharedLabelIds: batchLabelIds, rows })
+        setBatches(prev => prev.map(b => b.id === saved.id ? saved : b))
         setSaveStatus('saved')
       } catch (err) {
         setSaveStatus(err.message)
@@ -148,11 +269,7 @@ export function PersonalEmailSender({ me }) {
     }, 800)
     return () => clearTimeout(saveTimer.current)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, teamId, selectedLabelIds])
-
-  function toggleLabel(id) {
-    setSelectedLabelIds(prev => prev.includes(id) ? prev.filter(l => l !== id) : [...prev, id])
-  }
+  }, [rows, batchName, batchTeamId, batchLabelIds])
 
   function applyFromAddresses() {
     const list = fromEditorText.split('\n').map(l => l.trim()).filter(Boolean).map(line => {
@@ -213,6 +330,32 @@ export function PersonalEmailSender({ me }) {
     }
   }
 
+  function openNewBatchForm() {
+    const active = batches.find(b => b.id === activeBatchId)
+    setNewBatchName('')
+    setNewBatchTeamId(active?.team_id || '')
+    setNewBatchLabelIds(active?.shared_label_ids || [])
+    setNewBatchLabelFilter('')
+    setNewBatchError('')
+    setNewBatchOpen(true)
+  }
+
+  async function createBatch() {
+    const name = newBatchName.trim()
+    if (!name) { setNewBatchError('Name the batch before creating it'); return }
+    setCreatingBatch(true); setNewBatchError('')
+    try {
+      const saved = await savePersonalEmailBatch({ batchName: name, teamId: newBatchTeamId, sharedLabelIds: newBatchLabelIds, rows: [] })
+      setBatches(prev => [saved, ...prev])
+      setActiveBatchId(saved.id)
+      setNewBatchOpen(false)
+    } catch (err) {
+      setNewBatchError(err.message)
+    } finally {
+      setCreatingBatch(false)
+    }
+  }
+
   function addBulkRows() {
     const parsed = parseBulkLines(bulkText)
     if (!parsed.length) return
@@ -237,13 +380,18 @@ export function PersonalEmailSender({ me }) {
         subject: row.subject,
         template: row.template,
         signature: row.signature,
-        team: teamId || undefined,
-        sharedLabelIds: selectedLabelIds,
+        team: batchTeamId || undefined,
+        sharedLabelIds: batchLabelIds,
         organizationId,
-        batchId,
+        batchId: activeBatchId,
       })
       const sentAt = new Date().toISOString()
-      updateRow(row.id, { status: 'sent', sentAt, webUrl: result.webUrl || null })
+      updateRow(row.id, {
+        status: 'sent', sentAt, webUrl: result.webUrl || null,
+        conversationId: result.conversationId || null,
+        messagesCountAtSend: result.messagesCount ?? null,
+        hasReply: false,
+      })
       setSentLog(prev => [{
         id: uid(), sent_at: sentAt, recipient_name: row.name, recipient_email: row.email,
         subject: row.subject, web_url: result.webUrl || null,
@@ -253,21 +401,8 @@ export function PersonalEmailSender({ me }) {
     }
   }
 
-  async function loadBatch(b) {
-    setBatchId(b.id)
-    setTeamId(b.team_id || '')
-    setSelectedLabelIds(b.shared_label_ids || [])
-    setRows(b.rows || [])
-  }
-
-  function newBatch() {
-    setBatchId(null); setRows([]); setSaveStatus('')
-  }
-
+  const activeBatch = batches.find(b => b.id === activeBatchId) || null
   const pendingCount = rows.filter(r => r.status === 'pending' || r.status === 'error').length
-  const filteredLabels = labelFilter.trim()
-    ? labels.filter(l => l.name.toLowerCase().includes(labelFilter.trim().toLowerCase()))
-    : labels
 
   return (
     <div className="page" style={{ maxWidth: 1000 }}>
@@ -276,91 +411,21 @@ export function PersonalEmailSender({ me }) {
           <h1>Personal Email Sender</h1>
           <div className="sub">Bulk-prepare individual emails, sent one at a time via Missive — Dev only</div>
         </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          {saveStatus === 'saving' && <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>Saving…</span>}
-          {saveStatus === 'saved' && <span style={{ fontSize: 11, color: '#4ade80' }}>✓ Saved</span>}
-          {saveStatus && saveStatus !== 'saving' && saveStatus !== 'saved' && <span style={{ fontSize: 11, color: '#f87171' }}>{saveStatus}</span>}
-          {batches.length > 0 && (
-            <select className="input" style={{ fontSize: 12, width: 'auto' }} value={batchId || ''} onChange={e => {
-              const b = batches.find(x => x.id === e.target.value)
-              if (b) loadBatch(b)
-            }}>
-              <option value="">Load batch…</option>
-              {batches.map(b => <option key={b.id} value={b.id}>{new Date(b.created_at).toLocaleString()} · {(b.rows || []).length} recipients</option>)}
-            </select>
-          )}
-          <button className="btn ghost" onClick={newBatch} style={{ fontSize: 12, whiteSpace: 'nowrap' }}>+ New batch</button>
-        </div>
       </div>
 
-      {/* ── Pre-defined settings ─────────────────────── */}
-      <div className="card" style={{ marginBottom: 20, padding: 20 }}>
-        <div style={sectionHeadStyle}>Settings</div>
-        {orgError && <div style={{ fontSize: 12, color: '#f87171', marginBottom: 14 }}>{orgError}</div>}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px 20px', marginBottom: 20 }}>
-          <div>
-            <span style={labelStyle}>Team</span>
-            <select className="input" style={inputStyle} value={teamId} onChange={e => setTeamId(e.target.value)}>
-              <option value="">— none —</option>
-              {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-            </select>
-          </div>
-          <div>
-            <span style={labelStyle}>Default From</span>
-            <select className="input" style={inputStyle} value={defaults.from} onChange={e => setDefaults(d => ({ ...d, from: e.target.value }))}>
-              {fromAddresses.map(f => <option key={f.address} value={f.address}>{f.name ? `${f.name} <${f.address}>` : f.address}</option>)}
-            </select>
-          </div>
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-          <span style={{ ...labelStyle, marginBottom: 0 }}>
-            Missive labels (applied to every send) {labels.length > 0 && <span>· {labels.length} loaded</span>} {selectedLabelIds.length > 0 && <span style={{ color: 'var(--accent)' }}>· {selectedLabelIds.length} selected</span>}
-          </span>
-          <input className="input" style={{ width: 200, fontSize: 12 }} placeholder="Filter labels…" value={labelFilter} onChange={e => setLabelFilter(e.target.value)} />
-        </div>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 20, maxHeight: 180, overflowY: 'auto', padding: '2px 2px 0' }}>
-          {labels.length === 0 && <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>No shared labels found for this organization.</span>}
-          {labels.length > 0 && filteredLabels.length === 0 && <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>No labels match "{labelFilter}".</span>}
-          {filteredLabels.map(l => {
-            const on = selectedLabelIds.includes(l.id)
-            return (
-              <button key={l.id} onClick={() => toggleLabel(l.id)} type="button"
-                style={{
-                  fontSize: 12, padding: '5px 12px', borderRadius: 999, cursor: 'pointer',
-                  border: `1px solid ${on ? 'var(--accent)' : 'var(--border)'}`,
-                  background: on ? 'color-mix(in srgb, var(--accent) 18%, transparent)' : 'var(--surface)',
-                  color: on ? 'var(--accent)' : 'var(--text-dim)',
-                  fontWeight: on ? 600 : 400,
-                  transition: 'background .12s, border-color .12s, color .12s',
-                }}>
-                {l.name}
-              </button>
-            )
-          })}
-        </div>
-
-        <span style={labelStyle}>From addresses (one per line, "Name &lt;email&gt;")</span>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-          <textarea className="input" style={{ ...inputStyle, minHeight: 56, resize: 'vertical', fontFamily: 'var(--font-mono, monospace)' }} rows={2}
-            value={fromEditorText} onChange={e => setFromEditorText(e.target.value)} />
-          <button className="btn ghost" onClick={applyFromAddresses} style={{ fontSize: 12, whiteSpace: 'nowrap', flexShrink: 0 }}>Apply</button>
-        </div>
-      </div>
-
-      {/* ── Defaults for new rows ─────────────────────── */}
+      {/* ── From Addresses & Defaults (global, not per-batch) ─── */}
       <div className="card" style={{ marginBottom: 20, padding: 20 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
           <div style={{ ...sectionHeadStyle, marginBottom: 0 }}>Defaults for newly added recipients</div>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            {templates.length > 0 && (
-              <select className="input" style={{ fontSize: 12, width: 'auto' }} value={templateId || ''} onChange={e => e.target.value ? loadTemplate(e.target.value) : newTemplate()}>
-                <option value="">— new template —</option>
-                {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-              </select>
-            )}
-          </div>
+          {templates.length > 0 && (
+            <select className="input" style={{ fontSize: 12, width: 'auto' }} value={templateId || ''} onChange={e => e.target.value ? loadTemplate(e.target.value) : newTemplate()}>
+              <option value="">— new template —</option>
+              {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+          )}
         </div>
+
+        {orgError && <div style={{ fontSize: 12, color: '#f87171', marginBottom: 14 }}>{orgError}</div>}
 
         <div style={{ fontSize: 11, color: 'var(--text-faint)', marginBottom: 16, lineHeight: 1.5 }}>
           Use <code>{'{{name}}'}</code> for each recipient's name, and <code>**bold**</code> or a line starting with
@@ -390,7 +455,7 @@ export function PersonalEmailSender({ me }) {
           <span style={labelStyle}>Subject</span>
           <input className="input" style={inputStyle} value={defaults.subject} onChange={e => setDefaults(d => ({ ...d, subject: e.target.value }))} placeholder="e.g. Quick question about {{name}}'s site" />
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
           <div>
             <span style={labelStyle}>Template</span>
             <textarea className="input" style={{ ...textareaStyle, minHeight: 150 }} value={defaults.template} onChange={e => setDefaults(d => ({ ...d, template: e.target.value }))} />
@@ -400,90 +465,197 @@ export function PersonalEmailSender({ me }) {
             <textarea className="input" style={{ ...textareaStyle, minHeight: 150 }} value={defaults.signature} onChange={e => setDefaults(d => ({ ...d, signature: e.target.value }))} />
           </div>
         </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 16, marginBottom: 16 }}>
+          <div>
+            <span style={labelStyle}>Default From</span>
+            <select className="input" style={inputStyle} value={defaults.from} onChange={e => setDefaults(d => ({ ...d, from: e.target.value }))}>
+              {fromAddresses.map(f => <option key={f.address} value={f.address}>{f.name ? `${f.name} <${f.address}>` : f.address}</option>)}
+            </select>
+          </div>
+        </div>
+        <span style={labelStyle}>From addresses (one per line, "Name &lt;email&gt;")</span>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+          <textarea className="input" style={{ ...inputStyle, minHeight: 56, resize: 'vertical', fontFamily: 'var(--font-mono, monospace)' }} rows={2}
+            value={fromEditorText} onChange={e => setFromEditorText(e.target.value)} />
+          <button className="btn ghost" onClick={applyFromAddresses} style={{ fontSize: 12, whiteSpace: 'nowrap', flexShrink: 0 }}>Apply</button>
+        </div>
       </div>
 
-      {/* ── Bulk add ───────────────────────────────────── */}
-      <div className="card" style={{ marginBottom: 20, padding: 20 }}>
-        <div style={sectionHeadStyle}>Add recipients in bulk</div>
-        <textarea className="input" style={{ ...textareaStyle, minHeight: 120, fontFamily: 'var(--font-mono, monospace)' }}
-          placeholder={'One per line:\nJane Doe, jane@example.com\njohn@example.com'}
-          value={bulkText} onChange={e => setBulkText(e.target.value)} />
-        <button className="btn" onClick={addBulkRows} disabled={!bulkText.trim()} style={{ marginTop: 12 }}>
-          Add {parseBulkLines(bulkText).length || ''} recipient{parseBulkLines(bulkText).length === 1 ? '' : 's'}
+      {/* ── Batch tabs ─────────────────────────────────── */}
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 16, flexWrap: 'wrap' }}>
+        {batches.map(b => {
+          const replyCount = batchReplyCount(b)
+          const active = b.id === activeBatchId
+          return (
+            <button key={b.id} onClick={() => setActiveBatchId(b.id)} type="button"
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '7px 14px', borderRadius: 8, cursor: 'pointer',
+                border: `1px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
+                background: active ? 'color-mix(in srgb, var(--accent) 15%, transparent)' : 'var(--surface)',
+                color: active ? 'var(--accent)' : 'var(--text-dim)',
+                fontWeight: active ? 700 : 400,
+              }}>
+              {replyCount > 0 && <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#f87171', flexShrink: 0 }} />}
+              {batchLabel(b)}
+              <span style={{ opacity: 0.6 }}>· {(b.rows || []).length}</span>
+              {replyCount > 0 && <span style={{ fontSize: 10, fontWeight: 700, color: '#f87171' }}>{replyCount} repl{replyCount === 1 ? 'y' : 'ies'}</span>}
+            </button>
+          )
+        })}
+        <button className="btn ghost" onClick={openNewBatchForm} style={{ fontSize: 12, whiteSpace: 'nowrap' }}>+ New Batch</button>
+        <button className="btn ghost" onClick={() => checkAllReplies(batches)} disabled={checkingReplies} style={{ fontSize: 12, whiteSpace: 'nowrap', marginLeft: 'auto' }}>
+          {checkingReplies ? 'Checking…' : '↻ Check replies'}
         </button>
       </div>
 
-      {/* ── Recipients ─────────────────────────────────── */}
-      {rows.length > 0 && (
-        <div className="card" style={{ marginBottom: 20 }}>
-          <div className="card-head">
-            <div>
-              <h3>Recipients</h3>
-              <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 2 }}>
-                {rows.length} total · {pendingCount} not yet sent
-              </div>
-            </div>
+      {/* ── New batch form ─────────────────────────────── */}
+      {newBatchOpen && (
+        <div className="card" style={{ marginBottom: 20, padding: 20 }}>
+          <div style={sectionHeadStyle}>New Batch</div>
+          <div style={{ marginBottom: 16 }}>
+            <span style={labelStyle}>Name</span>
+            <input className="input" style={inputStyle} autoFocus value={newBatchName} onChange={e => setNewBatchName(e.target.value)}
+              placeholder={'e.g. "CBD niche outreach — Oct batch"'} onKeyDown={e => e.key === 'Enter' && createBatch()} />
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: 16 }}>
-            {rows.map(row => {
-              const st = STATUS_STYLE[row.status]
-              return (
-                <div key={row.id} className="card" style={{ padding: 16, background: 'rgba(255,255,255,.02)' }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: 12, marginBottom: 14, alignItems: 'end' }}>
-                    <div>
-                      <span style={labelStyle}>Name</span>
-                      <input className="input" style={inputStyle} value={row.name} onChange={e => updateRow(row.id, { name: e.target.value })} />
-                    </div>
-                    <div>
-                      <span style={labelStyle}>Email</span>
-                      <input className="input" style={inputStyle} value={row.email} onChange={e => updateRow(row.id, { email: e.target.value })} />
-                    </div>
-                    <div>
-                      <span style={labelStyle}>From</span>
-                      <select className="input" style={inputStyle} value={row.from} onChange={e => updateRow(row.id, { from: e.target.value })}>
-                        {fromAddresses.map(f => <option key={f.address} value={f.address}>{f.name ? `${f.name} <${f.address}>` : f.address}</option>)}
-                      </select>
-                    </div>
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                      <span style={{ fontSize: 12, fontWeight: 600, color: st.color, whiteSpace: 'nowrap' }}>{st.label}</span>
-                      <button className="btn" disabled={row.status === 'sending' || !row.email}
-                        onClick={() => sendRow(row)}
-                        style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
-                        {row.status === 'sent' ? 'Re-send' : 'Send'}
-                      </button>
-                      <button className="btn ghost" onClick={() => removeRow(row.id)} style={{ fontSize: 12, padding: '4px 8px' }}>
-                        <Icon name="trash" size={13} />
-                      </button>
-                    </div>
-                  </div>
-                  <div style={{ marginBottom: 14 }}>
-                    <span style={labelStyle}>Subject</span>
-                    <input className="input" style={inputStyle} value={row.subject} onChange={e => updateRow(row.id, { subject: e.target.value })} />
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                    <div>
-                      <span style={labelStyle}>Template</span>
-                      <textarea className="input" style={textareaStyle} value={row.template} onChange={e => updateRow(row.id, { template: e.target.value })} />
-                    </div>
-                    <div>
-                      <span style={labelStyle}>Signature</span>
-                      <textarea className="input" style={textareaStyle} value={row.signature} onChange={e => updateRow(row.id, { signature: e.target.value })} />
-                    </div>
-                  </div>
-                  {row.status === 'error' && row.error && (
-                    <div style={{ marginTop: 10, fontSize: 12, color: '#f87171' }}>{row.error}</div>
-                  )}
-                  {row.status === 'sent' && row.sentAt && (
-                    <div style={{ marginTop: 10, fontSize: 11, color: 'var(--text-faint)', display: 'flex', gap: 10, alignItems: 'center' }}>
-                      <span>Sent {new Date(row.sentAt).toLocaleString()}</span>
-                      {row.webUrl && <a href={row.webUrl} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>View in Missive →</a>}
-                    </div>
-                  )}
-                </div>
-              )
-            })}
+          <div style={{ marginBottom: 16 }}>
+            <span style={labelStyle}>Team</span>
+            <select className="input" style={inputStyle} value={newBatchTeamId} onChange={e => setNewBatchTeamId(e.target.value)}>
+              <option value="">— none —</option>
+              {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+          </div>
+          <div style={{ marginBottom: 16 }}>
+            <LabelPicker labels={labels} filter={newBatchLabelFilter} onFilterChange={setNewBatchLabelFilter}
+              selected={newBatchLabelIds} onToggle={id => setNewBatchLabelIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])} />
+          </div>
+          {newBatchError && <div style={{ fontSize: 12, color: '#f87171', marginBottom: 12 }}>{newBatchError}</div>}
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="btn" onClick={createBatch} disabled={creatingBatch || !newBatchName.trim()}>
+              {creatingBatch ? 'Creating…' : 'Create Batch'}
+            </button>
+            <button className="btn ghost" onClick={() => setNewBatchOpen(false)}>Cancel</button>
           </div>
         </div>
+      )}
+
+      {/* ── Active batch ───────────────────────────────── */}
+      {!activeBatch ? (
+        <div className="card" style={{ padding: 32, textAlign: 'center', color: 'var(--text-faint)', fontSize: 13 }}>
+          {batches.length === 0 ? 'No batches yet — create one to start adding recipients.' : 'Select a batch above, or create a new one.'}
+        </div>
+      ) : (
+        <>
+          <div className="card" style={{ marginBottom: 20, padding: 20 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
+              <input className="input" style={{ fontSize: 15, fontWeight: 700, flex: 1, minWidth: 200 }} value={batchName}
+                onChange={e => setBatchName(e.target.value)} placeholder="Batch name" />
+              {saveStatus === 'saving' && <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>Saving…</span>}
+              {saveStatus === 'saved' && <span style={{ fontSize: 11, color: '#4ade80' }}>✓ Saved</span>}
+              {saveStatus && saveStatus !== 'saving' && saveStatus !== 'saved' && <span style={{ fontSize: 11, color: '#f87171' }}>{saveStatus}</span>}
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 16, marginBottom: 16 }}>
+              <div>
+                <span style={labelStyle}>Team</span>
+                <select className="input" style={inputStyle} value={batchTeamId} onChange={e => setBatchTeamId(e.target.value)}>
+                  <option value="">— none —</option>
+                  {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
+              </div>
+            </div>
+            <LabelPicker labels={labels} filter={labelFilter} onFilterChange={setLabelFilter}
+              selected={batchLabelIds} onToggle={id => setBatchLabelIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])} />
+          </div>
+
+          {/* ── Bulk add ───────────────────────────────── */}
+          <div className="card" style={{ marginBottom: 20, padding: 20 }}>
+            <div style={sectionHeadStyle}>Add recipients in bulk</div>
+            <textarea className="input" style={{ ...textareaStyle, minHeight: 120, fontFamily: 'var(--font-mono, monospace)' }}
+              placeholder={'One per line:\nJane Doe, jane@example.com\njohn@example.com'}
+              value={bulkText} onChange={e => setBulkText(e.target.value)} />
+            <button className="btn" onClick={addBulkRows} disabled={!bulkText.trim()} style={{ marginTop: 12 }}>
+              Add {parseBulkLines(bulkText).length || ''} recipient{parseBulkLines(bulkText).length === 1 ? '' : 's'}
+            </button>
+          </div>
+
+          {/* ── Recipients ─────────────────────────────── */}
+          {rows.length > 0 && (
+            <div className="card" style={{ marginBottom: 20 }}>
+              <div className="card-head">
+                <div>
+                  <h3>Recipients</h3>
+                  <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 2 }}>
+                    {rows.length} total · {pendingCount} not yet sent
+                  </div>
+                </div>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: 16 }}>
+                {rows.map(row => {
+                  const st = STATUS_STYLE[row.status]
+                  return (
+                    <div key={row.id} className="card" style={{ padding: 16, background: 'rgba(255,255,255,.02)' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: 12, marginBottom: 14, alignItems: 'end' }}>
+                        <div>
+                          <span style={labelStyle}>Name</span>
+                          <input className="input" style={inputStyle} value={row.name} onChange={e => updateRow(row.id, { name: e.target.value })} />
+                        </div>
+                        <div>
+                          <span style={labelStyle}>Email</span>
+                          <input className="input" style={inputStyle} value={row.email} onChange={e => updateRow(row.id, { email: e.target.value })} />
+                        </div>
+                        <div>
+                          <span style={labelStyle}>From</span>
+                          <select className="input" style={inputStyle} value={row.from} onChange={e => updateRow(row.id, { from: e.target.value })}>
+                            {fromAddresses.map(f => <option key={f.address} value={f.address}>{f.name ? `${f.name} <${f.address}>` : f.address}</option>)}
+                          </select>
+                        </div>
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                          <span style={{ fontSize: 12, fontWeight: 600, color: st.color, whiteSpace: 'nowrap' }}>{st.label}</span>
+                          <button className="btn" disabled={row.status === 'sending' || !row.email}
+                            onClick={() => sendRow(row)}
+                            style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
+                            {row.status === 'sent' ? 'Re-send' : 'Send'}
+                          </button>
+                          <button className="btn ghost" onClick={() => removeRow(row.id)} style={{ fontSize: 12, padding: '4px 8px' }}>
+                            <Icon name="trash" size={13} />
+                          </button>
+                        </div>
+                      </div>
+                      <div style={{ marginBottom: 14 }}>
+                        <span style={labelStyle}>Subject</span>
+                        <input className="input" style={inputStyle} value={row.subject} onChange={e => updateRow(row.id, { subject: e.target.value })} />
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                        <div>
+                          <span style={labelStyle}>Template</span>
+                          <textarea className="input" style={textareaStyle} value={row.template} onChange={e => updateRow(row.id, { template: e.target.value })} />
+                        </div>
+                        <div>
+                          <span style={labelStyle}>Signature</span>
+                          <textarea className="input" style={textareaStyle} value={row.signature} onChange={e => updateRow(row.id, { signature: e.target.value })} />
+                        </div>
+                      </div>
+                      {row.status === 'error' && row.error && (
+                        <div style={{ marginTop: 10, fontSize: 12, color: '#f87171' }}>{row.error}</div>
+                      )}
+                      {row.status === 'sent' && row.sentAt && (
+                        <div style={{ marginTop: 10, fontSize: 11, color: 'var(--text-faint)', display: 'flex', gap: 10, alignItems: 'center' }}>
+                          <span>Sent {new Date(row.sentAt).toLocaleString()}</span>
+                          {row.webUrl && <a href={row.webUrl} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>View in Missive →</a>}
+                          {row.hasReply && (
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontWeight: 700, color: '#f87171' }}>
+                              <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#f87171' }} /> Reply received
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       {/* ── Sent log ───────────────────────────────────── */}
