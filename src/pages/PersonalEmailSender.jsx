@@ -21,7 +21,11 @@ function loadFromAddresses() {
   try {
     const raw = localStorage.getItem(FROM_ADDRESSES_KEY)
     const parsed = raw ? JSON.parse(raw) : null
-    return Array.isArray(parsed) && parsed.length ? parsed : DEFAULT_FROM_ADDRESSES
+    if (!Array.isArray(parsed) || !parsed.length) return DEFAULT_FROM_ADDRESSES
+    // Heals a stale saved entry from before the default display name changed from "Dev
+    // Pandya" to "GUESTPOSTLINKS" — a browser that already saved the old default would
+    // otherwise keep showing it forever, since a saved value always wins over the default.
+    return parsed.map(f => (f.address === 'info@guestpostlinks.net' && f.name === 'Dev Pandya') ? { ...f, name: 'GUESTPOSTLINKS' } : f)
   } catch { return DEFAULT_FROM_ADDRESSES }
 }
 function saveFromAddresses(list) {
