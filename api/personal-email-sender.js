@@ -7,9 +7,12 @@
 import { requireExactUser } from './_lib/supabaseAdmin.js'
 import { missivePersonalRequest } from './_lib/missive.js'
 
-// Dev Pandya's Supabase user_profiles.id — hardcoded since this tool is personal to one
-// specific person, not role- or allowlist-gated. Keep in sync with the matching constant
-// in src/pages/PersonalEmailSender.jsx and src/components/Shell.jsx (nav visibility).
+// Dev Pandya's real Supabase user_profiles.id (UUID) — requireExactUser checks this against
+// the authenticated caller's actual profile row, read straight from user_profiles here, so
+// it must be the UUID. This is NOT the same value as the client-side gate: the frontend
+// (Shell.jsx, PersonalEmailSender.jsx) only ever sees `me.id` as the short member_id slug
+// ('dev'), since App.jsx remaps the profile before any page gets it. Hardcoded since this
+// tool is personal to one specific person, not role- or allowlist-gated.
 const DEV_USER_ID = 'a680f0f2-2ae2-4dc0-a094-5bbd1eb8cf7f'
 
 function escapeHtml(s) {

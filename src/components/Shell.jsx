@@ -1,10 +1,13 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { TEAM, Icon, fmtDateShort, fmtRel, hasDualAccess } from '../data.jsx'
 
-// Dev Pandya's Supabase user_profiles.id — the Personal Email Sender nav item is personal
-// to this one specific person, not role- or allowlist-gated. Keep in sync with the matching
-// constant in src/pages/PersonalEmailSender.jsx and api/personal-email-sender.js.
-const PERSONAL_SENDER_USER_ID = 'a680f0f2-2ae2-4dc0-a094-5bbd1eb8cf7f'
+// Dev Pandya's member_id slug — NOT his Supabase UUID. Client-side `me.id`/`impersonatedId`
+// are always the short TEAM/user_profiles.member_id slug (App.jsx remaps the real UUID
+// profile into `{ id: profile.member_id, ... }` before anything else sees it) — only the
+// server-side check in api/personal-email-sender.js deals in the actual UUID, since it reads
+// user_profiles directly. The Personal Email Sender nav item is personal to this one specific
+// person, not role- or allowlist-gated. Keep in sync with src/pages/PersonalEmailSender.jsx.
+const PERSONAL_SENDER_MEMBER_ID = 'dev'
 
 // ────────────────────── Sidebar ──────────────────────
 export function Sidebar({ route, setRoute, role, me, allUsers = [], impersonatedId, openCmdK, onLogout, dept, setDept, onlineIds = new Set() }) {
@@ -39,7 +42,7 @@ export function Sidebar({ route, setRoute, role, me, allUsers = [], impersonated
   // tools-only users get exactly one nav item and nothing in "More" — no settings, no shortcuts
   const isToolsOnly = me.role === 'tools-only';
   // Personal to Dev — shown for him alone, including while someone else impersonates him.
-  const canSeePersonalSender = (impersonatedId || me.id) === PERSONAL_SENDER_USER_ID;
+  const canSeePersonalSender = (impersonatedId || me.id) === PERSONAL_SENDER_MEMBER_ID;
   const visibleNavItems = isToolsOnly
     ? navItems.filter(it => it.id === 'tools')
     : canSeePersonalSender

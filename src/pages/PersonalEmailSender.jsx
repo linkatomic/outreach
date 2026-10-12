@@ -5,10 +5,13 @@ import {
   savePersonalEmailBatch, loadPersonalEmailBatches,
 } from '../lib/supabase.js'
 
-// Dev Pandya's Supabase user_profiles.id — this page is personal to one specific person,
-// not role- or allowlist-gated. Keep in sync with api/personal-email-sender.js and the
-// nav-visibility check in src/components/Shell.jsx.
-const DEV_USER_ID = 'a680f0f2-2ae2-4dc0-a094-5bbd1eb8cf7f'
+// Dev Pandya's member_id slug — client-side `me.id` is always this short TEAM/
+// user_profiles.member_id slug, not the Supabase UUID (App.jsx remaps the profile to
+// `{ id: profile.member_id, ... }` before any page sees it). Only the server-side check in
+// api/personal-email-sender.js uses the real UUID, since it reads user_profiles directly.
+// This page is personal to one specific person, not role- or allowlist-gated. Keep in sync
+// with the nav-visibility check in src/components/Shell.jsx.
+const DEV_MEMBER_ID = 'dev'
 
 const FROM_ADDRESSES_KEY = 'personalSender.fromAddresses'
 const DEFAULT_FROM_ADDRESSES = [{ address: 'info@guestpostlinks.net', name: 'Dev Pandya' }]
@@ -59,7 +62,7 @@ const STATUS_STYLE = {
 }
 
 export function PersonalEmailSender({ me }) {
-  if (me?.id !== DEV_USER_ID) {
+  if (me?.id !== DEV_MEMBER_ID) {
     return (
       <div className="page" style={{ maxWidth: 600 }}>
         <div className="page-head"><div><h1>Personal Email Sender</h1></div></div>
