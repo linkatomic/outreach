@@ -14,7 +14,7 @@ import {
 const DEV_MEMBER_ID = 'dev'
 
 const FROM_ADDRESSES_KEY = 'personalSender.fromAddresses'
-const DEFAULT_FROM_ADDRESSES = [{ address: 'info@guestpostlinks.net', name: 'Dev Pandya' }]
+const DEFAULT_FROM_ADDRESSES = [{ address: 'info@guestpostlinks.net', name: 'GUESTPOSTLINKS' }]
 
 function loadFromAddresses() {
   try {
@@ -25,6 +25,23 @@ function loadFromAddresses() {
 }
 function saveFromAddresses(list) {
   try { localStorage.setItem(FROM_ADDRESSES_KEY, JSON.stringify(list)) } catch { /* ignore */ }
+}
+
+// Persists the "Defaults for newly added recipients" card so the template/signature/subject
+// don't need retyping every time the page is reopened — the actual recipient rows already
+// survive via personal_email_batches, but there was nothing saving the template itself.
+const DEFAULTS_KEY = 'personalSender.defaults'
+const BLANK_DEFAULTS = { subject: '', template: 'Hi {{name}},\n\n', signature: '', from: '' }
+
+function loadSavedDefaults() {
+  try {
+    const raw = localStorage.getItem(DEFAULTS_KEY)
+    const parsed = raw ? JSON.parse(raw) : null
+    return parsed && typeof parsed === 'object' ? { ...BLANK_DEFAULTS, ...parsed } : null
+  } catch { return null }
+}
+function saveDefaults(d) {
+  try { localStorage.setItem(DEFAULTS_KEY, JSON.stringify(d)) } catch { /* ignore */ }
 }
 
 const uid = () => Math.random().toString(36).slice(2)
@@ -90,12 +107,13 @@ export function PersonalEmailSender({ me }) {
   const [fromAddresses, setFromAddresses] = useState(loadFromAddresses)
   const [fromEditorText, setFromEditorText] = useState(() => loadFromAddresses().map(f => `${f.name} <${f.address}>`).join('\n'))
 
-  const [defaults, setDefaults] = useState({
-    subject: '',
-    template: 'Hi {{name}},\n\n',
-    signature: '',
-    from: fromAddresses[0]?.address || '',
+  const [defaults, setDefaults] = useState(() => {
+    const saved = loadSavedDefaults()
+    return saved || { ...BLANK_DEFAULTS, from: fromAddresses[0]?.address || '' }
   })
+
+  // Auto-save the template/signature/subject/from defaults as they're edited.
+  useEffect(() => { saveDefaults(defaults) }, [defaults])
 
   const [bulkText, setBulkText] = useState('')
   const [rows, setRows] = useState([])
@@ -304,6 +322,7 @@ export function PersonalEmailSender({ me }) {
           "<code>- </code>" for a bullet list — both render properly in the sent email. Leave Signature blank to
           automatically use whatever signature is already configured in Missive for the sending address; type one here
           to override it. Each recipient's subject/template/signature/from can still be edited individually after adding.
+          These defaults are remembered automatically — no need to retype them next time.
         </div>
         <div style={{ marginBottom: 16 }}>
           <span style={labelStyle}>Subject</span>
