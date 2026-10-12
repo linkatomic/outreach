@@ -5,9 +5,10 @@ import { TEAM, Icon, fmtDateShort, fmtRel, hasDualAccess } from '../data.jsx'
 // are always the short TEAM/user_profiles.member_id slug (App.jsx remaps the real UUID
 // profile into `{ id: profile.member_id, ... }` before anything else sees it) — only the
 // server-side check in api/personal-email-sender.js deals in the actual UUID, since it reads
-// user_profiles directly. The Personal Email Sender nav item is personal to this one specific
-// person, not role- or allowlist-gated. Keep in sync with src/pages/PersonalEmailSender.jsx.
-const PERSONAL_SENDER_MEMBER_ID = 'dev'
+// user_profiles directly. The whole Missive module (its own department, like Outreach/Live
+// Chat) is personal to this one specific person, not role- or allowlist-gated. Keep in sync
+// with src/pages/PersonalEmailSender.jsx and src/pages/MissiveHome.jsx.
+const MISSIVE_MEMBER_ID = 'dev'
 
 // ────────────────────── Sidebar ──────────────────────
 export function Sidebar({ route, setRoute, role, me, allUsers = [], impersonatedId, openCmdK, onLogout, dept, setDept, onlineIds = new Set() }) {
@@ -38,16 +39,17 @@ export function Sidebar({ route, setRoute, role, me, allUsers = [], impersonated
     { id: 'lc-tools',   label: 'Tools',       icon: 'tool' },
     { id: 'lc-guide',   label: 'Guide',       icon: 'list' },
   ];
+  const missiveNavItems = [
+    { id: 'missive-home',   label: 'Home',         icon: 'home' },
+    { id: 'missive-sender', label: 'Email Sender',  icon: 'mail' },
+    { id: 'missive-tools',  label: 'Tools',         icon: 'tool' },
+  ];
 
   // tools-only users get exactly one nav item and nothing in "More" — no settings, no shortcuts
   const isToolsOnly = me.role === 'tools-only';
-  // Personal to Dev — shown for him alone, including while someone else impersonates him.
-  const canSeePersonalSender = (impersonatedId || me.id) === PERSONAL_SENDER_MEMBER_ID;
-  const visibleNavItems = isToolsOnly
-    ? navItems.filter(it => it.id === 'tools')
-    : canSeePersonalSender
-      ? [...navItems, { id: 'personal-sender', label: 'Email Sender', icon: 'mail' }]
-      : navItems;
+  // Personal to Dev — true for him alone, including while someone else impersonates him.
+  const canSeeMissive = (impersonatedId || me.id) === MISSIVE_MEMBER_ID;
+  const visibleNavItems = isToolsOnly ? navItems.filter(it => it.id === 'tools') : navItems;
 
   // Only lead/super (the two specific admin roles) can see Active Users
   const showActiveUsers = (me.role === 'lead' || me.role === 'super') && !impersonatedId;
@@ -73,6 +75,7 @@ export function Sidebar({ route, setRoute, role, me, allUsers = [], impersonated
   // Plain livechat-role users always see LC nav regardless of dept state.
   // Dual-access livechat members can toggle like lead/super/hr — respect dept state instead.
   const showLcNav = me.role === 'livechat' && !hasDualAccess(me.id) ? true : dept === 'livechat';
+  const showMissiveNav = canSeeMissive && dept === 'missive';
   const displayRoleLabel = impersonatedId
     ? (displayUser.role === 'lead' ? 'Team Lead' : 'Member')
     : me.role === 'super' ? 'Super Admin'
@@ -88,12 +91,16 @@ export function Sidebar({ route, setRoute, role, me, allUsers = [], impersonated
         <span className="brand-meta">v0.4</span>
       </div>
 
-      {/* Department switcher — only for lead/super */}
+      {/* Department switcher — only for lead/super (plus Missive, shown to Dev alone) */}
       {canSwitchDept && (
         <div className="nav-section">
           <div style={{ display: 'flex', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 7, padding: 3, gap: 3 }}>
-            {[{ id: 'outreach', label: 'Outreach' }, { id: 'livechat', label: 'Live Chat' }].map(d => (
-              <button key={d.id} onClick={() => { setDept(d.id); setRoute(d.id === 'livechat' ? 'lc-home' : 'home') }}
+            {[
+              { id: 'outreach', label: 'Outreach', home: 'home' },
+              { id: 'livechat', label: 'Live Chat', home: 'lc-home' },
+              ...(canSeeMissive ? [{ id: 'missive', label: 'Missive', home: 'missive-home' }] : []),
+            ].map(d => (
+              <button key={d.id} onClick={() => { setDept(d.id); setRoute(d.home) }}
                 style={{ flex: 1, height: 26, borderRadius: 5, border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: dept === d.id ? 700 : 400, background: dept === d.id ? 'var(--accent)' : 'transparent', color: dept === d.id ? 'var(--accent-ink)' : 'var(--text-faint)', transition: 'background .15s, color .15s' }}>
                 {d.label}
               </button>
@@ -134,6 +141,16 @@ export function Sidebar({ route, setRoute, role, me, allUsers = [], impersonated
               </div>
             )
           })}
+        </div>
+      ) : showMissiveNav ? (
+        <div className="nav-section">
+          <div className="nav-section-title">Missive</div>
+          {missiveNavItems.map(it => (
+            <div key={it.id} className={`nav-item ${route === it.id ? 'active' : ''}`} onClick={() => setRoute(it.id)}>
+              <Icon name={it.icon} size={15} />
+              <span>{it.label}</span>
+            </div>
+          ))}
         </div>
       ) : (
         <>

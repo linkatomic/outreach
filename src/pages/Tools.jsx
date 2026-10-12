@@ -1166,7 +1166,7 @@ export function ToolsPage({ me, role, section = 'outreach' }) {
       <div className="page-head">
         <div>
           <h1>Tools</h1>
-          <div className="sub">{section === 'livechat' ? 'Live Chat team tools' : 'Internal tools for the outreach team'}</div>
+          <div className="sub">{section === 'livechat' ? 'Live Chat team tools' : section === 'missive' ? 'Missive tools' : 'Internal tools for the outreach team'}</div>
         </div>
         {activeTool && (
           <button className="btn ghost" onClick={() => setActiveTool(null)} style={{ fontSize: 12 }}>← All Tools</button>
