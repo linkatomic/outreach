@@ -256,7 +256,7 @@ export function PersonalEmailSender({ me }) {
 
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
           <span style={{ ...labelStyle, marginBottom: 0 }}>
-            Missive labels (applied to every send) {selectedLabelIds.length > 0 && <span style={{ color: 'var(--accent)' }}>· {selectedLabelIds.length} selected</span>}
+            Missive labels (applied to every send) {labels.length > 0 && <span>· {labels.length} loaded</span>} {selectedLabelIds.length > 0 && <span style={{ color: 'var(--accent)' }}>· {selectedLabelIds.length} selected</span>}
           </span>
           <input className="input" style={{ width: 200, fontSize: 12 }} placeholder="Filter labels…" value={labelFilter} onChange={e => setLabelFilter(e.target.value)} />
         </div>

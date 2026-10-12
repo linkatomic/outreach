@@ -5,7 +5,7 @@
 // export token other Missive tools use.
 
 import { requireExactUser, supabaseAdmin } from './_lib/supabaseAdmin.js'
-import { missivePersonalRequest } from './_lib/missive.js'
+import { missivePersonalRequest, fetchAllSharedLabels } from './_lib/missive.js'
 
 // Dev Pandya's real Supabase user_profiles.id (UUID) — requireExactUser checks this against
 // the authenticated caller's actual profile row, read straight from user_profiles here, so
@@ -121,8 +121,7 @@ export default async function handler(req, res) {
     if (action === 'listSharedLabels') {
       const { organizationId } = payload
       if (!organizationId) return res.status(400).json({ error: 'organizationId is required' })
-      const body = await missivePersonalRequest(`/shared_labels?organization=${encodeURIComponent(organizationId)}`)
-      return res.json({ labels: body.shared_labels || body.sharedLabels || [] })
+      return res.json({ labels: await fetchAllSharedLabels(missivePersonalRequest, organizationId) })
     }
 
     if (action === 'send') {

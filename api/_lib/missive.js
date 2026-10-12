@@ -57,3 +57,24 @@ export async function missivePersonalRequest(path, opts = {}) {
   if (!token) throw new Error('Missive personal API token not configured (MISSIVE_PERSONAL_API_TOKEN)')
   return request(path, token, opts)
 }
+
+// The reference doc's "Shared labels" section is unusually terse — "GET /v1/shared_labels?
+// organization=... — list" with no params documented at all, unlike every other "list"
+// endpoint in the same doc (conversations, contacts, tasks all document a `limit`, some
+// `offset` too). That's almost certainly just the doc compiler skipping detail on this one
+// endpoint, not proof it has no default page size — a workspace with 50+ labels was coming
+// back short. Paginating defensively with the same limit/offset convention contacts
+// documents costs nothing if the endpoint turns out to return everything in one shot
+// already (the loop exits after one page either way). Shared by both Missive tools —
+// pass whichever request function holds the right token (missiveRequest/missivePersonalRequest).
+export async function fetchAllSharedLabels(requestFn, organizationId) {
+  const PAGE_SIZE = 200
+  const all = []
+  for (let offset = 0; offset < PAGE_SIZE * 20; offset += PAGE_SIZE) {
+    const body = await requestFn(`/shared_labels?organization=${encodeURIComponent(organizationId)}&limit=${PAGE_SIZE}&offset=${offset}`)
+    const page = body.shared_labels || body.sharedLabels || []
+    all.push(...page)
+    if (page.length < PAGE_SIZE) break
+  }
+  return all
+}

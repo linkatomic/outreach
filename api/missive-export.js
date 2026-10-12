@@ -1,7 +1,7 @@
 import { parse as htmlParse } from 'node-html-parser'
 import { convert as htmlToText } from 'html-to-text'
 import { requireToolAccess } from './_lib/supabaseAdmin.js'
-import { missiveRequest } from './_lib/missive.js'
+import { missiveRequest, fetchAllSharedLabels } from './_lib/missive.js'
 
 const TOOL_ID = 'missive-export'
 
@@ -214,8 +214,7 @@ export default async function handler(req, res) {
     if (action === 'listSharedLabels') {
       const { organizationId } = payload
       if (!organizationId) return res.status(400).json({ error: 'organizationId is required' })
-      const body = await missiveRequest(`/shared_labels?organization=${encodeURIComponent(organizationId)}`)
-      return res.json({ labels: body.shared_labels || body.sharedLabels || [] })
+      return res.json({ labels: await fetchAllSharedLabels(missiveRequest, organizationId) })
     }
 
     if (action === 'listConversationsPage') {
