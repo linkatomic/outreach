@@ -609,3 +609,37 @@ export async function loadPersonalEmailSentLog() {
   if (error) throw error
   return data || []
 }
+
+// ── Saved email templates (named, reusable subject/body/signature) ───
+export async function loadPersonalEmailTemplates() {
+  const { data, error } = await supabase
+    .from('personal_email_templates')
+    .select('*')
+    .order('name')
+  if (error) throw error
+  return data || []
+}
+
+export async function savePersonalEmailTemplate({ id, name, subject, template, signature }) {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Not signed in')
+  const payload = {
+    user_id: user.id,
+    name,
+    subject: subject || '',
+    template: template || '',
+    signature: signature || '',
+    updated_at: new Date().toISOString(),
+  }
+  const query = id
+    ? supabase.from('personal_email_templates').update(payload).eq('id', id)
+    : supabase.from('personal_email_templates').insert(payload)
+  const { data, error } = await query.select().single()
+  if (error) throw error
+  return data
+}
+
+export async function deletePersonalEmailTemplate(id) {
+  const { error } = await supabase.from('personal_email_templates').delete().eq('id', id)
+  if (error) throw error
+}

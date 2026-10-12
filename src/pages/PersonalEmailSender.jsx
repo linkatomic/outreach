@@ -3,6 +3,7 @@ import { Icon } from '../data.jsx'
 import {
   listPersonalSenderOrganizations, listPersonalSenderTeams, listPersonalSenderLabels, sendPersonalEmail,
   savePersonalEmailBatch, loadPersonalEmailBatches, loadPersonalEmailSentLog,
+  loadPersonalEmailTemplates, savePersonalEmailTemplate, deletePersonalEmailTemplate,
 } from '../lib/supabase.js'
 
 // Dev Pandya's member_id slug — client-side `me.id` is always this short TEAM/
@@ -27,22 +28,7 @@ function saveFromAddresses(list) {
   try { localStorage.setItem(FROM_ADDRESSES_KEY, JSON.stringify(list)) } catch { /* ignore */ }
 }
 
-// Persists the "Defaults for newly added recipients" card so the template/signature/subject
-// don't need retyping every time the page is reopened — the actual recipient rows already
-// survive via personal_email_batches, but there was nothing saving the template itself.
-const DEFAULTS_KEY = 'personalSender.defaults'
 const BLANK_DEFAULTS = { subject: '', template: 'Hi {{name}},\n\n', signature: '', from: '' }
-
-function loadSavedDefaults() {
-  try {
-    const raw = localStorage.getItem(DEFAULTS_KEY)
-    const parsed = raw ? JSON.parse(raw) : null
-    return parsed && typeof parsed === 'object' ? { ...BLANK_DEFAULTS, ...parsed } : null
-  } catch { return null }
-}
-function saveDefaults(d) {
-  try { localStorage.setItem(DEFAULTS_KEY, JSON.stringify(d)) } catch { /* ignore */ }
-}
 
 const uid = () => Math.random().toString(36).slice(2)
 
@@ -107,13 +93,14 @@ export function PersonalEmailSender({ me }) {
   const [fromAddresses, setFromAddresses] = useState(loadFromAddresses)
   const [fromEditorText, setFromEditorText] = useState(() => loadFromAddresses().map(f => `${f.name} <${f.address}>`).join('\n'))
 
-  const [defaults, setDefaults] = useState(() => {
-    const saved = loadSavedDefaults()
-    return saved || { ...BLANK_DEFAULTS, from: fromAddresses[0]?.address || '' }
-  })
+  const [defaults, setDefaults] = useState(() => ({ ...BLANK_DEFAULTS, from: fromAddresses[0]?.address || '' }))
 
-  // Auto-save the template/signature/subject/from defaults as they're edited.
-  useEffect(() => { saveDefaults(defaults) }, [defaults])
+  // Named, reusable templates (subject/body/signature) — explicit save/load, not an
+  // auto-saved "last used" draft. templateId is the currently loaded template (null = unsaved).
+  const [templates, setTemplates] = useState([])
+  const [templateId, setTemplateId] = useState(null)
+  const [templateName, setTemplateName] = useState('')
+  const [templateStatus, setTemplateStatus] = useState('') // '' | 'saving' | 'saved' | error message
 
   const [bulkText, setBulkText] = useState('')
   const [rows, setRows] = useState([])
@@ -131,6 +118,7 @@ export function PersonalEmailSender({ me }) {
       .catch(err => setOrgError(err.message))
     loadPersonalEmailBatches().then(setBatches).catch(() => {})
     loadPersonalEmailSentLog().then(setSentLog).catch(() => {})
+    loadPersonalEmailTemplates().then(setTemplates).catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -171,6 +159,54 @@ export function PersonalEmailSender({ me }) {
     setFromAddresses(final)
     saveFromAddresses(final)
     if (!final.some(f => f.address === defaults.from)) setDefaults(d => ({ ...d, from: final[0].address }))
+  }
+
+  function loadTemplate(id) {
+    const t = templates.find(x => x.id === id)
+    if (!t) return
+    setTemplateId(t.id)
+    setTemplateName(t.name)
+    setDefaults(d => ({ ...d, subject: t.subject, template: t.template, signature: t.signature }))
+  }
+
+  function newTemplate() {
+    setTemplateId(null)
+    setTemplateName('')
+    setTemplateStatus('')
+  }
+
+  async function saveTemplate(asNew) {
+    const name = templateName.trim()
+    if (!name) { setTemplateStatus('Name the template before saving'); return }
+    setTemplateStatus('saving')
+    try {
+      const saved = await savePersonalEmailTemplate({
+        id: asNew ? null : templateId,
+        name,
+        subject: defaults.subject,
+        template: defaults.template,
+        signature: defaults.signature,
+      })
+      setTemplates(prev => {
+        const others = prev.filter(t => t.id !== saved.id)
+        return [...others, saved].sort((a, b) => a.name.localeCompare(b.name))
+      })
+      setTemplateId(saved.id)
+      setTemplateStatus('saved')
+    } catch (err) {
+      setTemplateStatus(err.message)
+    }
+  }
+
+  async function removeTemplate() {
+    if (!templateId) return
+    try {
+      await deletePersonalEmailTemplate(templateId)
+      setTemplates(prev => prev.filter(t => t.id !== templateId))
+      newTemplate()
+    } catch (err) {
+      setTemplateStatus(err.message)
+    }
   }
 
   function addBulkRows() {
@@ -310,14 +346,42 @@ export function PersonalEmailSender({ me }) {
 
       {/* ── Defaults for new rows ─────────────────────── */}
       <div className="card" style={{ marginBottom: 20, padding: 20 }}>
-        <div style={sectionHeadStyle}>Defaults for newly added recipients</div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
+          <div style={{ ...sectionHeadStyle, marginBottom: 0 }}>Defaults for newly added recipients</div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            {templates.length > 0 && (
+              <select className="input" style={{ fontSize: 12, width: 'auto' }} value={templateId || ''} onChange={e => e.target.value ? loadTemplate(e.target.value) : newTemplate()}>
+                <option value="">— new template —</option>
+                {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+            )}
+          </div>
+        </div>
+
         <div style={{ fontSize: 11, color: 'var(--text-faint)', marginBottom: 16, lineHeight: 1.5 }}>
           Use <code>{'{{name}}'}</code> for each recipient's name, and <code>**bold**</code> or a line starting with
           "<code>- </code>" for a bullet list — both render properly in the sent email. Leave Signature blank to
           automatically use whatever signature is already configured in Missive for the sending address; type one here
           to override it. Each recipient's subject/template/signature/from can still be edited individually after adding.
-          These defaults are remembered automatically — no need to retype them next time.
         </div>
+
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 16, padding: 12, background: 'rgba(255,255,255,.02)', borderRadius: 8, border: '1px solid var(--border)' }}>
+          <input className="input" style={{ flex: 1, fontSize: 13 }} placeholder={'Template name, e.g. "Guest post pitch v1"'}
+            value={templateName} onChange={e => { setTemplateName(e.target.value); setTemplateStatus('') }} />
+          <button className="btn" onClick={() => saveTemplate(!templateId)} disabled={!templateName.trim()} style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
+            {templateId ? 'Update' : 'Save as new'}
+          </button>
+          {templateId && (
+            <button className="btn ghost" onClick={() => saveTemplate(true)} style={{ fontSize: 12, whiteSpace: 'nowrap' }}>Save as copy</button>
+          )}
+          {templateId && (
+            <button className="btn ghost" onClick={removeTemplate} style={{ fontSize: 12, padding: '4px 8px' }}><Icon name="trash" size={13} /></button>
+          )}
+          {templateStatus === 'saving' && <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>Saving…</span>}
+          {templateStatus === 'saved' && <span style={{ fontSize: 11, color: '#4ade80' }}>✓ Saved</span>}
+          {templateStatus && templateStatus !== 'saving' && templateStatus !== 'saved' && <span style={{ fontSize: 11, color: '#f87171' }}>{templateStatus}</span>}
+        </div>
+
         <div style={{ marginBottom: 16 }}>
           <span style={labelStyle}>Subject</span>
           <input className="input" style={inputStyle} value={defaults.subject} onChange={e => setDefaults(d => ({ ...d, subject: e.target.value }))} placeholder="e.g. Quick question about {{name}}'s site" />
