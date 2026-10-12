@@ -15,6 +15,7 @@ import { TasksPage } from './pages/Tasks.jsx'
 import { ToolsPage } from './pages/Tools.jsx'
 import { PersonalEmailSender } from './pages/PersonalEmailSender.jsx'
 import { MissiveHome } from './pages/MissiveHome.jsx'
+import { MissiveBatches } from './pages/MissiveBatches.jsx'
 import { LiveChatHome } from './pages/LiveChatHome.jsx'
 import { LiveChatTeam } from './pages/LiveChatTeam.jsx'
 import { LiveChatClients } from './pages/LiveChat.jsx'
@@ -325,9 +326,10 @@ export default function App() {
       case 'ideas':      return <IdeasPage me={m} showToast={showToast} />;
       case 'tasks':      return <TasksPage me={m} showToast={showToast} />;
       case 'tools':      return <ToolsPage me={m} role={role} />;
-      case 'missive-home':   return <MissiveHome me={m} setRoute={setRoute} />;
-      case 'missive-sender': return <PersonalEmailSender me={m} />;
-      case 'missive-tools':  return <ToolsPage me={m} role={role} section="missive" />;
+      case 'missive-home':    return <MissiveHome me={m} setRoute={setRoute} />;
+      case 'missive-sender':  return <PersonalEmailSender me={m} />;
+      case 'missive-batches': return <MissiveBatches me={m} setRoute={setRoute} />;
+      case 'missive-tools':   return <ToolsPage me={m} role={role} section="missive" />;
       case 'lc-home':    return <LiveChatHome me={m} />;
       case 'lc-clients': return <LiveChatClients me={m} />;
       case 'lc-price-finder': return <LiveChatPriceFinder />;

@@ -40,9 +40,10 @@ export function Sidebar({ route, setRoute, role, me, allUsers = [], impersonated
     { id: 'lc-guide',   label: 'Guide',       icon: 'list' },
   ];
   const missiveNavItems = [
-    { id: 'missive-home',   label: 'Home',         icon: 'home' },
-    { id: 'missive-sender', label: 'Email Sender',  icon: 'mail' },
-    { id: 'missive-tools',  label: 'Tools',         icon: 'tool' },
+    { id: 'missive-home',    label: 'Home',         icon: 'home' },
+    { id: 'missive-sender',  label: 'Email Sender', icon: 'mail' },
+    { id: 'missive-batches', label: 'Batches',      icon: 'layers' },
+    { id: 'missive-tools',   label: 'Tools',        icon: 'tool' },
   ];
 
   // tools-only users get exactly one nav item and nothing in "More" — no settings, no shortcuts
@@ -251,6 +252,10 @@ export function Topbar({ route, role, theme, toggleTheme, openCmdK, onLogout, me
     'lc-history':        ['Live Chat', 'Sheet History'],
     'lc-guide':          ['Live Chat', 'Guide'],
     'lc-tools':          ['Live Chat', 'Tools'],
+    'missive-home':      ['Missive', 'Home'],
+    'missive-sender':    ['Missive', 'Email Sender'],
+    'missive-batches':   ['Missive', 'Batches'],
+    'missive-tools':     ['Missive', 'Tools'],
     online: ['Admin', 'Active Users'],
   }[route] || ['Home'];
 
