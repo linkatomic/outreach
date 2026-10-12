@@ -184,6 +184,12 @@ export function PersonalEmailSender({ me }) {
         organizationId,
         batchId,
       })
+      if (!result.webUrl) {
+        // Temporary — Missive's exact drafts-response shape for a sent draft isn't confirmed
+        // from their docs. Check this log once and report it back so the real shape can be
+        // wired up and this logging removed.
+        console.log('[PersonalEmailSender] raw Missive response (no conversation link found):', result.raw)
+      }
       const sentAt = new Date().toISOString()
       updateRow(row.id, { status: 'sent', sentAt, webUrl: result.webUrl || null })
       setSentLog(prev => [{
@@ -294,8 +300,10 @@ export function PersonalEmailSender({ me }) {
       <div className="card" style={{ marginBottom: 20, padding: 20 }}>
         <div style={sectionHeadStyle}>Defaults for newly added recipients</div>
         <div style={{ fontSize: 11, color: 'var(--text-faint)', marginBottom: 16, lineHeight: 1.5 }}>
-          Use <code>{'{{name}}'}</code> in the template or signature — it's replaced with each recipient's name. Each
-          recipient's subject/template/signature/from can still be edited individually after adding.
+          Use <code>{'{{name}}'}</code> for each recipient's name, and <code>**bold**</code> or a line starting with
+          "<code>- </code>" for a bullet list — both render properly in the sent email. Leave Signature blank to
+          automatically use whatever signature is already configured in Missive for the sending address; type one here
+          to override it. Each recipient's subject/template/signature/from can still be edited individually after adding.
         </div>
         <div style={{ marginBottom: 16 }}>
           <span style={labelStyle}>Subject</span>

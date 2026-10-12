@@ -19,14 +19,37 @@ function escapeHtml(s) {
   return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
-// Missive recommends <div>/<br> over <p> for spacing. Blank-line-separated paragraphs
-// become their own <div>; single newlines within a paragraph become <br>.
+// Lightweight markdown-ish inline formatting, applied after escaping (safe — escapeHtml
+// only touches &/</>, so the markers below are untouched going in):
+// **bold** -> <strong>, and bare domains/URLs -> links.
+function inlineFormat(escaped) {
+  let html = escaped.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+  html = html.replace(/\bhttps?:\/\/[^\s<]+/g, url => `<a href="${url}">${url}</a>`)
+  // Bare domain mentions (e.g. "nationalviews.com") not already wrapped in the <a> above.
+  html = html.replace(/\b([a-z0-9-]+(?:\.[a-z0-9-]+)+\.[a-z]{2,})\b(?![^<]*<\/a>)/gi, (m, domain) => {
+    if (/^(https?|www)/i.test(domain)) return m
+    return `<a href="https://${domain}">${domain}</a>`
+  })
+  return html
+}
+
+// Missive recommends <div>/<br> over <p> for spacing. Blank-line-separated paragraphs each
+// become their own margin-bottom <div> (plain <div>s render with no gap between them, which
+// is what made earlier sends look cramped); a paragraph whose every line starts with "- "/"* "
+// becomes a proper <ul> instead.
 function textToHtml(text) {
   return String(text ?? '')
     .split(/\n{2,}/)
-    .map(para => para.trim())
+    .map(p => p.trim())
     .filter(Boolean)
-    .map(para => `<div>${escapeHtml(para).replace(/\n/g, '<br>')}</div>`)
+    .map(para => {
+      const lines = para.split('\n')
+      if (lines.every(l => /^[-*]\s+/.test(l.trim()))) {
+        const items = lines.map(l => `<li>${inlineFormat(escapeHtml(l.trim().replace(/^[-*]\s+/, '')))}</li>`).join('')
+        return `<ul style="margin:0 0 16px 0; padding-left:20px;">${items}</ul>`
+      }
+      return `<div style="margin-bottom:16px;">${inlineFormat(escapeHtml(para)).replace(/\n/g, '<br>')}</div>`
+    })
     .join('')
 }
 
@@ -53,11 +76,11 @@ async function handleSend(caller, payload) {
   if (!subject) throw new Error('Subject is required')
   if (!template) throw new Error('Email body is required')
 
-  const bodyHtml = textToHtml(applyMergeFields(template, to.name)) + textToHtml(applyMergeFields(signature, to.name))
+  let bodyHtml = textToHtml(applyMergeFields(template, to.name))
 
   const draft = {
     subject,
-    body: bodyHtml,
+    body: '', // set below, once the signature is resolved
     from_field: { address: from.address, name: from.name || undefined },
     to_fields: [{ address: to.address, name: to.name || undefined }],
     send: true,
@@ -70,10 +93,26 @@ async function handleSend(caller, payload) {
     draft.organization = organizationId
   }
 
+  // A typed signature always wins; leave it blank to have Missive attach whatever default
+  // signature is configured for the sending account/alias instead (add_default_signature) —
+  // there's no documented endpoint to read that signature's text ourselves, but the drafts
+  // endpoint can attach it for us without needing to know what it says.
+  if (signature?.trim()) {
+    bodyHtml += textToHtml(applyMergeFields(signature, to.name))
+  } else {
+    draft.add_default_signature = true
+  }
+  draft.body = bodyHtml
+
   const result = await missivePersonalRequest('/drafts', {
     method: 'POST',
     body: JSON.stringify({ drafts: draft }),
   })
+
+  // The exact response shape for a sent draft isn't confirmed from Missive's docs — logged
+  // here (visible in Vercel's function logs) so the real shape can be pinned down from a
+  // live send if the heuristics below keep missing the conversation link.
+  console.log('[personal-email-sender] drafts response:', JSON.stringify(result))
 
   // The send already happened by this point — a failure resolving the link or writing the
   // log must never surface as a send failure, just a send with no link recorded.
@@ -99,7 +138,7 @@ async function handleSend(caller, payload) {
     })
   } catch { /* logging is best-effort — never fail a successful send over it */ }
 
-  return { conversationId, webUrl }
+  return { conversationId, webUrl, raw: result }
 }
 
 export default async function handler(req, res) {
@@ -130,8 +169,10 @@ export default async function handler(req, res) {
     }
 
     if (action === 'send') {
-      const { conversationId, webUrl } = await handleSend(caller, payload)
-      return res.json({ ok: true, conversationId, webUrl })
+      // `raw` is temporary — included so the real drafts-response shape can be confirmed
+      // from the browser once, then this goes away once extractConversationId is fixed for it.
+      const { conversationId, webUrl, raw } = await handleSend(caller, payload)
+      return res.json({ ok: true, conversationId, webUrl, raw })
     }
 
     return res.status(400).json({ error: `Unknown action: ${action}` })
