@@ -202,12 +202,6 @@ export function PersonalEmailSender({ me }) {
         organizationId,
         batchId,
       })
-      if (!result.webUrl) {
-        // Temporary — Missive's exact drafts-response shape for a sent draft isn't confirmed
-        // from their docs. Check this log once and report it back so the real shape can be
-        // wired up and this logging removed.
-        console.log('[PersonalEmailSender] raw Missive response (no conversation link found):', result.raw)
-      }
       const sentAt = new Date().toISOString()
       updateRow(row.id, { status: 'sent', sentAt, webUrl: result.webUrl || null })
       setSentLog(prev => [{

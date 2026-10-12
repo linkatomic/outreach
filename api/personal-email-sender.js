@@ -57,16 +57,18 @@ function applyMergeFields(text, name) {
   return String(text ?? '').replace(/\{\{\s*name\s*\}\}/gi, name || '')
 }
 
-// The reference doc doesn't publish the exact shape of a sent draft's response (only that
-// some POSTs return 201 with no body at all) — hedge across every plausible key a conversation
-// id might come back under, on either the top-level body or a nested `drafts` object.
-function extractConversationId(result) {
-  const candidates = [result?.drafts, result]
-  for (const obj of candidates) {
-    const id = obj?.conversation?.id || obj?.conversation_id || obj?.conversation
-    if (typeof id === 'string' && id) return id
-  }
-  return null
+// The drafts POST response shape for a sent draft isn't documented/confirmed (the reference
+// doc only says some POSTs return 201 with no body at all), so rather than guess at it, look
+// the conversation up the proven way: the same GET /v1/conversations?all=true&email=...
+// filter missive-export.js's "chats with a specific person" feature already uses successfully.
+// Conversations list newest-first by last_activity_at; prefer an exact subject match (we set
+// it ourselves) in case this contact has other recent, unrelated conversations.
+async function resolveConversationLink(to, subject) {
+  const params = new URLSearchParams({ all: 'true', email: to.address, limit: '5' })
+  const body = await missivePersonalRequest(`/conversations?${params}`)
+  const candidates = body.conversations || []
+  const match = candidates.find(c => c.subject === subject || c.latest_message_subject === subject) || candidates[0]
+  return match ? { conversationId: match.id, webUrl: match.web_url || null } : { conversationId: null, webUrl: null }
 }
 
 async function handleSend(caller, payload) {
@@ -104,26 +106,17 @@ async function handleSend(caller, payload) {
   }
   draft.body = bodyHtml
 
-  const result = await missivePersonalRequest('/drafts', {
+  await missivePersonalRequest('/drafts', {
     method: 'POST',
     body: JSON.stringify({ drafts: draft }),
   })
-
-  // The exact response shape for a sent draft isn't confirmed from Missive's docs — logged
-  // here (visible in Vercel's function logs) so the real shape can be pinned down from a
-  // live send if the heuristics below keep missing the conversation link.
-  console.log('[personal-email-sender] drafts response:', JSON.stringify(result))
 
   // The send already happened by this point — a failure resolving the link or writing the
   // log must never surface as a send failure, just a send with no link recorded.
   let conversationId = null
   let webUrl = null
   try {
-    conversationId = extractConversationId(result)
-    if (conversationId) {
-      const convBody = await missivePersonalRequest(`/conversations/${conversationId}`)
-      webUrl = convBody?.conversations?.web_url || convBody?.conversation?.web_url || null
-    }
+    ;({ conversationId, webUrl } = await resolveConversationLink(to, subject))
   } catch { /* link lookup is best-effort */ }
 
   try {
@@ -138,7 +131,7 @@ async function handleSend(caller, payload) {
     })
   } catch { /* logging is best-effort — never fail a successful send over it */ }
 
-  return { conversationId, webUrl, raw: result }
+  return { conversationId, webUrl }
 }
 
 export default async function handler(req, res) {
@@ -169,10 +162,8 @@ export default async function handler(req, res) {
     }
 
     if (action === 'send') {
-      // `raw` is temporary — included so the real drafts-response shape can be confirmed
-      // from the browser once, then this goes away once extractConversationId is fixed for it.
-      const { conversationId, webUrl, raw } = await handleSend(caller, payload)
-      return res.json({ ok: true, conversationId, webUrl, raw })
+      const { conversationId, webUrl } = await handleSend(caller, payload)
+      return res.json({ ok: true, conversationId, webUrl })
     }
 
     return res.status(400).json({ error: `Unknown action: ${action}` })
