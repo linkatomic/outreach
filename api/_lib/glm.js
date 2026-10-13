@@ -8,9 +8,15 @@ const MODEL = process.env.GLM_MODEL || 'glm-5.3'
 
 // A real run hit a 504 from Vercel itself with no application-level error at all — the
 // function was killed by the platform mid-completion rather than failing cleanly. Bounding
-// this fetch well under the function's own maxDuration converts that into a clear, catchable
-// "timed out" error instead of an opaque platform kill with no message.
-export async function glmComplete(messages, { maxTokens = 700, temperature = 0.3, timeoutMs = 30000 } = {}) {
+// this fetch under the function's own maxDuration converts that into a clear, catchable
+// timeout instead of an opaque platform kill with no message. The gateway runs on local
+// hardware and is expected to be genuinely slow (not broken) — Vercel's Hobby plan hard-caps
+// any single function invocation at 60s regardless, so a completion that takes longer than
+// one bounded attempt can't succeed in one shot no matter how patient the caller is willing
+// to be. `err.isTimeout` lets callers treat "still generating, try again" as a distinct,
+// non-broken outcome rather than a failure — summarizeAndPostReply/summarizeReplies use this
+// to let the Tracking page retry on the next "Check replies" click instead of just failing.
+export async function glmComplete(messages, { maxTokens = 700, temperature = 0.3, timeoutMs = 50000 } = {}) {
   const token = process.env.GLM_API_KEY
   if (!token) throw new Error('GLM API token not configured (GLM_API_KEY)')
 
@@ -33,7 +39,11 @@ export async function glmComplete(messages, { maxTokens = 700, temperature = 0.3
       signal: controller.signal,
     })
   } catch (err) {
-    if (err.name === 'AbortError') throw new Error(`GLM request timed out after ${Math.round(timeoutMs / 1000)}s`)
+    if (err.name === 'AbortError') {
+      const timeoutErr = new Error(`Still generating after ${Math.round(timeoutMs / 1000)}s — will retry`)
+      timeoutErr.isTimeout = true
+      throw timeoutErr
+    }
     throw err
   } finally {
     clearTimeout(timer)

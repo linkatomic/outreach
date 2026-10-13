@@ -123,8 +123,14 @@ export function MissiveTracking({ me, setRoute }) {
           rows: b.rows.map(r => {
             if (!newlyRepliedIds.has(r.id)) return r
             const s = byRowConv.get(r.conversationId)
-            if (s) return { ...r, summaryPosted: !!s.posted, summaryError: s.error || null }
-            return { ...r, summaryError: summarizeRequestError || 'No result returned' }
+            if (!s) {
+              // Only the first couple of newly-replied conversations get attempted per click
+              // (see summarizeReplies on the backend) — anything beyond that just stays
+              // untouched here and naturally qualifies again on the next "Check replies".
+              return summarizeRequestError ? { ...r, summaryError: summarizeRequestError } : r
+            }
+            if (s.pending) return { ...r, summaryPending: true, summaryError: null }
+            return { ...r, summaryPosted: !!s.posted, summaryPending: false, summaryError: s.error || null }
           }),
         }))
         setBatches(stage2)
@@ -266,7 +272,12 @@ export function MissiveTracking({ me, setRoute }) {
                               <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-start' }}>
                                 <span className="chip danger"><span className="dot-status danger" /> Replied</span>
                                 {row.summaryPosted && <span className="chip ok" style={{ fontSize: 10 }}>AI summary posted</span>}
-                                {row.summaryError && (
+                                {!row.summaryPosted && row.summaryPending && (
+                                  <span className="chip" style={{ fontSize: 10, whiteSpace: 'normal' }}>
+                                    ⏳ still generating — click Check replies again shortly
+                                  </span>
+                                )}
+                                {!row.summaryPosted && !row.summaryPending && row.summaryError && (
                                   <span className="chip danger" style={{ fontSize: 10, whiteSpace: 'normal' }}>
                                     summary failed: {row.summaryError}
                                   </span>

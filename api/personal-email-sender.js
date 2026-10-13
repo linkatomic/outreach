@@ -210,20 +210,20 @@ async function summarizeAndPostReply(conversationId) {
 async function summarizeReplies(conversationIds) {
   const CONCURRENCY = 2 // each one is a Missive messages fetch plus a GLM call — gentler
   // than the plain Missive-only loops elsewhere in this file.
-  const results = []
-  for (let i = 0; i < conversationIds.length; i += CONCURRENCY) {
-    const slice = conversationIds.slice(i, i + CONCURRENCY)
-    const settled = await Promise.allSettled(slice.map(id => summarizeAndPostReply(id)))
-    settled.forEach((r, bi) => {
-      const conversationId = slice[bi]
-      if (r.status === 'fulfilled') {
-        results.push({ conversationId, posted: r.value.posted })
-      } else {
-        results.push({ conversationId, posted: false, error: r.reason?.message || 'Failed' })
-      }
-    })
-  }
-  return results
+
+  // Only ONE slice's worth per call, not every slice in a loop: each GLM call is already
+  // bounded close to this endpoint's own 60s (Hobby plan) ceiling, so two SEQUENTIAL slices
+  // could exceed it even though neither one alone would. Anything left over keeps
+  // `summaryPosted: false` with no error, so it naturally reappears as "newly replied" (still
+  // eligible, not yet summarized) on the caller's next check instead of being lost.
+  const slice = conversationIds.slice(0, CONCURRENCY)
+  const settled = await Promise.allSettled(slice.map(id => summarizeAndPostReply(id)))
+  return settled.map((r, bi) => {
+    const conversationId = slice[bi]
+    if (r.status === 'fulfilled') return { conversationId, posted: r.value.posted }
+    if (r.reason?.isTimeout) return { conversationId, posted: false, pending: true, error: r.reason.message }
+    return { conversationId, posted: false, error: r.reason?.message || 'Failed' }
+  })
 }
 
 async function handleSend(caller, payload) {
