@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Icon } from '../data.jsx'
 import {
   checkPersonalEmailReplies, savePersonalEmailBatch, loadPersonalEmailBatches, loadPersonalEmailSentLog,
+  clearPersonalEmailBatchesAndLog,
 } from '../lib/supabase.js'
 
 // Dev Pandya's member_id slug — see the same comment in PersonalEmailSender.jsx/Shell.jsx for
@@ -51,6 +52,7 @@ export function MissiveTracking({ me, setRoute }) {
   const [loading, setLoading] = useState(true)
   const [checkingReplies, setCheckingReplies] = useState(false)
   const [sentLog, setSentLog] = useState([])
+  const [clearing, setClearing] = useState(false)
 
   // checkAllReplies can be invoked (from the mount effect) before activeBatchId has caught up
   // to a just-set value in the same tick — a ref always reads the live value regardless of
@@ -108,6 +110,25 @@ export function MissiveTracking({ me, setRoute }) {
   const activeBatch = batches.find(b => b.id === activeBatchId) || null
   const stats = activeBatch ? batchStats(activeBatch) : null
 
+  async function clearTestData() {
+    if (!batches.length && !sentLog.length) return
+    const ok = window.confirm(
+      `Permanently delete all ${batches.length} batch(es) and ${sentLog.length} sent-log entr${sentLog.length === 1 ? 'y' : 'ies'}?\n\nSaved templates are not affected. This cannot be undone.`
+    )
+    if (!ok) return
+    setClearing(true)
+    try {
+      await clearPersonalEmailBatchesAndLog()
+      setBatches([])
+      setActiveBatchId(null)
+      setSentLog([])
+    } catch (err) {
+      window.alert(`Failed to clear: ${err.message}`)
+    } finally {
+      setClearing(false)
+    }
+  }
+
   return (
     <div className="page" style={{ maxWidth: 1000 }}>
       <div className="page-head">
@@ -118,6 +139,9 @@ export function MissiveTracking({ me, setRoute }) {
         <div className="actions">
           <button className="btn ghost" onClick={() => checkAllReplies(batches)} disabled={checkingReplies || !batches.length}>
             <Icon name="activity" size={12} /> {checkingReplies ? 'Checking…' : 'Check replies'}
+          </button>
+          <button className="btn ghost" onClick={clearTestData} disabled={clearing || (!batches.length && !sentLog.length)} style={{ color: 'var(--danger)' }}>
+            <Icon name="trash" size={12} /> {clearing ? 'Clearing…' : 'Clear all batches & log'}
           </button>
         </div>
       </div>

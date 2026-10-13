@@ -613,6 +613,17 @@ export async function loadPersonalEmailSentLog() {
   return data || []
 }
 
+// Wipes every batch and sent-log row — RLS (auth.uid() = user_id) scopes this to the
+// caller's own rows only, so it can never touch anyone else's data. Named templates are a
+// separate table and untouched. `.not('id', 'is', null)` is a no-op filter that matches every
+// row — PostgREST refuses a DELETE with no filter at all, even one meant to clear everything.
+export async function clearPersonalEmailBatchesAndLog() {
+  const { error: logError } = await supabase.from('personal_email_sent_log').delete().not('id', 'is', null)
+  if (logError) throw logError
+  const { error: batchError } = await supabase.from('personal_email_batches').delete().not('id', 'is', null)
+  if (batchError) throw batchError
+}
+
 // ── Saved email templates (named, reusable subject/body/signature) ───
 export async function loadPersonalEmailTemplates() {
   const { data, error } = await supabase
