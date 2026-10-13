@@ -4,6 +4,7 @@ import {
   checkPersonalEmailReplies, summarizeMissiveReplies, savePersonalEmailBatch, loadPersonalEmailBatches,
   loadPersonalEmailSentLog, clearPersonalEmailBatchesAndLog,
 } from '../lib/supabase.js'
+import { buildMissiveTrackingSheet } from '../lib/missiveTrackingSheet.js'
 
 // Dev Pandya's member_id slug — see the same comment in PersonalEmailSender.jsx/Shell.jsx for
 // why this is the short slug, not the Supabase UUID.
@@ -71,6 +72,7 @@ export function MissiveTracking({ me, setRoute }) {
   const [checkError, setCheckError] = useState('')
   const [copyBatchStatus, setCopyBatchStatus] = useState('')
   const [copyLogStatus, setCopyLogStatus] = useState('')
+  const [sheetStatus, setSheetStatus] = useState(null) // null | 'building' | 'building:<msg>' | {url} | {error}
 
   // checkAllReplies can be invoked (from the mount effect) before activeBatchId has caught up
   // to a just-set value in the same tick — a ref always reads the live value regardless of
@@ -206,6 +208,19 @@ export function MissiveTracking({ me, setRoute }) {
     }
   }
 
+  async function generateSheet() {
+    setSheetStatus('building')
+    try {
+      const url = await buildMissiveTrackingSheet(
+        batches,
+        msg => setSheetStatus(s => typeof s === 'object' && s?.url ? s : `building:${msg}`)
+      )
+      setSheetStatus({ url })
+    } catch (err) {
+      setSheetStatus({ error: err.message })
+    }
+  }
+
   return (
     <div className="page" style={{ maxWidth: 1000 }}>
       <div className="page-head">
@@ -214,6 +229,22 @@ export function MissiveTracking({ me, setRoute }) {
           <div className="sub">Which batches went out, and whether they got a reply</div>
         </div>
         <div className="actions">
+          {sheetStatus === 'building' || (typeof sheetStatus === 'string' && sheetStatus.startsWith('building:'))
+            ? <span className="faint" style={{ fontSize: 11 }}>{typeof sheetStatus === 'string' && sheetStatus.includes(':') ? sheetStatus.split(':')[1] : 'Building sheet…'}</span>
+            : sheetStatus?.url
+              ? (
+                <>
+                  <a href={sheetStatus.url} target="_blank" rel="noreferrer" style={{ fontSize: 11, fontWeight: 700, color: 'var(--ok)', textDecoration: 'none', background: 'rgba(92,255,161,.1)', border: '1px solid rgba(92,255,161,.25)', borderRadius: 5, padding: '3px 10px' }}>↗ Open Sheet</a>
+                  <button className="btn ghost" style={{ fontSize: 11, padding: '3px 10px' }} onClick={() => { setSheetStatus(null); generateSheet() }}>↺ Regenerate</button>
+                </>
+              )
+              : sheetStatus?.error
+                ? <span style={{ color: 'var(--danger)', fontSize: 11 }} title={sheetStatus.error}>Sheet error</span>
+                : (
+                  <button className="btn ghost" onClick={generateSheet} disabled={!batches.length}>
+                    <Icon name="download" size={12} /> Generate Sheet
+                  </button>
+                )}
           <button className="btn ghost" onClick={() => checkAllReplies(batches)} disabled={checkingReplies || !batches.length}>
             <Icon name="activity" size={12} /> {checkingReplies ? 'Checking…' : 'Check replies'}
           </button>
