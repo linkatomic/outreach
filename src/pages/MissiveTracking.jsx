@@ -83,9 +83,10 @@ export function MissiveTracking({ me, setRoute }) {
       const byConv = new Map(results.map(r => [r.conversationId, r]))
       const failedLookups = results.filter(r => r.error)
 
-      // First pass: apply hasReply flags, and collect rows whose reply JUST arrived (not
-      // already flagged, and not already summarized) — only those get an AI summary below,
-      // so re-checking an already-handled reply never posts a duplicate summary note.
+      // First pass: apply hasReply flags, and collect rows that have a reply but no summary
+      // posted yet — covers both a reply that JUST arrived and a prior summarize attempt
+      // that failed (retried here rather than left stuck), while never re-running for a row
+      // that already got a summary posted successfully.
       const newlyReplied = []
       let stage1 = batchList.map(b => ({
         ...b,
@@ -93,7 +94,7 @@ export function MissiveTracking({ me, setRoute }) {
           const res = r.conversationId && byConv.get(r.conversationId)
           if (!res) return r
           const hasReply = !!res.hasReply
-          if (hasReply && !r.hasReply && !r.summaryPosted) newlyReplied.push(r)
+          if (hasReply && !r.summaryPosted) newlyReplied.push(r)
           return { ...r, hasReply }
         }),
       }))
