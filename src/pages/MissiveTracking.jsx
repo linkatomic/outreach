@@ -241,13 +241,17 @@ export function MissiveTracking({ me, setRoute }) {
                             : <span className="faint">—</span>}
                           {row.noteError && <div style={{ marginTop: 2 }}><span className="chip danger" style={{ fontSize: 10 }}>not posted</span></div>}
                         </td>
-                        <td>
+                        <td style={{ maxWidth: 260, whiteSpace: 'normal' }}>
                           {row.hasReply
                             ? (
                               <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-start' }}>
                                 <span className="chip danger"><span className="dot-status danger" /> Replied</span>
                                 {row.summaryPosted && <span className="chip ok" style={{ fontSize: 10 }}>AI summary posted</span>}
-                                {row.summaryError && <span className="chip danger" style={{ fontSize: 10 }} title={row.summaryError}>summary failed</span>}
+                                {row.summaryError && (
+                                  <span className="chip danger" style={{ fontSize: 10, whiteSpace: 'normal' }}>
+                                    summary failed: {row.summaryError}
+                                  </span>
+                                )}
                               </div>
                             )
                             : <span className="faint">—</span>}
