@@ -69,9 +69,9 @@ async function createSpreadsheet(title) {
 }
 
 const COLS = ['Batch', 'Name', 'Email', 'Status', 'Sent', 'Reply', 'Internal Note', 'Missive Link']
-// Note gets a generous FIXED width with text wrap below, rather than letting the column
-// stretch to fit whichever row has the longest note — that's what made every row look
-// uneven. Row height still grows to fit wrapped text; only the column width stays fixed.
+// Note gets a generous FIXED width, and every row (see buildFmt) gets the SAME fixed height
+// regardless of note length — a long note is clipped within its cell, not wrapped into a
+// taller row, so every row stays visually even no matter how long any one note is.
 const WIDTHS = [160, 140, 220, 90, 150, 90, 340, 110]
 const N = COLS.length
 const HEADER_ROW = 3 // rows 0-2 are title/subtitle/spacer
@@ -140,12 +140,17 @@ function buildFmt(sheetId, flat) {
     rowFmt(sheetId, HEADER_ROW, N, { backgroundColor: C.headerBg, textFormat: { bold: true, foregroundColor: C.white, fontSize: 10 }, horizontalAlignment: 'CENTER', verticalAlignment: 'MIDDLE' }),
     rowH(sheetId, HEADER_ROW, DATA_START, 32),
 
-    // Default body alignment, then per-column overrides.
+    // Default body alignment, then per-column overrides. Every data row gets the SAME fixed
+    // height no matter how long its note is — CLIP (not WRAP) on every column, Note included,
+    // so a long note is visually truncated within its cell instead of wrapping and blowing up
+    // that one row's height. The full text is never lost: it's still the real cell value,
+    // just click the cell (or widen the column) to read all of it.
     rangeFmt(sheetId, DATA_START, dataEnd, 0, N, { verticalAlignment: 'MIDDLE', wrapStrategy: 'CLIP' }),
+    rowH(sheetId, DATA_START, dataEnd, 24),
     rangeFmt(sheetId, DATA_START, dataEnd, 2, 3, { textFormat: { fontFamily: 'Courier New', fontSize: 11 } }),
     rangeFmt(sheetId, DATA_START, dataEnd, 3, 4, { horizontalAlignment: 'CENTER' }),
     rangeFmt(sheetId, DATA_START, dataEnd, 5, 6, { horizontalAlignment: 'CENTER' }),
-    rangeFmt(sheetId, DATA_START, dataEnd, 6, 7, { horizontalAlignment: 'LEFT', verticalAlignment: 'TOP', wrapStrategy: 'WRAP' }),
+    rangeFmt(sheetId, DATA_START, dataEnd, 6, 7, { horizontalAlignment: 'LEFT' }),
     rangeFmt(sheetId, DATA_START, dataEnd, 7, 8, { horizontalAlignment: 'CENTER', textFormat: { foregroundColor: C.blue, bold: true } }),
 
     ...WIDTHS.map((px, i) => colW(sheetId, i, px)),
