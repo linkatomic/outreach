@@ -151,7 +151,17 @@ async function fetchNewReplyText(conversationId) {
   return theirs
     .slice()
     .reverse() // oldest of the new replies first
-    .map(stub => bodyToPlainText((byId.get(stub.id) || stub).body || stub.preview || ''))
+    .map(stub => {
+      const fullRaw = byId.get(stub.id)?.body || ''
+      const previewRaw = stub.preview || stub.body || ''
+      // Prefer whichever raw text is actually longer — guards against the full-message fetch
+      // silently resolving to something no longer than the list endpoint's own short preview
+      // (a real run got back a ~140-char, mid-word-truncated snippet under `body` instead of
+      // the real multi-paragraph reply — root cause unconfirmed, this is a safety net on top
+      // of the envelope-key fix in missiveMessages.js, not a replacement for it).
+      const raw = fullRaw.length >= previewRaw.length ? fullRaw : previewRaw
+      return bodyToPlainText(raw)
+    })
     .join('\n\n---\n\n')
 }
 

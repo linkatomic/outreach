@@ -78,14 +78,22 @@ export function bodyToPlainText(rawBody) {
 // a bare top-level array, nor necessarily {messages:[...]}. Real calls crashed with "Spread
 // syntax requires ...iterable[Symbol.iterator] to be a function", which only happens when
 // spreading a truthy non-array (an object) -- meaning `messages` was actually present but
-// shaped as an object (most likely keyed by message ID) rather than an array. Normalizing
-// defensively across every plausible shape avoids needing to keep guessing per-endpoint.
+// shaped as an object (most likely keyed by message ID) rather than an array. That was only
+// ever confirmed against a MULTI-id batch call, though -- a single-id GET /messages/:id (no
+// comma) may collapse to a singular `message` key holding the one object directly rather than
+// a one-entry `messages` map, the same singular/plural split already seen on the
+// single-conversation GET. A silent miss here doesn't error, it falls through to `[]`, which
+// upstream callers then treat as "no full message found" and fall back to the preview-only
+// stub -- exactly the kind of quietly-wrong-not-loudly-broken failure a real reply-summary run
+// hit (a short, mid-word-truncated preview standing in for the real body). Checking both keys
+// up front, and treating a key whose value itself looks like one message object (has its own
+// `.id`) as that one message rather than a keyed map, closes that gap.
 export function normalizeMessages(body) {
   const raw = (() => {
     if (Array.isArray(body)) return body
-    const m = body?.messages
+    const m = body?.messages ?? body?.message
     if (Array.isArray(m)) return m
-    if (m && typeof m === 'object') return Object.values(m) // keyed-by-id object map
+    if (m && typeof m === 'object') return m.id ? [m] : Object.values(m) // one message vs. keyed-by-id map
     if (body?.id) return [body] // bare single message, no wrapper at all
     return []
   })()
