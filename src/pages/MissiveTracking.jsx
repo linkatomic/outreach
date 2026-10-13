@@ -53,6 +53,7 @@ export function MissiveTracking({ me, setRoute }) {
   const [checkingReplies, setCheckingReplies] = useState(false)
   const [sentLog, setSentLog] = useState([])
   const [clearing, setClearing] = useState(false)
+  const [checkError, setCheckError] = useState('')
 
   // checkAllReplies can be invoked (from the mount effect) before activeBatchId has caught up
   // to a just-set value in the same tick — a ref always reads the live value regardless of
@@ -63,6 +64,7 @@ export function MissiveTracking({ me, setRoute }) {
   // Re-checks every batch's sent rows for new replies (message count grew since send) and
   // persists any changed hasReply flags back to their batches.
   async function checkAllReplies(batchList) {
+    setCheckError('')
     const entries = []
     for (const b of batchList) {
       for (const r of (b.rows || [])) {
@@ -71,11 +73,15 @@ export function MissiveTracking({ me, setRoute }) {
         }
       }
     }
-    if (!entries.length) return
+    if (!entries.length) {
+      setCheckError("No sent email here has a linked Missive conversation yet, so there's nothing to check.")
+      return
+    }
     setCheckingReplies(true)
     try {
       const results = await checkPersonalEmailReplies(entries)
       const byConv = new Map(results.map(r => [r.conversationId, r]))
+      const failedLookups = results.filter(r => r.error)
       const touched = new Set()
       const updated = batchList.map(b => {
         let changed = false
@@ -93,8 +99,14 @@ export function MissiveTracking({ me, setRoute }) {
       await Promise.all(updated.filter(b => touched.has(b.id)).map(b =>
         savePersonalEmailBatch({ id: b.id, batchName: b.batch_name, teamId: b.team_id, sharedLabelIds: b.shared_label_ids, rows: b.rows }).catch(() => {})
       ))
-    } catch { /* best-effort — a failed check just leaves badges as they were */ }
-    finally { setCheckingReplies(false) }
+      if (failedLookups.length) {
+        setCheckError(`${failedLookups.length} of ${entries.length} conversation lookups failed: ${failedLookups[0].error}`)
+      }
+    } catch (err) {
+      setCheckError(err.message)
+    } finally {
+      setCheckingReplies(false)
+    }
   }
 
   useEffect(() => {
@@ -145,6 +157,10 @@ export function MissiveTracking({ me, setRoute }) {
           </button>
         </div>
       </div>
+
+      {checkError && (
+        <div style={{ fontSize: 12, color: 'var(--danger)', marginBottom: 16 }}>{checkError}</div>
+      )}
 
       {loading ? (
         <div className="card" style={{ padding: 48, textAlign: 'center' }}><span className="faint" style={{ fontSize: 13 }}>Loading…</span></div>

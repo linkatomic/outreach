@@ -88,9 +88,14 @@ async function checkReplies(entries) {
       const entry = slice[bi]
       if (r.status === 'fulfilled') {
         // Single-conversation envelope key isn't confirmed either way — hedge both, same as
-        // missive-export.js's getConversation handler already does.
+        // missive-export.js's getConversation handler already does. That handler also guards
+        // against the plural `conversations` key holding an ARRAY (its own single-conversation
+        // GET sometimes wraps the one object in a list) — this was missing that guard, so
+        // `raw` could silently be an array with no `.messages_count`, making currentCount
+        // always null and hasReply always false regardless of real activity.
         const raw = r.value?.conversation || r.value?.conversations
-        const currentCount = raw?.messages_count ?? null
+        const conversation = Array.isArray(raw) ? raw[0] : raw
+        const currentCount = conversation?.messages_count ?? null
         results.push({
           conversationId: entry.conversationId,
           currentCount,
