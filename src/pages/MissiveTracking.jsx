@@ -103,15 +103,28 @@ export function MissiveTracking({ me, setRoute }) {
       // Second pass, best-effort: summarize each newly-arrived reply via GLM and post it as
       // a Missive note. Never blocks hasReply from being shown even if this fails entirely.
       let stage2 = stage1
+      let summarizeRequestError = ''
       if (newlyReplied.length) {
-        const summaries = await summarizeMissiveReplies(newlyReplied.map(r => r.conversationId)).catch(() => [])
+        const newlyRepliedIds = new Set(newlyReplied.map(r => r.id))
+        let summaries = []
+        try {
+          summaries = await summarizeMissiveReplies(newlyReplied.map(r => r.conversationId))
+        } catch (err) {
+          // The WHOLE request failed (e.g. a 504 from a slow GLM completion exceeding the
+          // function's own time budget) rather than one conversation's attempt inside it —
+          // previously this was silently swallowed, leaving every affected row looking
+          // untouched with no error and no explanation. Now every row that was waiting on
+          // this call gets a visible, retryable error instead of silence.
+          summarizeRequestError = err.message
+        }
         const byRowConv = new Map(summaries.map(s => [s.conversationId, s]))
         stage2 = stage1.map(b => ({
           ...b,
           rows: b.rows.map(r => {
+            if (!newlyRepliedIds.has(r.id)) return r
             const s = byRowConv.get(r.conversationId)
-            if (!s) return r
-            return { ...r, summaryPosted: !!s.posted, summaryError: s.error || null }
+            if (s) return { ...r, summaryPosted: !!s.posted, summaryError: s.error || null }
+            return { ...r, summaryError: summarizeRequestError || 'No result returned' }
           }),
         }))
         setBatches(stage2)
@@ -123,9 +136,14 @@ export function MissiveTracking({ me, setRoute }) {
         savePersonalEmailBatch({ id: b.id, batchName: b.batch_name, teamId: b.team_id, sharedLabelIds: b.shared_label_ids, rows: b.rows }).catch(() => {})
       ))
 
+      const errorParts = []
       if (failedLookups.length) {
-        setCheckError(`${failedLookups.length} of ${entries.length} conversation lookups failed: ${failedLookups[0].error}`)
+        errorParts.push(`${failedLookups.length} of ${entries.length} conversation lookups failed: ${failedLookups[0].error}`)
       }
+      if (summarizeRequestError) {
+        errorParts.push(`Reply detected, but summarizing it failed: ${summarizeRequestError}`)
+      }
+      if (errorParts.length) setCheckError(errorParts.join(' — '))
     } catch (err) {
       setCheckError(err.message)
     } finally {
