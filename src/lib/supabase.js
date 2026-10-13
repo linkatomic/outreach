@@ -546,7 +546,7 @@ export async function loadNotionHistory() {
 // Batches are RLS-scoped to auth.uid() = user_id, so these never need an explicit
 // member filter — Supabase only ever returns/accepts the caller's own rows.
 
-export async function savePersonalEmailBatch({ id, batchName, teamId, sharedLabelIds, rows }) {
+export async function savePersonalEmailBatch({ id, batchName, teamId, sharedLabelIds, rows, commonMode }) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) throw new Error('Not signed in')
   const payload = {
@@ -555,6 +555,7 @@ export async function savePersonalEmailBatch({ id, batchName, teamId, sharedLabe
     team_id: teamId || null,
     shared_label_ids: sharedLabelIds || [],
     rows: rows || [],
+    common_mode: !!commonMode,
     updated_at: new Date().toISOString(),
   }
   const query = id

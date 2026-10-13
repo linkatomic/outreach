@@ -158,6 +158,7 @@ export function PersonalEmailSender({ me }) {
   const [newBatchTeamId, setNewBatchTeamId] = useState('')
   const [newBatchLabelIds, setNewBatchLabelIds] = useState([])
   const [newBatchLabelFilter, setNewBatchLabelFilter] = useState('')
+  const [newBatchCommonMode, setNewBatchCommonMode] = useState(true)
   const [creatingBatch, setCreatingBatch] = useState(false)
   const [newBatchError, setNewBatchError] = useState('')
 
@@ -165,6 +166,12 @@ export function PersonalEmailSender({ me }) {
   const [batchName, setBatchName] = useState('')
   const [batchTeamId, setBatchTeamId] = useState('')
   const [batchLabelIds, setBatchLabelIds] = useState([])
+  // "Same email for everyone": hides each row's own Subject/Template/Signature and keeps
+  // them synced to the Defaults card above instead — for a batch that's genuinely the same
+  // pitch to everyone, editing N copies of the same two paragraphs was pure scroll-and-repeat.
+  // Off, each row keeps (and shows) its own independently-edited copy, for a batch that's
+  // actually personalized per recipient.
+  const [commonMode, setCommonMode] = useState(true)
   const [rows, setRows] = useState([])
   const [saveStatus, setSaveStatus] = useState('') // '' | 'saving' | 'saved' | error message
   const saveTimer = useRef(null)
@@ -192,22 +199,37 @@ export function PersonalEmailSender({ me }) {
   // Switching tabs loads that batch's own rows/name/team/labels into the working state below.
   useEffect(() => {
     const b = batches.find(x => x.id === activeBatchId)
-    if (!b) { setRows([]); setBatchName(''); setBatchTeamId(''); setBatchLabelIds([]); return }
+    if (!b) { setRows([]); setBatchName(''); setBatchTeamId(''); setBatchLabelIds([]); setCommonMode(true); return }
     setRows(b.rows || [])
     setBatchName(b.batch_name || '')
     setBatchTeamId(b.team_id || '')
     setBatchLabelIds(b.shared_label_ids || [])
+    setCommonMode(!!b.common_mode)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeBatchId])
 
-  // Auto-saves the active batch (debounced) whenever its rows/name/team/labels change.
+  // While commonMode is on, every row's subject/template/signature mirrors the Defaults card
+  // above — this keeps that in sync whenever Defaults changes, and also does the one-time
+  // sync the moment commonMode is switched on (so flipping it doesn't leave stale per-row
+  // copies sitting there unseen behind the hidden fields).
+  useEffect(() => {
+    if (!commonMode) return
+    setRows(prev => prev.map(r => (
+      r.subject === defaults.subject && r.template === defaults.template && r.signature === defaults.signature
+        ? r
+        : { ...r, subject: defaults.subject, template: defaults.template, signature: defaults.signature }
+    )))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [commonMode, defaults.subject, defaults.template, defaults.signature])
+
+  // Auto-saves the active batch (debounced) whenever its rows/name/team/labels/mode change.
   useEffect(() => {
     if (!activeBatchId) return
     setSaveStatus('saving')
     clearTimeout(saveTimer.current)
     saveTimer.current = setTimeout(async () => {
       try {
-        const saved = await savePersonalEmailBatch({ id: activeBatchId, batchName, teamId: batchTeamId, sharedLabelIds: batchLabelIds, rows })
+        const saved = await savePersonalEmailBatch({ id: activeBatchId, batchName, teamId: batchTeamId, sharedLabelIds: batchLabelIds, rows, commonMode })
         setBatches(prev => prev.map(b => b.id === saved.id ? saved : b))
         setSaveStatus('saved')
       } catch (err) {
@@ -216,7 +238,7 @@ export function PersonalEmailSender({ me }) {
     }, 800)
     return () => clearTimeout(saveTimer.current)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, batchName, batchTeamId, batchLabelIds])
+  }, [rows, batchName, batchTeamId, batchLabelIds, commonMode])
 
   function applyFromAddresses() {
     const list = fromEditorText.split('\n').map(l => l.trim()).filter(Boolean).map(line => {
@@ -284,6 +306,7 @@ export function PersonalEmailSender({ me }) {
     setNewBatchTeamId(active?.team_id || '')
     setNewBatchLabelIds(active?.shared_label_ids || [])
     setNewBatchLabelFilter('')
+    setNewBatchCommonMode(true)
     setNewBatchError('')
     setNewBatchOpen(true)
   }
@@ -293,7 +316,7 @@ export function PersonalEmailSender({ me }) {
     if (!name) { setNewBatchError('Name the batch before creating it'); return }
     setCreatingBatch(true); setNewBatchError('')
     try {
-      const saved = await savePersonalEmailBatch({ batchName: name, teamId: newBatchTeamId, sharedLabelIds: newBatchLabelIds, rows: [] })
+      const saved = await savePersonalEmailBatch({ batchName: name, teamId: newBatchTeamId, sharedLabelIds: newBatchLabelIds, rows: [], commonMode: newBatchCommonMode })
       setBatches(prev => [saved, ...prev])
       setActiveBatchId(saved.id)
       setNewBatchOpen(false)
@@ -378,7 +401,8 @@ export function PersonalEmailSender({ me }) {
             Use <code>{'{{name}}'}</code> for each recipient's name, and <code>**bold**</code> or a line starting with
             "<code>- </code>" for a bullet list — both render properly in the sent email. Leave Signature blank to
             automatically use whatever signature is already configured in Missive for the sending address. Each
-            recipient's subject/template/signature/from can still be edited individually after adding.
+            batch has its own "Email mode" below — "Customize each individually" lets every recipient keep their own
+            edited subject/template/signature; "Same email for everyone" keeps all of them mirroring what's set here.
           </div>
 
           <div className="row-flex" style={{ marginBottom: 20 }}>
@@ -460,6 +484,13 @@ export function PersonalEmailSender({ me }) {
               <LabelPicker labels={labels} filter={newBatchLabelFilter} onFilterChange={setNewBatchLabelFilter}
                 selected={newBatchLabelIds} onToggle={id => setNewBatchLabelIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])} />
             </div>
+            <div style={{ marginBottom: 16 }}>
+              <span className="label">Email mode</span>
+              <span className="seg">
+                <button type="button" className={newBatchCommonMode ? 'on' : ''} onClick={() => setNewBatchCommonMode(true)}>Same email for everyone</button>
+                <button type="button" className={!newBatchCommonMode ? 'on' : ''} onClick={() => setNewBatchCommonMode(false)}>Customize each individually</button>
+              </span>
+            </div>
             {newBatchError && <div style={{ fontSize: 12, color: 'var(--danger)', marginBottom: 12 }}>{newBatchError}</div>}
             <div className="row-flex">
               <button className="btn primary" onClick={createBatch} disabled={creatingBatch || !newBatchName.trim()}>
@@ -494,8 +525,22 @@ export function PersonalEmailSender({ me }) {
                   {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                 </select>
               </div>
-              <LabelPicker labels={labels} filter={labelFilter} onFilterChange={setLabelFilter}
-                selected={batchLabelIds} onToggle={id => setBatchLabelIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])} />
+              <div style={{ marginBottom: 16 }}>
+                <LabelPicker labels={labels} filter={labelFilter} onFilterChange={setLabelFilter}
+                  selected={batchLabelIds} onToggle={id => setBatchLabelIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])} />
+              </div>
+              <div>
+                <span className="label">Email mode</span>
+                <span className="seg">
+                  <button type="button" className={commonMode ? 'on' : ''} onClick={() => setCommonMode(true)}>Same email for everyone</button>
+                  <button type="button" className={!commonMode ? 'on' : ''} onClick={() => setCommonMode(false)}>Customize each individually</button>
+                </span>
+                <div className="faint" style={{ fontSize: 11, marginTop: 6, lineHeight: 1.5 }}>
+                  {commonMode
+                    ? 'Every recipient shares the Subject/Template/Signature set in Defaults above — each row below only shows Name/Email/From.'
+                    : 'Each recipient keeps its own independently-edited Subject/Template/Signature.'}
+                </div>
+              </div>
             </div>
           </div>
 
@@ -551,20 +596,28 @@ export function PersonalEmailSender({ me }) {
                           </button>
                         </div>
                       </div>
-                      <div style={{ marginBottom: 14 }}>
-                        <span className="label">Subject</span>
-                        <input className="input" value={row.subject} onChange={e => updateRow(row.id, { subject: e.target.value })} />
-                      </div>
-                      <div className="grid grid-2" style={{ marginBottom: 14 }}>
-                        <div>
-                          <span className="label">Template</span>
-                          <textarea className="input" style={textareaStyle} value={row.template} onChange={e => updateRow(row.id, { template: e.target.value })} />
+                      {commonMode ? (
+                        <div className="faint" style={{ fontSize: 11, marginBottom: 14 }}>
+                          Using the shared Subject/Template/Signature from Defaults above.
                         </div>
-                        <div>
-                          <span className="label">Signature</span>
-                          <textarea className="input" style={textareaStyle} value={row.signature} onChange={e => updateRow(row.id, { signature: e.target.value })} />
-                        </div>
-                      </div>
+                      ) : (
+                        <>
+                          <div style={{ marginBottom: 14 }}>
+                            <span className="label">Subject</span>
+                            <input className="input" value={row.subject} onChange={e => updateRow(row.id, { subject: e.target.value })} />
+                          </div>
+                          <div className="grid grid-2" style={{ marginBottom: 14 }}>
+                            <div>
+                              <span className="label">Template</span>
+                              <textarea className="input" style={textareaStyle} value={row.template} onChange={e => updateRow(row.id, { template: e.target.value })} />
+                            </div>
+                            <div>
+                              <span className="label">Signature</span>
+                              <textarea className="input" style={textareaStyle} value={row.signature} onChange={e => updateRow(row.id, { signature: e.target.value })} />
+                            </div>
+                          </div>
+                        </>
+                      )}
                       <div>
                         <span className="label">Internal note (optional)</span>
                         <textarea className="input" style={{ minHeight: 60, resize: 'vertical' }}
