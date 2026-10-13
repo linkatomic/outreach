@@ -105,17 +105,23 @@ async function checkReplies(entries) {
 }
 
 // Posts a note into an existing conversation (the orange-avatar "internal note" entries
-// visible in Missive's UI, distinct from the email thread itself). Confirmed against the
-// Missive REST API source of github.com/kanjidoc/missive-mcp (an open-source MCP server
-// whose POST /v1/posts implementation cites exact line numbers of Missive's own endpoint
-// docs) rather than guessed: POST /v1/posts, body wrapped in a `posts` key, `conversation`
-// is the existing conversation's ID, and `markdown` is the note's content — both are plain
-// optional fields, no `organization` required (that's only needed for assignee/access fields,
-// which this call doesn't use).
+// visible in Missive's UI, distinct from the email thread itself). POST /v1/posts, body
+// wrapped in a `posts` key, `conversation` is the existing conversation's ID, `markdown` is
+// the note's content. `notification` turned out to be required in production (a real send
+// returned "Validation failed: notification is required") even though it's optional in a
+// third-party reference implementation this was checked against — so it's always included
+// here now, confirmed against the live API rather than that reference alone.
 async function postConversationNote(conversationId, note) {
+  const body = note.length > 200 ? note.slice(0, 200) + '…' : note
   await missivePersonalRequest('/posts', {
     method: 'POST',
-    body: JSON.stringify({ posts: { conversation: conversationId, markdown: note } }),
+    body: JSON.stringify({
+      posts: {
+        conversation: conversationId,
+        markdown: note,
+        notification: { title: 'Note added', body },
+      },
+    }),
   })
 }
 
