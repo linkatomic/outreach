@@ -32,6 +32,21 @@ const STATUS_CHIP = {
   error:   { cls: 'danger', label: 'Failed' },
 }
 
+function linkLine(name, email, webUrl) {
+  return `${name ? `${name} <${email}>` : email}: ${webUrl}`
+}
+
+async function copyLines(lines, setStatus) {
+  if (!lines.length) { setStatus('No Missive links here yet'); setTimeout(() => setStatus(''), 2000); return }
+  try {
+    await navigator.clipboard.writeText(lines.join('\n'))
+    setStatus(`Copied ${lines.length} link${lines.length === 1 ? '' : 's'}`)
+  } catch {
+    setStatus('Copy failed — clipboard access was blocked')
+  }
+  setTimeout(() => setStatus(''), 2500)
+}
+
 // Read-only: shows what's already been sent and whether it got a reply. Composing and
 // actually sending emails happens on the Email Sender page — this page never creates a
 // batch, adds a recipient, or fires a send.
@@ -54,6 +69,8 @@ export function MissiveTracking({ me, setRoute }) {
   const [sentLog, setSentLog] = useState([])
   const [clearing, setClearing] = useState(false)
   const [checkError, setCheckError] = useState('')
+  const [copyBatchStatus, setCopyBatchStatus] = useState('')
+  const [copyLogStatus, setCopyLogStatus] = useState('')
 
   // checkAllReplies can be invoked (from the mount effect) before activeBatchId has caught up
   // to a just-set value in the same tick — a ref always reads the live value regardless of
@@ -237,6 +254,15 @@ export function MissiveTracking({ me, setRoute }) {
             <div className="card" style={{ marginBottom: 20 }}>
               <div className="card-head">
                 <h3>{batchLabel(activeBatch)}</h3>
+                <div className="actions">
+                  {copyBatchStatus && <span className="faint" style={{ fontSize: 11 }}>{copyBatchStatus}</span>}
+                  <button className="btn ghost" onClick={() => copyLines(
+                    (activeBatch.rows || []).filter(r => r.webUrl).map(r => linkLine(r.name, r.email, r.webUrl)),
+                    setCopyBatchStatus
+                  )}>
+                    <Icon name="copy" size={12} /> Copy links
+                  </button>
+                </div>
               </div>
               <div className="grid grid-4" style={{ padding: 16, paddingBottom: 0 }}>
                 <div className="kpi"><span className="kpi-label">Total</span><span className="kpi-value">{stats.total}</span></div>
@@ -308,6 +334,15 @@ export function MissiveTracking({ me, setRoute }) {
             <div>
               <h3>Sent Log</h3>
               <span className="sub">{sentLog.length} emails sent, all batches</span>
+            </div>
+            <div className="actions">
+              {copyLogStatus && <span className="faint" style={{ fontSize: 11 }}>{copyLogStatus}</span>}
+              <button className="btn ghost" onClick={() => copyLines(
+                sentLog.filter(e => e.web_url).map(e => linkLine(e.recipient_name, e.recipient_email, e.web_url)),
+                setCopyLogStatus
+              )}>
+                <Icon name="copy" size={12} /> Copy all links
+              </button>
             </div>
           </div>
           <table className="table">
