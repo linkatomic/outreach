@@ -81,12 +81,19 @@ export function bodyToPlainText(rawBody) {
 // shaped as an object (most likely keyed by message ID) rather than an array. Normalizing
 // defensively across every plausible shape avoids needing to keep guessing per-endpoint.
 export function normalizeMessages(body) {
-  if (Array.isArray(body)) return body
-  const m = body?.messages
-  if (Array.isArray(m)) return m
-  if (m && typeof m === 'object') return Object.values(m) // keyed-by-id object map
-  if (body?.id) return [body] // bare single message, no wrapper at all
-  return []
+  const raw = (() => {
+    if (Array.isArray(body)) return body
+    const m = body?.messages
+    if (Array.isArray(m)) return m
+    if (m && typeof m === 'object') return Object.values(m) // keyed-by-id object map
+    if (body?.id) return [body] // bare single message, no wrapper at all
+    return []
+  })()
+  // A keyed-by-id object map can hold a null value for an id that didn't resolve to a real
+  // message (seen in practice against a freshly-replied conversation), and a batch GET for
+  // several ids at once can do the same per-id — filter those out rather than letting every
+  // caller crash on `.id`/`.body` of a null entry.
+  return raw.filter(Boolean)
 }
 
 // Cursor-based pagination (until = oldest delivered_at from the previous page) — the raw
