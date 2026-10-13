@@ -6,6 +6,8 @@
 
 import { requireExactUser, supabaseAdmin } from './_lib/supabaseAdmin.js'
 import { missivePersonalRequest, fetchAllSharedLabels } from './_lib/missive.js'
+import { fetchMessageStubs, fetchFullMessages, bodyToPlainText } from './_lib/missiveMessages.js'
+import { glmComplete } from './_lib/glm.js'
 
 // Dev Pandya's real Supabase user_profiles.id (UUID) — requireExactUser checks this against
 // the authenticated caller's actual profile row, read straight from user_profiles here, so
@@ -116,7 +118,7 @@ async function checkReplies(entries) {
 // returned "Validation failed: notification is required") even though it's optional in a
 // third-party reference implementation this was checked against — so it's always included
 // here now, confirmed against the live API rather than that reference alone.
-async function postConversationNote(conversationId, note) {
+async function postConversationNote(conversationId, note, notificationTitle = 'Note added') {
   const body = note.length > 200 ? note.slice(0, 200) + '…' : note
   await missivePersonalRequest('/posts', {
     method: 'POST',
@@ -124,10 +126,81 @@ async function postConversationNote(conversationId, note) {
       posts: {
         conversation: conversationId,
         markdown: note,
-        notification: { title: 'Note added', body },
+        notification: { title: notificationTitle, body },
       },
     }),
   })
+}
+
+// Walks a conversation's messages newest-first and collects every one sent by the external
+// contact (no `author` field — the same "isOurs = !!m.author" convention missive-export.js's
+// export feature already relies on) up until hitting one of ours. That's "everything they
+// said since we last sent" — usually one reply, but this also covers back-to-back replies
+// sent before a check ran. 20 is generous headroom; a real new-reply run is almost always 1-2.
+async function fetchNewReplyText(conversationId) {
+  const stubs = await fetchMessageStubs(missivePersonalRequest, conversationId, 20)
+  const theirs = []
+  for (const stub of stubs) {
+    if (stub.author) break
+    theirs.push(stub)
+  }
+  if (!theirs.length) return ''
+
+  const full = await fetchFullMessages(missivePersonalRequest, theirs.map(m => m.id))
+  const byId = new Map(full.map(m => [m.id, m]))
+  return theirs
+    .slice()
+    .reverse() // oldest of the new replies first
+    .map(stub => bodyToPlainText((byId.get(stub.id) || stub).body || stub.preview || ''))
+    .join('\n\n---\n\n')
+}
+
+const REPLY_SUMMARY_PROMPT = `You are summarizing an email reply for an outreach team member. The text below is a reply FROM the person we emailed (an outreach/guest-post/link-building contact) — never summarize our own outgoing email, only theirs. Respond in Markdown with these sections, in this order:
+
+## TL;DR
+1-3 sentences on what they said and what it means for us.
+
+## Guidelines
+Bullet points for any requirements, conditions, rules, or restrictions they mentioned (e.g. content requirements, turnaround time, what they will/won't do). Omit this whole section if they mentioned none.
+
+## Pricing
+Every price, rate, or cost they mentioned, each as its own clearly labeled bullet point (e.g. "- Guest post: $50" / "- Do-follow link: $30 one-time"). Omit this whole section if they mentioned no pricing.
+
+Keep it tight and scannable. Do not invent information that isn't in the email below.`
+
+// Best-effort, same contract as the rest of this file's post-send steps: a failure here
+// never surfaces as anything other than its own { posted: false, error } entry — it's always
+// called after a reply is already confirmed to exist, so it must never look like the reply
+// itself failed.
+async function summarizeAndPostReply(conversationId) {
+  const replyText = await fetchNewReplyText(conversationId)
+  if (!replyText.trim()) return { posted: false }
+
+  const summary = await glmComplete([
+    { role: 'system', content: REPLY_SUMMARY_PROMPT },
+    { role: 'user', content: replyText.slice(0, 12000) },
+  ])
+  await postConversationNote(conversationId, summary, 'Reply summary (AI)')
+  return { posted: true }
+}
+
+async function summarizeReplies(conversationIds) {
+  const CONCURRENCY = 2 // each one is a Missive messages fetch plus a GLM call — gentler
+  // than the plain Missive-only loops elsewhere in this file.
+  const results = []
+  for (let i = 0; i < conversationIds.length; i += CONCURRENCY) {
+    const slice = conversationIds.slice(i, i + CONCURRENCY)
+    const settled = await Promise.allSettled(slice.map(id => summarizeAndPostReply(id)))
+    settled.forEach((r, bi) => {
+      const conversationId = slice[bi]
+      if (r.status === 'fulfilled') {
+        results.push({ conversationId, posted: r.value.posted })
+      } else {
+        results.push({ conversationId, posted: false, error: r.reason?.message || 'Failed' })
+      }
+    })
+  }
+  return results
 }
 
 async function handleSend(caller, payload) {
@@ -246,6 +319,12 @@ export default async function handler(req, res) {
       const { entries } = payload
       if (!Array.isArray(entries) || !entries.length) return res.json({ results: [] })
       return res.json({ results: await checkReplies(entries) })
+    }
+
+    if (action === 'summarizeReplies') {
+      const { conversationIds } = payload
+      if (!Array.isArray(conversationIds) || !conversationIds.length) return res.json({ results: [] })
+      return res.json({ results: await summarizeReplies(conversationIds) })
     }
 
     return res.status(400).json({ error: `Unknown action: ${action}` })

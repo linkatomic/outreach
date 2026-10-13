@@ -602,6 +602,13 @@ export function sendPersonalEmail(payload) {
 export function checkPersonalEmailReplies(entries) {
   return personalSenderCall('checkReplies', { entries }).then(r => r.results)
 }
+// For each conversation, generates a TL;DR (+ guidelines/pricing, when mentioned) of the
+// contact's reply via GLM and posts it as a note on that Missive conversation. Call this only
+// for conversations a reply was JUST confirmed on (checkPersonalEmailReplies) — it has no
+// memory of its own of what it's already summarized.
+export function summarizeMissiveReplies(conversationIds) {
+  return personalSenderCall('summarizeReplies', { conversationIds }).then(r => r.results)
+}
 
 export async function loadPersonalEmailSentLog() {
   const { data, error } = await supabase

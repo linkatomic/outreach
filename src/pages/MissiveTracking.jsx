@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { Icon } from '../data.jsx'
 import {
-  checkPersonalEmailReplies, savePersonalEmailBatch, loadPersonalEmailBatches, loadPersonalEmailSentLog,
-  clearPersonalEmailBatchesAndLog,
+  checkPersonalEmailReplies, summarizeMissiveReplies, savePersonalEmailBatch, loadPersonalEmailBatches,
+  loadPersonalEmailSentLog, clearPersonalEmailBatchesAndLog,
 } from '../lib/supabase.js'
 
 // Dev Pandya's member_id slug — see the same comment in PersonalEmailSender.jsx/Shell.jsx for
@@ -82,23 +82,46 @@ export function MissiveTracking({ me, setRoute }) {
       const results = await checkPersonalEmailReplies(entries)
       const byConv = new Map(results.map(r => [r.conversationId, r]))
       const failedLookups = results.filter(r => r.error)
-      const touched = new Set()
-      const updated = batchList.map(b => {
-        let changed = false
-        const newRows = (b.rows || []).map(r => {
+
+      // First pass: apply hasReply flags, and collect rows whose reply JUST arrived (not
+      // already flagged, and not already summarized) — only those get an AI summary below,
+      // so re-checking an already-handled reply never posts a duplicate summary note.
+      const newlyReplied = []
+      let stage1 = batchList.map(b => ({
+        ...b,
+        rows: (b.rows || []).map(r => {
           const res = r.conversationId && byConv.get(r.conversationId)
           if (!res) return r
           const hasReply = !!res.hasReply
-          if (hasReply !== !!r.hasReply) changed = true
+          if (hasReply && !r.hasReply && !r.summaryPosted) newlyReplied.push(r)
           return { ...r, hasReply }
-        })
-        if (changed) touched.add(b.id)
-        return { ...b, rows: newRows }
-      })
-      setBatches(updated)
-      await Promise.all(updated.filter(b => touched.has(b.id)).map(b =>
+        }),
+      }))
+      setBatches(stage1)
+
+      // Second pass, best-effort: summarize each newly-arrived reply via GLM and post it as
+      // a Missive note. Never blocks hasReply from being shown even if this fails entirely.
+      let stage2 = stage1
+      if (newlyReplied.length) {
+        const summaries = await summarizeMissiveReplies(newlyReplied.map(r => r.conversationId)).catch(() => [])
+        const byRowConv = new Map(summaries.map(s => [s.conversationId, s]))
+        stage2 = stage1.map(b => ({
+          ...b,
+          rows: b.rows.map(r => {
+            const s = byRowConv.get(r.conversationId)
+            if (!s) return r
+            return { ...r, summaryPosted: !!s.posted, summaryError: s.error || null }
+          }),
+        }))
+        setBatches(stage2)
+      }
+
+      // Persist every batch whose rows actually changed (reply flags and/or summary status).
+      const origRows = new Map(batchList.map(b => [b.id, JSON.stringify(b.rows || [])]))
+      await Promise.all(stage2.filter(b => JSON.stringify(b.rows || []) !== origRows.get(b.id)).map(b =>
         savePersonalEmailBatch({ id: b.id, batchName: b.batch_name, teamId: b.team_id, sharedLabelIds: b.shared_label_ids, rows: b.rows }).catch(() => {})
       ))
+
       if (failedLookups.length) {
         setCheckError(`${failedLookups.length} of ${entries.length} conversation lookups failed: ${failedLookups[0].error}`)
       }
@@ -218,7 +241,17 @@ export function MissiveTracking({ me, setRoute }) {
                             : <span className="faint">—</span>}
                           {row.noteError && <div style={{ marginTop: 2 }}><span className="chip danger" style={{ fontSize: 10 }}>not posted</span></div>}
                         </td>
-                        <td>{row.hasReply ? <span className="chip danger"><span className="dot-status danger" /> Replied</span> : <span className="faint">—</span>}</td>
+                        <td>
+                          {row.hasReply
+                            ? (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-start' }}>
+                                <span className="chip danger"><span className="dot-status danger" /> Replied</span>
+                                {row.summaryPosted && <span className="chip ok" style={{ fontSize: 10 }}>AI summary posted</span>}
+                                {row.summaryError && <span className="chip danger" style={{ fontSize: 10 }} title={row.summaryError}>summary failed</span>}
+                              </div>
+                            )
+                            : <span className="faint">—</span>}
+                        </td>
                         <td>
                           {row.webUrl
                             ? <a href={row.webUrl} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>Open →</a>
