@@ -45,8 +45,8 @@ export function MissiveHome({ me, setRoute }) {
   ]
 
   const tools = [
-    { id: 'missive-batches', title: 'Batches', desc: 'Create named batches of recipients, send individually via Missive, and track replies per batch', icon: 'layers' },
-    { id: 'missive-sender',  title: 'Email Sender', desc: 'Manage saved templates and From addresses used when creating a batch', icon: 'mail' },
+    { id: 'missive-sender',   title: 'Email Sender', desc: 'Compose templates, build batches of recipients, and send individually via Missive', icon: 'mail' },
+    { id: 'missive-tracking', title: 'Tracking', desc: 'See which batches went out, sent/pending/failed counts, and reply status', icon: 'activity' },
   ]
 
   const recentSends = log.slice(0, 6)
