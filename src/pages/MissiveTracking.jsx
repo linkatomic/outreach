@@ -158,11 +158,11 @@ export function MissiveTracking({ me, setRoute }) {
               </div>
               <table className="table">
                 <thead>
-                  <tr><th>Recipient</th><th>Status</th><th>Sent</th><th>Reply</th><th>Missive</th></tr>
+                  <tr><th>Recipient</th><th>Status</th><th>Sent</th><th>Note</th><th>Reply</th><th>Missive</th></tr>
                 </thead>
                 <tbody>
                   {(activeBatch.rows || []).length === 0 ? (
-                    <tr><td colSpan={5} className="faint" style={{ textAlign: 'center', padding: 24 }}>No recipients in this batch yet.</td></tr>
+                    <tr><td colSpan={6} className="faint" style={{ textAlign: 'center', padding: 24 }}>No recipients in this batch yet.</td></tr>
                   ) : (activeBatch.rows || []).map(row => {
                     const st = STATUS_CHIP[row.status] || STATUS_CHIP.pending
                     return (
@@ -172,6 +172,12 @@ export function MissiveTracking({ me, setRoute }) {
                         </td>
                         <td><span className={`chip${st.cls ? ' ' + st.cls : ''}`}>{st.label}</span></td>
                         <td className="muted" style={{ whiteSpace: 'nowrap' }}>{row.sentAt ? new Date(row.sentAt).toLocaleString() : '—'}</td>
+                        <td style={{ maxWidth: 220, whiteSpace: 'normal' }}>
+                          {row.note
+                            ? <span title={row.note}>{row.note.length > 60 ? row.note.slice(0, 60) + '…' : row.note}</span>
+                            : <span className="faint">—</span>}
+                          {row.noteError && <div style={{ marginTop: 2 }}><span className="chip danger" style={{ fontSize: 10 }}>not posted</span></div>}
+                        </td>
                         <td>{row.hasReply ? <span className="chip danger"><span className="dot-status danger" /> Replied</span> : <span className="faint">—</span>}</td>
                         <td>
                           {row.webUrl

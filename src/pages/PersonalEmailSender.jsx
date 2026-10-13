@@ -52,6 +52,7 @@ function mkRow({ name, email }, defaults) {
     template: defaults.template,
     signature: defaults.signature,
     from: defaults.from,
+    note: '', // internal note, posted to the Missive conversation after the email sends
     status: 'pending', // 'pending' | 'sending' | 'sent' | 'error'
     error: '',
     sentAt: null,
@@ -59,6 +60,7 @@ function mkRow({ name, email }, defaults) {
     conversationId: null,
     messagesCountAtSend: null,
     hasReply: false,
+    noteError: null,
   }
 }
 
@@ -326,6 +328,7 @@ export function PersonalEmailSender({ me }) {
         subject: row.subject,
         template: row.template,
         signature: row.signature,
+        note: row.note,
         team: batchTeamId || undefined,
         sharedLabelIds: batchLabelIds,
         organizationId,
@@ -336,6 +339,7 @@ export function PersonalEmailSender({ me }) {
         conversationId: result.conversationId || null,
         messagesCountAtSend: result.messagesCount ?? null,
         hasReply: false,
+        noteError: result.noteError || null,
       })
     } catch (err) {
       updateRow(row.id, { status: 'error', error: err.message })
@@ -551,7 +555,7 @@ export function PersonalEmailSender({ me }) {
                         <span className="label">Subject</span>
                         <input className="input" value={row.subject} onChange={e => updateRow(row.id, { subject: e.target.value })} />
                       </div>
-                      <div className="grid grid-2">
+                      <div className="grid grid-2" style={{ marginBottom: 14 }}>
                         <div>
                           <span className="label">Template</span>
                           <textarea className="input" style={textareaStyle} value={row.template} onChange={e => updateRow(row.id, { template: e.target.value })} />
@@ -561,13 +565,20 @@ export function PersonalEmailSender({ me }) {
                           <textarea className="input" style={textareaStyle} value={row.signature} onChange={e => updateRow(row.id, { signature: e.target.value })} />
                         </div>
                       </div>
+                      <div>
+                        <span className="label">Internal note (optional)</span>
+                        <textarea className="input" style={{ minHeight: 60, resize: 'vertical' }}
+                          placeholder="Posted to the Missive conversation after this email sends — visible to your team, not the recipient."
+                          value={row.note} onChange={e => updateRow(row.id, { note: e.target.value })} />
+                      </div>
                       {row.status === 'error' && row.error && (
                         <div style={{ marginTop: 10, fontSize: 12, color: 'var(--danger)' }}>{row.error}</div>
                       )}
                       {row.status === 'sent' && row.sentAt && (
-                        <div className="row-flex" style={{ marginTop: 10, fontSize: 11 }}>
+                        <div className="row-flex" style={{ marginTop: 10, fontSize: 11, flexWrap: 'wrap' }}>
                           <span className="faint">Sent {new Date(row.sentAt).toLocaleString()}</span>
                           {row.webUrl && <a href={row.webUrl} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>View in Missive →</a>}
+                          {row.noteError && <span className="chip danger">Note not posted: {row.noteError}</span>}
                         </div>
                       )}
                     </div>

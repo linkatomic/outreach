@@ -104,8 +104,23 @@ async function checkReplies(entries) {
   return results
 }
 
+// Posts a note into an existing conversation (the orange-avatar "internal note" entries
+// visible in Missive's UI, distinct from the email thread itself). Confirmed against the
+// Missive REST API source of github.com/kanjidoc/missive-mcp (an open-source MCP server
+// whose POST /v1/posts implementation cites exact line numbers of Missive's own endpoint
+// docs) rather than guessed: POST /v1/posts, body wrapped in a `posts` key, `conversation`
+// is the existing conversation's ID, and `markdown` is the note's content — both are plain
+// optional fields, no `organization` required (that's only needed for assignee/access fields,
+// which this call doesn't use).
+async function postConversationNote(conversationId, note) {
+  await missivePersonalRequest('/posts', {
+    method: 'POST',
+    body: JSON.stringify({ posts: { conversation: conversationId, markdown: note } }),
+  })
+}
+
 async function handleSend(caller, payload) {
-  const { to, from, subject, template, signature, team, sharedLabelIds, organizationId, batchId } = payload
+  const { to, from, subject, template, signature, team, sharedLabelIds, organizationId, batchId, note } = payload
   if (!to?.address) throw new Error('Recipient email is required')
   if (!from?.address) throw new Error('From address is required')
   if (!subject) throw new Error('Subject is required')
@@ -153,6 +168,22 @@ async function handleSend(caller, payload) {
     ;({ conversationId, webUrl, messagesCount } = await resolveConversationLink(to, subject))
   } catch { /* link lookup is best-effort */ }
 
+  // The note is meant to land AFTER the email is sent, as a separate internal post on the
+  // same conversation — never blocks or fails the send itself, just surfaced back so the
+  // caller can show a warning if it didn't land (e.g. the conversation link above failed).
+  let noteError = null
+  if (note?.trim()) {
+    if (!conversationId) {
+      noteError = "Couldn't find the conversation to attach the note to"
+    } else {
+      try {
+        await postConversationNote(conversationId, note.trim())
+      } catch (err) {
+        noteError = err.message
+      }
+    }
+  }
+
   try {
     await supabaseAdmin.from('personal_email_sent_log').insert({
       user_id: caller.id,
@@ -165,7 +196,7 @@ async function handleSend(caller, payload) {
     })
   } catch { /* logging is best-effort — never fail a successful send over it */ }
 
-  return { conversationId, webUrl, messagesCount }
+  return { conversationId, webUrl, messagesCount, noteError }
 }
 
 export default async function handler(req, res) {
@@ -196,8 +227,8 @@ export default async function handler(req, res) {
     }
 
     if (action === 'send') {
-      const { conversationId, webUrl, messagesCount } = await handleSend(caller, payload)
-      return res.json({ ok: true, conversationId, webUrl, messagesCount })
+      const { conversationId, webUrl, messagesCount, noteError } = await handleSend(caller, payload)
+      return res.json({ ok: true, conversationId, webUrl, messagesCount, noteError })
     }
 
     if (action === 'checkReplies') {
