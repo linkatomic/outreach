@@ -32,6 +32,20 @@ function saveFromAddresses(list) {
   try { localStorage.setItem(FROM_ADDRESSES_KEY, JSON.stringify(list)) } catch { /* ignore */ }
 }
 
+// Remembers whatever Team/Labels were last used to create a batch, so "New Batch" pre-fills
+// them instead of starting blank every time — most batches use the same team/labels, and
+// re-picking both on every single one was the actual complaint.
+const DEFAULT_BATCH_SETTINGS_KEY = 'personalSender.defaultBatchSettings'
+function loadDefaultBatchSettings() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(DEFAULT_BATCH_SETTINGS_KEY) || 'null')
+    return { teamId: parsed?.teamId || '', labelIds: Array.isArray(parsed?.labelIds) ? parsed.labelIds : [] }
+  } catch { return { teamId: '', labelIds: [] } }
+}
+function saveDefaultBatchSettings(teamId, labelIds) {
+  try { localStorage.setItem(DEFAULT_BATCH_SETTINGS_KEY, JSON.stringify({ teamId, labelIds })) } catch { /* ignore */ }
+}
+
 const BLANK_DEFAULTS = { subject: '', template: 'Hi {{name}},\n\n', signature: '', from: '' }
 
 const uid = () => Math.random().toString(36).slice(2)
@@ -301,10 +315,11 @@ export function PersonalEmailSender({ me }) {
   }
 
   function openNewBatchForm() {
+    const saved = loadDefaultBatchSettings()
     const active = batches.find(b => b.id === activeBatchId)
     setNewBatchName('')
-    setNewBatchTeamId(active?.team_id || '')
-    setNewBatchLabelIds(active?.shared_label_ids || [])
+    setNewBatchTeamId(saved.teamId || active?.team_id || '')
+    setNewBatchLabelIds(saved.labelIds.length ? saved.labelIds : (active?.shared_label_ids || []))
     setNewBatchLabelFilter('')
     setNewBatchCommonMode(true)
     setNewBatchError('')
@@ -317,6 +332,7 @@ export function PersonalEmailSender({ me }) {
     setCreatingBatch(true); setNewBatchError('')
     try {
       const saved = await savePersonalEmailBatch({ batchName: name, teamId: newBatchTeamId, sharedLabelIds: newBatchLabelIds, rows: [], commonMode: newBatchCommonMode })
+      saveDefaultBatchSettings(newBatchTeamId, newBatchLabelIds)
       setBatches(prev => [saved, ...prev])
       setActiveBatchId(saved.id)
       setNewBatchOpen(false)
@@ -472,6 +488,11 @@ export function PersonalEmailSender({ me }) {
               <span className="label">Name</span>
               <input className="input" autoFocus value={newBatchName} onChange={e => setNewBatchName(e.target.value)}
                 placeholder={'e.g. "CBD niche outreach — Oct batch"'} onKeyDown={e => e.key === 'Enter' && createBatch()} />
+            </div>
+            <div className="faint" style={{ fontSize: 11, marginBottom: 16, lineHeight: 1.5 }}>
+              Team and labels below are pre-filled from the last batch you created — change them here
+              and they'll become the new default for next time, so you only need to set them when they
+              actually change.
             </div>
             <div style={{ marginBottom: 16 }}>
               <span className="label">Team</span>
