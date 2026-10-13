@@ -17,6 +17,10 @@ import { glmComplete } from './_lib/glm.js'
 // tool is personal to one specific person, not role- or allowlist-gated.
 const DEV_USER_ID = 'a680f0f2-2ae2-4dc0-a094-5bbd1eb8cf7f'
 
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
 function escapeHtml(s) {
   return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
@@ -165,7 +169,13 @@ async function fetchNewReplyText(conversationId) {
     .join('\n\n---\n\n')
 }
 
-const REPLY_SUMMARY_PROMPT = `You are summarizing an email reply for an outreach team member. The text below is a reply FROM the person we emailed (an outreach/guest-post/link-building contact) — never summarize our own outgoing email, only theirs. Respond in Markdown with these sections, in this order:
+const REPLY_SUMMARY_PROMPT = `You are processing an email reply for an outreach team member. The text below is a reply FROM the person we emailed (an outreach/guest-post/link-building contact) — never summarize or translate our own outgoing email, only theirs. Respond in Markdown.
+
+First, check whether the email is written in English.
+- If it is NOT in English: start with a "## Original Reply (Translated to English)" section containing a complete, faithful English translation of their entire email — translate it as-is, do not summarize, shorten, or skip any of it here. Then continue with the sections below.
+- If it IS already in English: skip that section entirely and start directly with "## TL;DR".
+
+Then always include these sections, in this order, written in English regardless of the reply's original language:
 
 ## TL;DR
 1-3 sentences on what they said and what it means for us.
@@ -176,7 +186,7 @@ Bullet points for any requirements, conditions, rules, or restrictions they ment
 ## Pricing
 Every price, rate, or cost they mentioned, each as its own clearly labeled bullet point (e.g. "- Guest post: $50" / "- Do-follow link: $30 one-time"). Omit this whole section if they mentioned no pricing.
 
-Keep it tight and scannable. Do not invent information that isn't in the email below.`
+Keep the TL;DR/Guidelines/Pricing sections tight and scannable. Do not invent information that isn't in the email below.`
 
 // Best-effort, same contract as the rest of this file's post-send steps: a failure here
 // never surfaces as anything other than its own { posted: false, error } entry — it's always
@@ -186,10 +196,13 @@ async function summarizeAndPostReply(conversationId) {
   const replyText = await fetchNewReplyText(conversationId)
   if (!replyText.trim()) return { posted: false }
 
+  // A non-English reply gets a full translation ahead of the summary (see the prompt), which
+  // can run considerably longer than the summary alone — the default cap was sized for
+  // English-only input.
   const summary = await glmComplete([
     { role: 'system', content: REPLY_SUMMARY_PROMPT },
     { role: 'user', content: replyText.slice(0, 12000) },
-  ])
+  ], { maxTokens: 2000 })
   await postConversationNote(conversationId, summary, 'Reply summary (AI)')
   return { posted: true }
 }
@@ -271,6 +284,15 @@ async function handleSend(caller, payload) {
       noteError = "Couldn't find the conversation to attach the note to"
     } else {
       try {
+        // A real send showed the note appearing ABOVE the email it was about in Missive's
+        // UI, even though this call only ever fires after the draft POST above already
+        // returned. Most likely explanation: `delivered_at` on the email message reflects
+        // actual SMTP delivery, which completes some time after our send request returns,
+        // while a post's timestamp is set immediately on creation — so a note posted right
+        // away can easily land before the email's own delivered_at. There's no API-level way
+        // to pin a post's position, so this is a pragmatic delay to bias toward correct
+        // ordering, not a guarantee.
+        await sleep(5000)
         await postConversationNote(conversationId, note.trim())
       } catch (err) {
         noteError = err.message
