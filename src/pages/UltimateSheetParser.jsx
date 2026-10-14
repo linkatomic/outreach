@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Icon, TEAM } from '../data.jsx'
-import { saveUltimateSheetParserHistory, loadUltimateSheetParserHistory } from '../lib/supabase.js'
+import { saveUltimateSheetParserHistory, loadUltimateSheetParserHistory, detectSheetColumns } from '../lib/supabase.js'
 import {
   NICHE_CATEGORIES, extractSheetId, getSheetTabs, getSheetRows,
   createUltimateOutputSheet,
@@ -86,6 +86,17 @@ const ROLE_OPTIONS = [
 
 const STATUS_LABELS = { publish: 'Active', disable: 'Disabled', draft: 'Draft', trash: 'Removed' }
 const CHEAPER_LABELS = { existing: 'Existing Vendor', added: 'Added Sheet Vendor', same: 'Same Price', na: 'N/A' }
+
+// Best-effort default role for a column the AI didn't already flag as the domain column —
+// purely a starting point for the manual-assignment table, never authoritative.
+function guessNicheKey(label) {
+  const s = (label || '').toLowerCase()
+  const hasLI = /link insertion|\bli\b/.test(s)
+  if (/casino/.test(s)) return hasLI ? 'casino_li' : 'casino'
+  if (/cbd/.test(s)) return hasLI ? 'cbd_li' : 'cbd'
+  if (/crypto/.test(s)) return hasLI ? 'crypto_li' : 'crypto'
+  return hasLI ? 'general_li' : 'general'
+}
 
 function colIndexToLetter(idx) {
   let n = idx + 1
@@ -217,10 +228,26 @@ export function UltimateSheetParser({ priceMap, me }) {
             const rows = await getSheetRows(id, name, 25)
             if (rows.length < 2) return { name, skip: true, reason: 'Not enough rows', rows: [], headerRow: 0, roles: [] }
 
-            // Header row is assumed to be row 0 — assign column roles manually below.
-            const headerRow = 0
-            const headerCells = (rows[headerRow] || []).map(c => String(c ?? '').trim())
-            const roles = headerCells.map(() => 'ignore')
+            // AI pre-fill is only ever a starting point — every role is fully overridable in
+            // the review step below, so a detection failure here just means this one tab
+            // starts blank (header row 0, every column "ignore") instead of breaking the tab.
+            let headerRow = 0
+            let roles
+            try {
+              const det = await detectSheetColumns(name, rows)
+              headerRow = Math.max(0, Math.min(det.headerRow ?? 0, rows.length - 1))
+              const headerCells = (rows[headerRow] || []).map(c => String(c ?? '').trim())
+              const domainIdx = det.domainColumn ? headerCells.indexOf(det.domainColumn) : -1
+              const priceIdxByLabel = new Map((det.priceColumns || []).map(p => [headerCells.indexOf(p.name), p.label]))
+              roles = headerCells.map((_, ci) => {
+                if (ci === domainIdx) return 'domain'
+                if (priceIdxByLabel.has(ci)) return guessNicheKey(priceIdxByLabel.get(ci))
+                return 'ignore'
+              })
+            } catch {
+              const headerCells = (rows[0] || []).map(c => String(c ?? '').trim())
+              roles = headerCells.map(() => 'ignore')
+            }
 
             return { name, skip: false, rows, headerRow, roles, enabled: true }
           } catch (err) {
@@ -560,8 +587,8 @@ export function UltimateSheetParser({ priceMap, me }) {
         </span>
       </div>
       <p style={{ fontSize: 13, color: 'var(--text-dim)', marginBottom: 12, lineHeight: 1.6 }}>
-        Paste a Google Sheet URL, then assign each column by letter (domain, and a niche per price column).
-        Each domain is compared against its existing GPL vendor's admin price niche by niche.
+        Paste a Google Sheet URL — AI pre-detects columns, then you confirm or manually reassign any column
+        by letter. Each domain is compared against its existing GPL vendor's admin price niche by niche.
       </p>
       <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
         <input
@@ -579,7 +606,7 @@ export function UltimateSheetParser({ priceMap, me }) {
         </button>
       </div>
       {step === 'analyzing' && (
-        <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 8 }}>Reading all tabs…</div>
+        <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 8 }}>Reading all tabs and running AI column detection…</div>
       )}
     </div>
   )
@@ -588,7 +615,7 @@ export function UltimateSheetParser({ priceMap, me }) {
     <div style={{ maxWidth: 900 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
         <span style={{ fontSize: 13, color: 'var(--text-dim)', flexShrink: 0 }}>
-          Found <strong style={{ color: 'var(--text)' }}>{tabs.length}</strong> tab{tabs.length !== 1 ? 's' : ''}. Assign columns by letter, then confirm.
+          AI found <strong style={{ color: 'var(--text)' }}>{tabs.length}</strong> tab{tabs.length !== 1 ? 's' : ''}. Review/reassign columns by letter, then confirm.
         </span>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexShrink: 0 }}>
           <button className="btn ghost" onClick={() => setStep('idle')}>← Back</button>
