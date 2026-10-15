@@ -9,8 +9,7 @@
     "api/crisp-export.js": { "maxDuration": 10 },
     "api/missive-export.js": { "maxDuration": 20 },
     "api/ahrefs.js": { "maxDuration": 20 },
-    "api/personal-email-sender.js": { "maxDuration": 60 },
-    "api/ultimate-sheet-parser.js": { "maxDuration": 60 }
+    "api/personal-email-sender.js": { "maxDuration": 60 }
   },
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/$1" },

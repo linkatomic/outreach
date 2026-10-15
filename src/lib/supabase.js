@@ -241,24 +241,6 @@ export function getMissiveConversationExport(payload) {
   return missiveExportCall('getConversationExport', payload)
 }
 
-// ── Ultimate Sheet Parser — AI column detection ─────────
-// api/ultimate-sheet-parser.js independently re-checks tool access server-side
-// (requireToolAccess) — same bearer-token pattern as the calls above. GLM-backed (was OpenAI).
-async function ultimateSheetParserCall(action, payload) {
-  const { data: { session } } = await supabase.auth.getSession()
-  const res = await fetch('/api/ultimate-sheet-parser', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token || ''}` },
-    body: JSON.stringify({ action, payload }),
-  })
-  const body = await res.json()
-  if (!res.ok) throw new Error(body.error || `Request failed (${res.status})`)
-  return body
-}
-export function detectSheetColumns(tabName, rows) {
-  return ultimateSheetParserCall('detectColumns', { tabName, rows }).then(r => r.detection)
-}
-
 export async function saveUserAccent(userId, accent) {
   const { error } = await supabase
     .from('user_profiles')

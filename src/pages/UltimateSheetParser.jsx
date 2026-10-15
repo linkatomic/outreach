@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Icon, TEAM } from '../data.jsx'
-import { saveUltimateSheetParserHistory, loadUltimateSheetParserHistory, detectSheetColumns } from '../lib/supabase.js'
+import { saveUltimateSheetParserHistory, loadUltimateSheetParserHistory } from '../lib/supabase.js'
 import {
   NICHE_CATEGORIES, extractSheetId, getSheetTabs, getSheetRows,
   createUltimateOutputSheet,
@@ -17,6 +17,7 @@ const NICHE_FAMILY = {
   casino: 'purple', casino_li: 'purple',
   cbd: 'green', cbd_li: 'green',
   crypto: 'amber', crypto_li: 'amber',
+  gray_niche: 'red',
 }
 function rgb(red, green, blue) { return { red, green, blue } }
 const FAMILY = {
@@ -24,6 +25,7 @@ const FAMILY = {
   purple:  { header: rgb(0.396, 0.263, 0.573), tint: rgb(0.953, 0.933, 0.980) },
   green:   { header: rgb(0.176, 0.435, 0.263), tint: rgb(0.925, 0.957, 0.929) },
   amber:   { header: rgb(0.588, 0.404, 0.086), tint: rgb(0.996, 0.949, 0.878) },
+  red:     { header: rgb(0.573, 0.176, 0.176), tint: rgb(0.980, 0.933, 0.933) },
   neutral: { header: rgb(0.11, 0.11, 0.15),    tint: rgb(0.965, 0.965, 0.968) },
 }
 const HEADER_DARK = rgb(0.11, 0.11, 0.15)
@@ -87,16 +89,9 @@ const ROLE_OPTIONS = [
 const STATUS_LABELS = { publish: 'Active', disable: 'Disabled', draft: 'Draft', trash: 'Removed' }
 const CHEAPER_LABELS = { existing: 'Existing Vendor', added: 'Added Sheet Vendor', same: 'Same Price', na: 'N/A' }
 
-// Best-effort default role for a column the AI didn't already flag as the domain column —
-// purely a starting point for the manual-assignment table, never authoritative.
-function guessNicheKey(label) {
-  const s = (label || '').toLowerCase()
-  const hasLI = /link insertion|\bli\b/.test(s)
-  if (/casino/.test(s)) return hasLI ? 'casino_li' : 'casino'
-  if (/cbd/.test(s)) return hasLI ? 'cbd_li' : 'cbd'
-  if (/crypto/.test(s)) return hasLI ? 'crypto_li' : 'crypto'
-  return hasLI ? 'general_li' : 'general'
-}
+// Standard team-submission layout: column A website, B General Price, C Gray Niche Price,
+// header row 0 — see analyze().
+const STANDARD_COLUMNS = { domain: 0, general: 1, grayNiche: 2 }
 
 function colIndexToLetter(idx) {
   let n = idx + 1
@@ -228,26 +223,19 @@ export function UltimateSheetParser({ priceMap, me }) {
             const rows = await getSheetRows(id, name, 25)
             if (rows.length < 2) return { name, skip: true, reason: 'Not enough rows', rows: [], headerRow: 0, roles: [] }
 
-            // AI pre-fill is only ever a starting point — every role is fully overridable in
-            // the review step below, so a detection failure here just means this one tab
-            // starts blank (header row 0, every column "ignore") instead of breaking the tab.
-            let headerRow = 0
-            let roles
-            try {
-              const det = await detectSheetColumns(name, rows)
-              headerRow = Math.max(0, Math.min(det.headerRow ?? 0, rows.length - 1))
-              const headerCells = (rows[headerRow] || []).map(c => String(c ?? '').trim())
-              const domainIdx = det.domainColumn ? headerCells.indexOf(det.domainColumn) : -1
-              const priceIdxByLabel = new Map((det.priceColumns || []).map(p => [headerCells.indexOf(p.name), p.label]))
-              roles = headerCells.map((_, ci) => {
-                if (ci === domainIdx) return 'domain'
-                if (priceIdxByLabel.has(ci)) return guessNicheKey(priceIdxByLabel.get(ci))
-                return 'ignore'
-              })
-            } catch {
-              const headerCells = (rows[0] || []).map(c => String(c ?? '').trim())
-              roles = headerCells.map(() => 'ignore')
-            }
+            // Team members submit sheets in one fixed layout — column A website, B General
+            // Price, C Gray Niche Price, header row 0 — so this is hardcoded by position
+            // rather than guessed (by AI or otherwise). Still just a starting point: every
+            // role is fully overridable by letter in the review step below, so a tab that
+            // doesn't match this layout is a quick manual fix, not a broken tab.
+            const headerRow = 0
+            const headerCells = (rows[headerRow] || []).map(c => String(c ?? '').trim())
+            const roles = headerCells.map((_, ci) => {
+              if (ci === STANDARD_COLUMNS.domain) return 'domain'
+              if (ci === STANDARD_COLUMNS.general) return 'general'
+              if (ci === STANDARD_COLUMNS.grayNiche) return 'gray_niche'
+              return 'ignore'
+            })
 
             return { name, skip: false, rows, headerRow, roles, enabled: true }
           } catch (err) {
@@ -372,8 +360,15 @@ export function UltimateSheetParser({ priceMap, me }) {
         activeNicheKeys.forEach(key => {
           const base = colStart[key]
           const sheetPrice = pr.sheetPrices[key]
+          // gray_niche has no GPL addon of its own — gplLabel is an array of labels to try
+          // in order, comparing against whichever one this vendor actually has priced.
           const gplLabel = NICHE_BY_KEY[key].gplLabel
-          const existingAddon = vendor?.addonsByLabel.get(gplLabel) || null
+          const labelsToTry = Array.isArray(gplLabel) ? gplLabel : [gplLabel]
+          let existingAddon = null
+          for (const lbl of labelsToTry) {
+            const addon = vendor?.addonsByLabel.get(lbl)
+            if (addon?.adminPrice != null) { existingAddon = addon; break }
+          }
           const existingPrice = existingAddon?.adminPrice ?? null
           const outcome = compareNiche(sheetPrice, existingPrice, vendor?.currency)
           const buyerPrice = sheetPrice != null ? (priceMap.get(Math.round(sheetPrice))?.buyer ?? null) : null
@@ -587,8 +582,10 @@ export function UltimateSheetParser({ priceMap, me }) {
         </span>
       </div>
       <p style={{ fontSize: 13, color: 'var(--text-dim)', marginBottom: 12, lineHeight: 1.6 }}>
-        Paste a Google Sheet URL — AI pre-detects columns, then you confirm or manually reassign any column
-        by letter. Each domain is compared against its existing GPL vendor's admin price niche by niche.
+        Paste a Google Sheet URL — each tab is assumed to follow the standard submission format
+        (Website, General Price, Gray Niche Price as the first three columns), pre-filled automatically;
+        reassign any column by letter if a tab differs. Each domain is compared against its existing
+        GPL vendor's admin price niche by niche.
       </p>
       <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
         <input
@@ -606,7 +603,7 @@ export function UltimateSheetParser({ priceMap, me }) {
         </button>
       </div>
       {step === 'analyzing' && (
-        <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 8 }}>Reading all tabs and running AI column detection…</div>
+        <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 8 }}>Reading all tabs…</div>
       )}
     </div>
   )
@@ -615,7 +612,7 @@ export function UltimateSheetParser({ priceMap, me }) {
     <div style={{ maxWidth: 900 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
         <span style={{ fontSize: 13, color: 'var(--text-dim)', flexShrink: 0 }}>
-          AI found <strong style={{ color: 'var(--text)' }}>{tabs.length}</strong> tab{tabs.length !== 1 ? 's' : ''}. Review/reassign columns by letter, then confirm.
+          Found <strong style={{ color: 'var(--text)' }}>{tabs.length}</strong> tab{tabs.length !== 1 ? 's' : ''}. Review/reassign columns by letter, then confirm.
         </span>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexShrink: 0 }}>
           <button className="btn ghost" onClick={() => setStep('idle')}>← Back</button>

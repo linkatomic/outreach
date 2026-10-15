@@ -128,6 +128,11 @@ export const NICHE_CATEGORIES = [
   { key: 'cbd_li',     label: 'CBD/LI',      gplLabel: 'cbd link insertion' },
   { key: 'crypto',     label: 'Crypto',      gplLabel: 'crypto' },
   { key: 'crypto_li',  label: 'Crypto/LI',   gplLabel: 'crypto link insertion' },
+  // One submitted price meant to cover casino/CBD/crypto content generically — GPL has no
+  // single "gray niche" addon of its own, so the existing-vendor comparison tries each of
+  // the three in turn and compares against whichever one that vendor actually has priced
+  // (gplLabel as an array, handled specially where it's read in UltimateSheetParser.jsx).
+  { key: 'gray_niche', label: 'Gray Niche',  gplLabel: ['casino', 'cbd', 'crypto'] },
 ]
 
 // ── GPL publisher data lookup (full detail) ───────────────
