@@ -677,3 +677,59 @@ export async function deletePersonalEmailTemplate(id) {
   const { error } = await supabase.from('personal_email_templates').delete().eq('id', id)
   if (error) throw error
 }
+
+// ── New Listing Import ────────────────────────────────────
+// Imports the team's daily "New Listing" intake sheet (one Google Sheet tab per day) into
+// `new_listings`. Rows are keyed by (website, source_tab) — re-importing the same tab updates
+// its rows in place instead of duplicating them.
+
+export async function bulkUpsertNewListings(rows) {
+  const CHUNK = 500
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    const chunk = rows.slice(i, i + CHUNK)
+    const { error } = await supabase.from('new_listings').upsert(chunk, { onConflict: 'website,source_tab' })
+    if (error) throw error
+  }
+}
+
+// Used during review (before committing) to tell the user which rows in a tab already exist
+// in the DB and will be updated vs. inserted as new.
+export async function loadExistingNewListingWebsites(sourceTab) {
+  const { data, error } = await supabase.from('new_listings').select('website').eq('source_tab', sourceTab)
+  if (error) throw error
+  return new Set((data || []).map(r => r.website))
+}
+
+export async function loadNewListings({ search = '', status = null, vendor = null, sourceTab = null, limit = 500 } = {}) {
+  let query = supabase
+    .from('new_listings')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(limit)
+  if (status) query = query.eq('status', status)
+  if (vendor) query = query.eq('vendor', vendor)
+  if (sourceTab) query = query.eq('source_tab', sourceTab)
+  const { data, error } = await query
+  if (error) throw error
+  let results = data || []
+  if (search) {
+    const q = search.toLowerCase()
+    results = results.filter(r =>
+      (r.website || '').toLowerCase().includes(q) ||
+      (r.vendor || '').toLowerCase().includes(q) ||
+      (r.added_by || '').toLowerCase().includes(q)
+    )
+  }
+  return results
+}
+
+export async function loadNewListingSourceTabs() {
+  const { data, error } = await supabase.from('new_listings').select('source_tab')
+  if (error) throw error
+  return [...new Set((data || []).map(r => r.source_tab))].sort().reverse()
+}
+
+export async function deleteNewListing(id) {
+  const { error } = await supabase.from('new_listings').delete().eq('id', id)
+  if (error) throw error
+}
