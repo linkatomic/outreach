@@ -678,29 +678,35 @@ export async function deletePersonalEmailTemplate(id) {
   if (error) throw error
 }
 
-// ── New Listing Import ────────────────────────────────────
-// Imports the team's daily "New Listing" intake sheet (one Google Sheet tab per day) into
-// `new_listings`. Rows are keyed by (website, source_tab) — re-importing the same tab updates
-// its rows in place instead of duplicating them.
+// ── New Listing ────────────────────────────────────────────
+// Replaces the team's old "New Listing" Google Sheet — single and bulk data-entry forms write
+// straight into `new_listings` instead of a spreadsheet.
 
-export async function bulkUpsertNewListings(rows) {
-  const CHUNK = 500
-  for (let i = 0; i < rows.length; i += CHUNK) {
-    const chunk = rows.slice(i, i + CHUNK)
-    const { error } = await supabase.from('new_listings').upsert(chunk, { onConflict: 'website,source_tab' })
-    if (error) throw error
-  }
-}
-
-// Used during review (before committing) to tell the user which rows in a tab already exist
-// in the DB and will be updated vs. inserted as new.
-export async function loadExistingNewListingWebsites(sourceTab) {
-  const { data, error } = await supabase.from('new_listings').select('website').eq('source_tab', sourceTab)
+export async function createSingleListing(fields) {
+  const { data, error } = await supabase
+    .from('new_listings')
+    .insert({ ...fields, entry_type: 'single' })
+    .select().single()
   if (error) throw error
-  return new Set((data || []).map(r => r.website))
+  return data
 }
 
-export async function loadNewListings({ search = '', status = null, vendor = null, sourceTab = null, limit = 500 } = {}) {
+// `rows` already carry the per-row fields (common fields + per-site website/pricing merged in
+// by the caller); batch_id groups them so Browse can show/filter one bulk submission together.
+export async function createBulkListings(rows, { batchId, pricingMode }) {
+  const payload = rows.map(r => ({ ...r, entry_type: 'bulk', batch_id: batchId, pricing_mode: pricingMode }))
+  const CHUNK = 500
+  const out = []
+  for (let i = 0; i < payload.length; i += CHUNK) {
+    const chunk = payload.slice(i, i + CHUNK)
+    const { data, error } = await supabase.from('new_listings').insert(chunk).select()
+    if (error) throw error
+    out.push(...(data || []))
+  }
+  return out
+}
+
+export async function loadNewListings({ search = '', status = null, vendor = null, entryType = null, limit = 500 } = {}) {
   let query = supabase
     .from('new_listings')
     .select('*')
@@ -708,7 +714,7 @@ export async function loadNewListings({ search = '', status = null, vendor = nul
     .limit(limit)
   if (status) query = query.eq('status', status)
   if (vendor) query = query.eq('vendor', vendor)
-  if (sourceTab) query = query.eq('source_tab', sourceTab)
+  if (entryType) query = query.eq('entry_type', entryType)
   const { data, error } = await query
   if (error) throw error
   let results = data || []
@@ -723,10 +729,10 @@ export async function loadNewListings({ search = '', status = null, vendor = nul
   return results
 }
 
-export async function loadNewListingSourceTabs() {
-  const { data, error } = await supabase.from('new_listings').select('source_tab')
+export async function updateNewListing(id, updates) {
+  const { data, error } = await supabase.from('new_listings').update(updates).eq('id', id).select().single()
   if (error) throw error
-  return [...new Set((data || []).map(r => r.source_tab))].sort().reverse()
+  return data
 }
 
 export async function deleteNewListing(id) {

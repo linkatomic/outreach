@@ -3,7 +3,7 @@ import { Icon } from '../data.jsx'
 import { loadPriceTable } from '../lib/supabase.js'
 import { extractSheetId, getSheetTabs, getSheetRows, batchWriteRangeValues } from '../lib/sheetParserAPI.js'
 import { UltimateSheetParser } from './UltimateSheetParser.jsx'
-import { NewListingImporter } from './NewListingImporter.jsx'
+import { NewListing } from './NewListing.jsx'
 import { LiveChatClients } from './LiveChat.jsx'
 import { LiveChatPriceFinder } from './LiveChatPriceFinder.jsx'
 import { CrispChatExport } from './CrispChatExport.jsx'
@@ -1096,7 +1096,7 @@ function BuyerPriceLookup({ priceMap, loading, error }) {
 
 export const TOOLS = [
   { id: 'ultimate-sheet-parser', title: 'Ultimate Sheet Parser', desc: 'Auto-assigns the standard Website/General/Gray Niche columns, GPL vendor price comparison, and DA/PA/Ascore enrichment', icon: 'zap', tag: 'Sheets', section: 'outreach' },
-  { id: 'new-listing-import', title: 'New Listing Import', desc: 'Import the daily New Listing sheet (one tab per day) into the database — status, pricing, vendor and audit fields, deduped by website', icon: 'list', tag: 'Sheets', section: 'outreach' },
+  { id: 'new-listing', title: 'New Listing', desc: 'Add website listings directly — single form with every field, or bulk form with shared common fields and same/different pricing per site', icon: 'list', tag: 'Listings', section: 'outreach' },
   { id: 'combined-calc',  title: 'Currency & % Calculator', desc: 'Apply % discount/markup, convert currency, get post price with buyer/reseller lookup',                       icon: 'globe',    tag: 'Pricing', section: 'outreach'  },
   { id: 'price-calc',     title: 'Price Calculator',        desc: 'Convert admin price to buyer & reseller price instantly',                                                     icon: 'tool',     tag: 'Pricing', section: 'outreach'  },
   { id: 'buyer-lookup',   title: 'Buyer → Admin Lookup',    desc: 'Search a buyer price (e.g. 34 for 34.9) and get the best matching admin price instantly',                       icon: 'search',   tag: 'Pricing', section: 'outreach'  },
@@ -1213,18 +1213,18 @@ export function ToolsPage({ me, role, section = 'outreach' }) {
             <UltimateSheetParser priceMap={priceMap} me={me} />
           </div>
         </div>
-      ) : activeTool === 'new-listing-import' ? (
+      ) : activeTool === 'new-listing' ? (
         <div className="card">
           <div className="card-head">
             <div>
-              <h3>New Listing Import</h3>
+              <h3>New Listing</h3>
               <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 2 }}>
-                Imports the daily New Listing sheet into the database, deduped by website + tab
+                Add website listings directly — replaces the old New Listing spreadsheet
               </div>
             </div>
           </div>
           <div className="card-pad">
-            <NewListingImporter me={me} />
+            <NewListing me={me} />
           </div>
         </div>
       ) : activeTool === 'price-calc' ? (
