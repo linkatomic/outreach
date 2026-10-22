@@ -241,6 +241,25 @@ export function getMissiveConversationExport(payload) {
   return missiveExportCall('getConversationExport', payload)
 }
 
+// ── Missive email lookup ──────────────────────────────────
+// api/missive-email-lookup.js independently re-checks tool access server-side
+// (requireToolAccess) — same bearer-token pattern as the calls above.
+async function missiveEmailLookupCall(action, payload) {
+  const { data: { session } } = await supabase.auth.getSession()
+  const res = await fetch('/api/missive-email-lookup', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token || ''}` },
+    body: JSON.stringify({ action, payload }),
+  })
+  const body = await res.json()
+  if (!res.ok) throw new Error(body.error || `Request failed (${res.status})`)
+  return body
+}
+
+export function lookupMissiveEmail(email) {
+  return missiveEmailLookupCall('lookupEmail', { email })
+}
+
 export async function saveUserAccent(userId, accent) {
   const { error } = await supabase
     .from('user_profiles')
