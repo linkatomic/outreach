@@ -15,10 +15,34 @@ function errorMessage(body, status) {
   return body?.error?.message || body?.error || body?.message || `Missive API error ${status}`
 }
 
+// Caps how many Missive requests THIS invocation has in flight at once. Originally this
+// file leaned entirely on the Retry-After backoff below, reasoning every caller was
+// low-volume and manually triggered — not true anymore: Email Lookup's checkOutbound can
+// fan out one request per conversation a contact has (Promise.all over however many that
+// is), so a single invocation alone could already blow past Missive's documented 5-concurrent
+// limit before any 429 ever had a chance to back things off. A real per-token limit would
+// need state shared across invocations (a store), which is still overkill here — this just
+// stops one invocation from trampling the limit by itself.
+const MAX_CONCURRENT_REQUESTS = 4
+function createSemaphore(limit) {
+  let active = 0
+  const queue = []
+  return async function withSlot(fn) {
+    if (active >= limit) await new Promise(resolve => queue.push(resolve))
+    active++
+    try {
+      return await fn()
+    } finally {
+      active--
+      queue.shift()?.()
+    }
+  }
+}
+const withMissiveSlot = createSemaphore(MAX_CONCURRENT_REQUESTS)
+
 // Handles the documented rate limit (5 concurrent, ~1 req/sec sustained) by honoring
-// Retry-After on a 429 rather than trying to pace bursts preemptively — this tool is
-// low-volume and manually triggered, so reacting to a real 429 is enough; true
-// cross-invocation pacing would need a shared store, which is overkill here.
+// Retry-After on a 429 as a second line of defense — the semaphore above is what actually
+// keeps this invocation's own concurrency under the limit in the first place.
 async function request(path, token, opts = {}) {
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     const res = await fetch(`${BASE_URL}${path}`, {
@@ -47,7 +71,7 @@ async function request(path, token, opts = {}) {
 export async function missiveRequest(path, opts = {}) {
   const token = process.env.MISSIVE_API_TOKEN
   if (!token) throw new Error('Missive API token not configured (MISSIVE_API_TOKEN)')
-  return request(path, token, opts)
+  return withMissiveSlot(() => request(path, token, opts))
 }
 
 // Dev's own personal Missive API token — used only by the Personal Email Sender, so
@@ -55,7 +79,7 @@ export async function missiveRequest(path, opts = {}) {
 export async function missivePersonalRequest(path, opts = {}) {
   const token = process.env.MISSIVE_PERSONAL_API_TOKEN
   if (!token) throw new Error('Missive personal API token not configured (MISSIVE_PERSONAL_API_TOKEN)')
-  return request(path, token, opts)
+  return withMissiveSlot(() => request(path, token, opts))
 }
 
 // The reference doc's "Shared labels" section is unusually terse — "GET /v1/shared_labels?

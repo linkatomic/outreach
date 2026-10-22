@@ -1,6 +1,6 @@
 import { requireToolAccess } from './_lib/supabaseAdmin.js'
 import { missiveRequest } from './_lib/missive.js'
-import { fetchMessageStubs } from './_lib/missiveMessages.js'
+import { fetchMessageStubs, fetchFullMessages } from './_lib/missiveMessages.js'
 
 const TOOL_ID = 'missive-email-lookup'
 
@@ -8,6 +8,11 @@ const TOOL_ID = 'missive-email-lookup'
 // can trigger (conversation list pages + a message-stub fetch per conversation found).
 const MAX_CONVERSATIONS = 25
 const MAX_MESSAGES_PER_CONV = 50
+
+// Only a message actually sent from this address counts as "we sent it" here — other
+// addresses sharing this same Missive org (e.g. a shared hello@ inbox) aren't what this
+// lookup should report as outbound, per explicit direction.
+const SENT_FROM_ADDRESS = 'info@guestpostlinks.net'
 
 function toMillis(value) {
   if (typeof value === 'number') return value < 1e12 ? value * 1000 : value
@@ -34,16 +39,27 @@ async function fetchConversationsForEmail(email) {
 }
 
 // A message stub's `author` field is only present when WE wrote it (see missive-export.js's
-// formatMessage) — that's what distinguishes "they emailed us" from "we emailed them" within
-// a thread the email-filtered conversation list already confirmed this contact is part of.
+// formatMessage) — that narrows to candidates, but a stub doesn't reliably carry `from_field`
+// (only confirmed present on the full message object, same as Missive Export relies on), so
+// each candidate is full-fetched to confirm it actually went out from SENT_FROM_ADDRESS
+// before counting it — not just that it was authored by someone on our side.
 async function checkOutbound(conversationId) {
   const stubs = await fetchMessageStubs(missiveRequest, conversationId, MAX_MESSAGES_PER_CONV)
-  const outboundTimes = stubs.filter(m => m.author).map(m => toMillis(m.delivered_at)).filter(t => t != null)
-  if (!outboundTimes.length) return { hasOutbound: false, firstSentAt: null, lastSentAt: null }
+  const candidates = stubs.filter(m => m.author)
+  if (!candidates.length) return { hasOutbound: false, firstSentAt: null, lastSentAt: null }
+
+  const full = await fetchFullMessages(missiveRequest, candidates.map(m => m.id))
+  const byId = new Map(full.map(m => [m.id, m]))
+  const sentTimes = candidates
+    .filter(m => (byId.get(m.id)?.from_field?.address || '').toLowerCase() === SENT_FROM_ADDRESS)
+    .map(m => toMillis((byId.get(m.id) || m).delivered_at))
+    .filter(t => t != null)
+
+  if (!sentTimes.length) return { hasOutbound: false, firstSentAt: null, lastSentAt: null }
   return {
     hasOutbound: true,
-    firstSentAt: new Date(Math.min(...outboundTimes)).toISOString(),
-    lastSentAt: new Date(Math.max(...outboundTimes)).toISOString(),
+    firstSentAt: new Date(Math.min(...sentTimes)).toISOString(),
+    lastSentAt: new Date(Math.max(...sentTimes)).toISOString(),
   }
 }
 

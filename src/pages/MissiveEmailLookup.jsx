@@ -103,8 +103,12 @@ function SingleLookup() {
 
 // ── Bulk lookup ───────────────────────────────────────────────────────────────
 
-const BULK_CONCURRENCY = 3 // Missive's documented limit is 5 concurrent — stays under it
-// since each email's lookup itself issues several sequential Missive requests internally.
+// Each email's lookup already fans out one Missive request per conversation it finds (capped
+// at 4 concurrent in-flight by api/_lib/missive.js's own semaphore, since a single contact
+// with several threads could otherwise blow past Missive's 5-concurrent limit alone) — running
+// more than one of those lookups at once stacks invocations on top of each other with no
+// shared limiter between them, so bulk stays fully sequential rather than risking that stack.
+const BULK_CONCURRENCY = 1
 
 function BulkLookup() {
   const [text, setText] = useState('')
@@ -155,7 +159,7 @@ function BulkLookup() {
   return (
     <div style={{ maxWidth: 900 }}>
       <p style={{ fontSize: 13, color: 'var(--text-dim)', marginBottom: 12, lineHeight: 1.6 }}>
-        Paste one email per line — each is checked the same way as a single search, {BULK_CONCURRENCY} at a time.
+        Paste one email per line — each is checked the same way as a single search, one at a time (to stay within Missive's rate limit).
       </p>
       <textarea
         className="input"
@@ -187,7 +191,7 @@ function BulkLookup() {
                   <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>{r.email}</td>
                   <td>
                     {r.status === 'pending' && <span className="faint">Searching…</span>}
-                    {r.status === 'error' && <span style={{ color: '#ff8fa3' }}>Error</span>}
+                    {r.status === 'error' && <span style={{ color: '#ff8fa3' }} title={r.error}>Error</span>}
                     {r.status === 'done' && <StatusBadge everSent={r.result.everSent} everContacted={r.result.everContacted} />}
                   </td>
                   <td className="muted" style={{ whiteSpace: 'nowrap', fontSize: 12 }}>

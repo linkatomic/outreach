@@ -220,8 +220,14 @@ async function missiveExportCall(action, payload) {
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token || ''}` },
     body: JSON.stringify({ action, payload }),
   })
-  const body = await res.json()
-  if (!res.ok) throw new Error(body.error || `Request failed (${res.status})`)
+  // A platform-level failure (function timeout, cold-start crash) comes back as an HTML/text
+  // error page, not JSON — parsing that unconditionally throws a confusing "Unexpected token"
+  // SyntaxError instead of a real error message, so text-then-parse first.
+  const text = await res.text()
+  let body = null
+  try { body = text ? JSON.parse(text) : {} } catch { /* non-JSON error page */ }
+  if (!res.ok) throw new Error(body?.error || `Request failed (${res.status})`)
+  if (!body) throw new Error('Unexpected response from server')
   return body
 }
 
@@ -251,8 +257,14 @@ async function missiveEmailLookupCall(action, payload) {
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token || ''}` },
     body: JSON.stringify({ action, payload }),
   })
-  const body = await res.json()
-  if (!res.ok) throw new Error(body.error || `Request failed (${res.status})`)
+  // A platform-level failure (function timeout, cold-start crash) comes back as an HTML/text
+  // error page, not JSON — parsing that unconditionally threw a confusing "Unexpected token"
+  // SyntaxError instead of a real error message, so text-then-parse first.
+  const text = await res.text()
+  let body = null
+  try { body = text ? JSON.parse(text) : {} } catch { /* non-JSON error page */ }
+  if (!res.ok) throw new Error(body?.error || `Request failed (${res.status})`)
+  if (!body) throw new Error('Unexpected response from server')
   return body
 }
 
