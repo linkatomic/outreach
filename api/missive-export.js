@@ -91,13 +91,21 @@ export default async function handler(req, res) {
     }
 
     if (action === 'listConversationsPage') {
-      const { mailbox, sharedLabelId, until, contactEmail } = payload
+      const { mailbox, sharedLabelId, until, contactEmail, closedOnly } = payload
       if (!mailbox) return res.status(400).json({ error: 'mailbox is required' })
       const params = new URLSearchParams({ limit: '50', ...buildMailboxParams(mailbox, sharedLabelId) })
       if (until != null) params.set('until', String(until))
       // "Chats with a specific person" -- Missive's own contact filter, layered on top of
       // the required mailbox filter rather than replacing it.
       if (contactEmail) params.set('email', contactEmail)
+      // Status (closed) and scope (a shared label) are orthogonal in Missive's own UI — a
+      // label groups conversations, closed is a per-conversation state — so this layers
+      // closed=true on top of whatever mailbox/shared_label params buildMailboxParams already
+      // set, the same additive pattern as the email filter above. Unverified against a live
+      // call (no network access to Missive from where this was written); if closed threads
+      // outside the label start showing up, or closed ones get silently dropped, that's the
+      // first thing to re-check.
+      if (closedOnly) params.set('closed', 'true')
       const body = await missiveRequest(`/conversations?${params}`)
       return res.json({ conversations: body.conversations || [] })
     }

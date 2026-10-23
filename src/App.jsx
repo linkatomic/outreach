@@ -17,6 +17,7 @@ import { PersonalEmailSender } from './pages/PersonalEmailSender.jsx'
 import { MissiveHome } from './pages/MissiveHome.jsx'
 import { MissiveTracking } from './pages/MissiveTracking.jsx'
 import { MissiveEmailLookup } from './pages/MissiveEmailLookup.jsx'
+import { MissiveBargainEmails } from './pages/MissiveBargainEmails.jsx'
 import { LiveChatHome } from './pages/LiveChatHome.jsx'
 import { LiveChatTeam } from './pages/LiveChatTeam.jsx'
 import { LiveChatClients } from './pages/LiveChat.jsx'
@@ -331,6 +332,7 @@ export default function App() {
       case 'missive-sender':   return <PersonalEmailSender me={m} />;
       case 'missive-tracking': return <MissiveTracking me={m} setRoute={setRoute} />;
       case 'missive-lookup':   return <MissiveEmailLookup />;
+      case 'missive-bargain':  return <MissiveBargainEmails />;
       case 'missive-tools':    return <ToolsPage me={m} role={role} section="missive" />;
       case 'lc-home':    return <LiveChatHome me={m} />;
       case 'lc-clients': return <LiveChatClients me={m} />;
