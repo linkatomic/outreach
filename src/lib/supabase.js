@@ -819,24 +819,21 @@ export async function deleteTrackedLink(id) {
 }
 
 // ── Missive Daily Log ──────────────────────────────────────
-// A personal, manually-entered "how many emails did I send today" counter — one row per
-// member per day (upserted, so re-saving the same day edits it instead of stacking rows).
+// A personal, manually-entered log of actual sent emails (one row per email, each carrying
+// its own Missive link) — "how many today" is a count of rows, not a typed-in number.
 
-export async function loadDailyLog(memberId) {
-  let query = supabase.from('missive_daily_log').select('*').order('log_date', { ascending: false })
+export async function loadDailyLogEntries(memberId) {
+  let query = supabase.from('missive_daily_log').select('*').order('log_date', { ascending: false }).order('created_at', { ascending: false })
   if (memberId) query = query.eq('member_id', memberId)
   const { data, error } = await query
   if (error) throw error
   return data || []
 }
 
-export async function saveDailyLogEntry({ memberId, logDate, count, note }) {
+export async function addDailyLogEntry({ memberId, logDate, missiveLink, conversationId, subject, note }) {
   const { data, error } = await supabase
     .from('missive_daily_log')
-    .upsert(
-      { member_id: memberId, log_date: logDate, count, note: note || null, updated_at: new Date().toISOString() },
-      { onConflict: 'member_id,log_date' }
-    )
+    .insert({ member_id: memberId, log_date: logDate, missive_link: missiveLink || null, conversation_id: conversationId || null, subject: subject || null, note: note || null })
     .select().single()
   if (error) throw error
   return data

@@ -1,12 +1,20 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Icon } from '../data.jsx'
-import { loadDailyLog, saveDailyLogEntry, deleteDailyLogEntry } from '../lib/supabase.js'
+import { getMissiveConversation, loadDailyLogEntries, addDailyLogEntry, deleteDailyLogEntry } from '../lib/supabase.js'
+
+// Same UUID-from-pasted-link extraction Missive Export / Link Tracker already use — works
+// regardless of the exact URL shape (path segment, hash fragment, whatever Missive's web
+// app happens to use).
+const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i
+function extractConversationId(line) {
+  const match = line.match(UUID_RE)
+  return match ? match[0] : null
+}
 
 function today() {
   const d = new Date()
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
-
 function daysAgoISO(n) {
   const d = new Date()
   d.setDate(d.getDate() - n)
@@ -19,41 +27,47 @@ export function MissiveDailyLog({ me }) {
   const [loadError, setLoadError] = useState('')
 
   const [logDate, setLogDate] = useState(today())
-  const [count, setCount] = useState('')
+  const [pasteText, setPasteText] = useState('')
   const [note, setNote] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [saveError, setSaveError] = useState('')
+  const [adding, setAdding] = useState(false)
+  const [addError, setAddError] = useState('')
 
   const fetchEntries = useCallback(() => {
     setLoading(true); setLoadError('')
-    loadDailyLog(me?.id).then(setEntries).catch(e => setLoadError(e.message)).finally(() => setLoading(false))
+    loadDailyLogEntries(me?.id).then(setEntries).catch(e => setLoadError(e.message)).finally(() => setLoading(false))
   }, [me?.id])
 
   useEffect(() => { fetchEntries() }, [fetchEntries])
 
-  // Editing an existing day's row loads it back into the form instead of opening a
-  // separate edit mode — saving just upserts on (member_id, log_date) either way.
-  function editEntry(e) {
-    setLogDate(e.log_date)
-    setCount(String(e.count))
-    setNote(e.note || '')
-  }
-
-  async function handleSave(ev) {
+  async function handleAdd(ev) {
     ev.preventDefault()
-    if (!logDate || count === '') return
-    setSaving(true); setSaveError('')
+    const lines = pasteText.split('\n').map(l => l.trim()).filter(Boolean)
+    const ids = [...new Set(lines.map(extractConversationId).filter(Boolean))]
+    if (!ids.length) { setAddError('Paste at least one Missive conversation link'); return }
+
+    setAdding(true); setAddError('')
     try {
-      const saved = await saveDailyLogEntry({ memberId: me?.id, logDate, count: Number(count), note: note.trim() || null })
-      setEntries(prev => {
-        const without = prev.filter(e => e.log_date !== saved.log_date)
-        return [saved, ...without].sort((a, b) => (a.log_date < b.log_date ? 1 : -1))
-      })
-      setLogDate(today()); setCount(''); setNote('')
+      const added = []
+      for (const id of ids) {
+        let subject = null, webUrl = null
+        try {
+          const conv = await getMissiveConversation(id)
+          subject = conv?.subject || conv?.latest_message_subject || null
+          webUrl = conv?.web_url || null
+        } catch { /* still log it even if the Missive lookup fails — the link itself is the record */ }
+        const row = await addDailyLogEntry({
+          memberId: me?.id, logDate, conversationId: id,
+          missiveLink: webUrl || lines.find(l => extractConversationId(l) === id),
+          subject, note: note.trim() || null,
+        })
+        added.push(row)
+      }
+      setEntries(prev => [...added, ...prev].sort((a, b) => (a.log_date < b.log_date ? 1 : a.log_date > b.log_date ? -1 : (a.created_at < b.created_at ? 1 : -1))))
+      setPasteText(''); setNote('')
     } catch (err) {
-      setSaveError(err.message)
+      setAddError(err.message)
     } finally {
-      setSaving(false)
+      setAdding(false)
     }
   }
 
@@ -70,12 +84,12 @@ export function MissiveDailyLog({ me }) {
   const stats = useMemo(() => {
     const weekFloor = daysAgoISO(6)
     const monthFloor = daysAgoISO(29)
-    const todayEntry = entries.find(e => e.log_date === today())
-    const weekTotal = entries.filter(e => e.log_date >= weekFloor).reduce((s, e) => s + e.count, 0)
+    const todayCount = entries.filter(e => e.log_date === today()).length
+    const weekCount = entries.filter(e => e.log_date >= weekFloor).length
     const monthEntries = entries.filter(e => e.log_date >= monthFloor)
-    const monthTotal = monthEntries.reduce((s, e) => s + e.count, 0)
-    const avgPerLoggedDay = monthEntries.length ? Math.round(monthTotal / monthEntries.length) : 0
-    return { today: todayEntry?.count ?? 0, weekTotal, avgPerLoggedDay }
+    const loggedDays = new Set(monthEntries.map(e => e.log_date)).size
+    const avgPerLoggedDay = loggedDays ? Math.round(monthEntries.length / loggedDays) : 0
+    return { today: todayCount, weekCount, avgPerLoggedDay }
   }, [entries])
 
   return (
@@ -83,7 +97,7 @@ export function MissiveDailyLog({ me }) {
       <div className="page-head">
         <div>
           <h1>Daily Log</h1>
-          <div className="sub">A self-logged count of how many emails you sent each day</div>
+          <div className="sub">Paste the Missive link for each email you send — your daily count comes from what's actually logged</div>
         </div>
       </div>
 
@@ -94,7 +108,7 @@ export function MissiveDailyLog({ me }) {
         </div>
         <div className="card card-pad" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           <span style={{ fontSize: 12, color: 'var(--text-faint)', fontWeight: 500 }}>Last 7 days</span>
-          <div style={{ fontSize: 28, fontWeight: 800, lineHeight: 1 }}>{stats.weekTotal}</div>
+          <div style={{ fontSize: 28, fontWeight: 800, lineHeight: 1 }}>{stats.weekCount}</div>
         </div>
         <div className="card card-pad" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           <span style={{ fontSize: 12, color: 'var(--text-faint)', fontWeight: 500 }}>Avg / logged day (30d)</span>
@@ -102,25 +116,35 @@ export function MissiveDailyLog({ me }) {
         </div>
       </div>
 
-      <form onSubmit={handleSave} style={{ display: 'flex', gap: 10, alignItems: 'end', marginBottom: 20, maxWidth: 700, flexWrap: 'wrap' }}>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 5, fontSize: 12.5 }}>
-          <span style={{ color: 'var(--text-faint)', fontWeight: 500 }}>Date</span>
-          <input className="input" type="date" value={logDate} onChange={e => setLogDate(e.target.value)} style={{ fontSize: 13 }} max={today()} />
+      <form onSubmit={handleAdd} style={{ maxWidth: 700, marginBottom: 20 }}>
+        <div style={{ display: 'flex', gap: 10, marginBottom: 10, alignItems: 'end', flexWrap: 'wrap' }}>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 5, fontSize: 12.5 }}>
+            <span style={{ color: 'var(--text-faint)', fontWeight: 500 }}>Date</span>
+            <input className="input" type="date" value={logDate} onChange={e => setLogDate(e.target.value)} style={{ fontSize: 13 }} max={today()} />
+          </label>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 5, fontSize: 12.5, flex: 1, minWidth: 200 }}>
+            <span style={{ color: 'var(--text-faint)', fontWeight: 500 }}>Note (optional, applies to all pasted below)</span>
+            <input className="input" value={note} onChange={e => setNote(e.target.value)} style={{ fontSize: 13 }} />
+          </label>
+        </div>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 5, fontSize: 12.5, marginBottom: 10 }}>
+          <span style={{ color: 'var(--text-faint)', fontWeight: 500 }}>Missive link(s) — one per line</span>
+          <textarea
+            className="input"
+            rows={3}
+            style={{ fontSize: 13, fontFamily: 'var(--font-mono)', width: '100%', resize: 'vertical' }}
+            placeholder={'https://mail.missiveapp.com/#inbox/conversations/68d8...\nhttps://mail.missiveapp.com/#inbox/conversations/7a2f...'}
+            value={pasteText}
+            onChange={e => setPasteText(e.target.value)}
+            disabled={adding}
+          />
         </label>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 5, fontSize: 12.5 }}>
-          <span style={{ color: 'var(--text-faint)', fontWeight: 500 }}>Emails sent</span>
-          <input className="input" type="number" min={0} value={count} onChange={e => setCount(e.target.value)} style={{ fontSize: 13, width: 110 }} placeholder="0" />
-        </label>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 5, fontSize: 12.5, flex: 1, minWidth: 180 }}>
-          <span style={{ color: 'var(--text-faint)', fontWeight: 500 }}>Note (optional)</span>
-          <input className="input" value={note} onChange={e => setNote(e.target.value)} style={{ fontSize: 13 }} />
-        </label>
-        <button className="btn primary" type="submit" disabled={count === '' || saving}>
-          {saving ? 'Saving…' : <><Icon name="check" size={12} /> Save</>}
+        <button className="btn primary" type="submit" disabled={!pasteText.trim() || adding}>
+          {adding ? 'Logging…' : <><Icon name="plus" size={12} /> Log Email{pasteText.includes('\n') ? 's' : ''}</>}
         </button>
       </form>
 
-      {saveError && <div style={{ background: 'rgba(255,92,124,.08)', border: '1px solid rgba(255,92,124,.2)', color: '#ff8fa3', borderRadius: 8, padding: '10px 14px', fontSize: 13, marginBottom: 16, maxWidth: 700 }}>{saveError}</div>}
+      {addError && <div style={{ background: 'rgba(255,197,61,.08)', border: '1px solid rgba(255,197,61,.2)', color: '#ffc53d', borderRadius: 8, padding: '10px 14px', fontSize: 13, marginBottom: 16, maxWidth: 700 }}>{addError}</div>}
       {loadError && <div style={{ background: 'rgba(255,92,124,.08)', border: '1px solid rgba(255,92,124,.2)', color: '#ff8fa3', borderRadius: 8, padding: '10px 14px', fontSize: 13, marginBottom: 16, maxWidth: 700 }}>{loadError}</div>}
 
       {loading ? (
@@ -128,18 +152,20 @@ export function MissiveDailyLog({ me }) {
       ) : entries.length === 0 ? (
         <div style={{ color: 'var(--text-faint)', fontSize: 13, padding: '24px 0' }}>No entries yet.</div>
       ) : (
-        <div style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'auto', maxWidth: 700, maxHeight: 500 }}>
+        <div style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'auto', maxWidth: 900, maxHeight: 560 }}>
           <table className="table">
             <thead>
-              <tr><th>Date</th><th>Emails Sent</th><th>Note</th><th></th><th></th></tr>
+              <tr><th>Date</th><th>Subject</th><th>Note</th><th></th><th></th></tr>
             </thead>
             <tbody>
               {entries.map(e => (
                 <tr key={e.id}>
-                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>{e.log_date}{e.log_date === today() ? <span className="chip accent" style={{ marginLeft: 6, fontSize: 10 }}>Today</span> : ''}</td>
-                  <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>{e.count}</td>
+                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12, whiteSpace: 'nowrap' }}>
+                    {e.log_date}{e.log_date === today() && <span className="chip accent" style={{ marginLeft: 6, fontSize: 10 }}>Today</span>}
+                  </td>
+                  <td style={{ whiteSpace: 'normal' }}>{e.subject || <span className="faint">(no subject)</span>}</td>
                   <td style={{ whiteSpace: 'normal', color: 'var(--text-dim)' }}>{e.note || <span className="faint">—</span>}</td>
-                  <td><button className="btn ghost" style={{ padding: '3px 8px', fontSize: 11 }} onClick={() => editEntry(e)}><Icon name="edit" size={11} /></button></td>
+                  <td>{e.missive_link && <a href={e.missive_link} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>Open →</a>}</td>
                   <td><button className="btn ghost" style={{ padding: '3px 8px', fontSize: 11 }} onClick={() => handleDelete(e.id)}><Icon name="trash" size={11} /></button></td>
                 </tr>
               ))}
