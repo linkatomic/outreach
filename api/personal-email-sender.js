@@ -6,7 +6,7 @@
 
 import { requireExactUser, supabaseAdmin } from './_lib/supabaseAdmin.js'
 import { missivePersonalRequest, fetchAllSharedLabels } from './_lib/missive.js'
-import { fetchMessageStubs, fetchFullMessages, bodyToPlainText } from './_lib/missiveMessages.js'
+import { fetchMessageStubs, fetchFullMessages, bodyToPlainText, checkConversationReplies } from './_lib/missiveMessages.js'
 import { glmComplete } from './_lib/glm.js'
 
 // Dev Pandya's real Supabase user_profiles.id (UUID) — requireExactUser checks this against
@@ -78,41 +78,6 @@ async function resolveConversationLink(to, subject) {
   return match
     ? { conversationId: match.id, webUrl: match.web_url || null, messagesCount: match.messages_count ?? null }
     : { conversationId: null, webUrl: null, messagesCount: null }
-}
-
-// Re-fetches each conversation and compares its current messages_count against the baseline
-// captured at send time — a higher count means new activity (almost certainly a reply, since
-// we don't send follow-up messages into these conversations ourselves). No webhook/push
-// mechanism is wired up, so this is pull-based: called on page load and on a manual refresh.
-async function checkReplies(entries) {
-  const CONCURRENCY = 3
-  const results = []
-  for (let i = 0; i < entries.length; i += CONCURRENCY) {
-    const slice = entries.slice(i, i + CONCURRENCY)
-    const settled = await Promise.allSettled(slice.map(e => missivePersonalRequest(`/conversations/${e.conversationId}`)))
-    settled.forEach((r, bi) => {
-      const entry = slice[bi]
-      if (r.status === 'fulfilled') {
-        // Single-conversation envelope key isn't confirmed either way — hedge both, same as
-        // missive-export.js's getConversation handler already does. That handler also guards
-        // against the plural `conversations` key holding an ARRAY (its own single-conversation
-        // GET sometimes wraps the one object in a list) — this was missing that guard, so
-        // `raw` could silently be an array with no `.messages_count`, making currentCount
-        // always null and hasReply always false regardless of real activity.
-        const raw = r.value?.conversation || r.value?.conversations
-        const conversation = Array.isArray(raw) ? raw[0] : raw
-        const currentCount = conversation?.messages_count ?? null
-        results.push({
-          conversationId: entry.conversationId,
-          currentCount,
-          hasReply: currentCount != null && entry.baselineCount != null && currentCount > entry.baselineCount,
-        })
-      } else {
-        results.push({ conversationId: entry.conversationId, error: r.reason?.message || 'Failed' })
-      }
-    })
-  }
-  return results
 }
 
 // Posts a note into an existing conversation (the orange-avatar "internal note" entries
@@ -350,7 +315,7 @@ export default async function handler(req, res) {
     if (action === 'checkReplies') {
       const { entries } = payload
       if (!Array.isArray(entries) || !entries.length) return res.json({ results: [] })
-      return res.json({ results: await checkReplies(entries) })
+      return res.json({ results: await checkConversationReplies(missivePersonalRequest, entries) })
     }
 
     if (action === 'summarizeReplies') {

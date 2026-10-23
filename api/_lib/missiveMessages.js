@@ -146,3 +146,41 @@ export async function fetchFullMessages(requestFn, ids) {
   }
   return results
 }
+
+// Re-fetches each conversation and compares its current messages_count against a baseline
+// captured when it started being tracked — a higher count means new activity (a reply, since
+// nothing else bumps a conversation's message count after the fact). No webhook/push
+// mechanism is wired up anywhere this is used, so it's pull-based: called on page load and on
+// a manual refresh by each caller. Parameterized by `requestFn` so Personal Email Sender (its
+// own personal token) and the shared Missive tools (the export token) can both use this same
+// logic instead of keeping two copies in sync.
+export async function checkConversationReplies(requestFn, entries) {
+  const CONCURRENCY = 3
+  const results = []
+  for (let i = 0; i < entries.length; i += CONCURRENCY) {
+    const slice = entries.slice(i, i + CONCURRENCY)
+    const settled = await Promise.allSettled(slice.map(e => requestFn(`/conversations/${e.conversationId}`)))
+    settled.forEach((r, bi) => {
+      const entry = slice[bi]
+      if (r.status === 'fulfilled') {
+        // Single-conversation envelope key isn't confirmed either way — hedge both, same as
+        // missive-export.js's getConversation handler already does. That handler also guards
+        // against the plural `conversations` key holding an ARRAY (its own single-conversation
+        // GET sometimes wraps the one object in a list), so `raw` doesn't silently end up an
+        // array with no `.messages_count`, which would make currentCount always null and
+        // hasReply always false regardless of real activity.
+        const raw = r.value?.conversation || r.value?.conversations
+        const conversation = Array.isArray(raw) ? raw[0] : raw
+        const currentCount = conversation?.messages_count ?? null
+        results.push({
+          conversationId: entry.conversationId,
+          currentCount,
+          hasReply: currentCount != null && entry.baselineCount != null && currentCount > entry.baselineCount,
+        })
+      } else {
+        results.push({ conversationId: entry.conversationId, error: r.reason?.message || 'Failed' })
+      }
+    })
+  }
+  return results
+}

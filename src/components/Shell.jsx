@@ -45,6 +45,8 @@ export function Sidebar({ route, setRoute, role, me, allUsers = [], impersonated
     { id: 'missive-tracking', label: 'Tracking',     icon: 'activity' },
     { id: 'missive-lookup',   label: 'Email Lookup', icon: 'search' },
     { id: 'missive-bargain',  label: 'Bargain Emails', icon: 'tag' },
+    { id: 'missive-link-tracker', label: 'Link Tracker', icon: 'link' },
+    { id: 'missive-daily-log',    label: 'Daily Log',    icon: 'calendar' },
     { id: 'missive-tools',    label: 'Tools',        icon: 'tool' },
   ];
 
@@ -259,6 +261,8 @@ export function Topbar({ route, role, theme, toggleTheme, openCmdK, onLogout, me
     'missive-tracking':  ['Missive', 'Tracking'],
     'missive-lookup':    ['Missive', 'Email Lookup'],
     'missive-bargain':   ['Missive', 'Bargain Emails'],
+    'missive-link-tracker': ['Missive', 'Link Tracker'],
+    'missive-daily-log':    ['Missive', 'Daily Log'],
     'missive-tools':     ['Missive', 'Tools'],
     online: ['Admin', 'Active Users'],
   }[route] || ['Home'];

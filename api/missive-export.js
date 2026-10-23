@@ -1,6 +1,6 @@
 import { requireToolAccess } from './_lib/supabaseAdmin.js'
 import { missiveRequest, fetchAllSharedLabels } from './_lib/missive.js'
-import { bodyToPlainText, fetchMessageStubs, fetchFullMessages } from './_lib/missiveMessages.js'
+import { bodyToPlainText, fetchMessageStubs, fetchFullMessages, checkConversationReplies } from './_lib/missiveMessages.js'
 
 const TOOL_ID = 'missive-export'
 
@@ -136,6 +136,12 @@ export default async function handler(req, res) {
       const markdown = buildMarkdown({ subject: subject || '(no subject)', webUrl, messages: ordered })
       const filename = buildFilename({ subject, lastActivityAt, externalAuthorEmail })
       return res.json({ filename, markdown, messageCount: ordered.length })
+    }
+
+    if (action === 'checkReplies') {
+      const { entries } = payload
+      if (!Array.isArray(entries) || !entries.length) return res.json({ results: [] })
+      return res.json({ results: await checkConversationReplies(missiveRequest, entries) })
     }
 
     return res.status(400).json({ error: `Unknown action: ${action}` })

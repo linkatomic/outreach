@@ -243,6 +243,10 @@ export function listMissiveConversationsPage(mailbox, sharedLabelId, until, cont
 export function getMissiveConversation(conversationId) {
   return missiveExportCall('getConversation', { conversationId }).then(r => r.conversation)
 }
+// entries: [{ conversationId, baselineCount }] -> [{ conversationId, currentCount, hasReply } | { conversationId, error }]
+export function checkMissiveReplies(entries) {
+  return missiveExportCall('checkReplies', { entries }).then(r => r.results)
+}
 export function getMissiveConversationExport(payload) {
   return missiveExportCall('getConversationExport', payload)
 }
@@ -768,5 +772,77 @@ export async function updateNewListing(id, updates) {
 
 export async function deleteNewListing(id) {
   const { error } = await supabase.from('new_listings').delete().eq('id', id)
+  if (error) throw error
+}
+
+// ── Missive Link Tracker ──────────────────────────────────
+// Manually added conversation links, checked against Missive for new replies (see
+// checkMissiveReplies above, which does the actual Missive-side comparison).
+
+export async function loadTrackedLinks() {
+  const { data, error } = await supabase
+    .from('missive_link_tracker')
+    .select('*')
+    .order('created_at', { ascending: false })
+  if (error) throw error
+  return data || []
+}
+
+export async function addTrackedLink({ createdBy, conversationId, webUrl, subject, baselineCount, note }) {
+  const { data, error } = await supabase
+    .from('missive_link_tracker')
+    .insert({
+      created_by: createdBy, conversation_id: conversationId, web_url: webUrl, subject,
+      baseline_count: baselineCount, current_count: baselineCount, note: note || null,
+    })
+    .select().single()
+  if (error) throw error
+  return data
+}
+
+export async function updateTrackedLinkStatus(id, { currentCount, hasReply }) {
+  const { error } = await supabase
+    .from('missive_link_tracker')
+    .update({ current_count: currentCount, has_reply: hasReply, last_checked_at: new Date().toISOString() })
+    .eq('id', id)
+  if (error) throw error
+}
+
+export async function updateTrackedLinkNote(id, note) {
+  const { error } = await supabase.from('missive_link_tracker').update({ note }).eq('id', id)
+  if (error) throw error
+}
+
+export async function deleteTrackedLink(id) {
+  const { error } = await supabase.from('missive_link_tracker').delete().eq('id', id)
+  if (error) throw error
+}
+
+// ── Missive Daily Log ──────────────────────────────────────
+// A personal, manually-entered "how many emails did I send today" counter — one row per
+// member per day (upserted, so re-saving the same day edits it instead of stacking rows).
+
+export async function loadDailyLog(memberId) {
+  let query = supabase.from('missive_daily_log').select('*').order('log_date', { ascending: false })
+  if (memberId) query = query.eq('member_id', memberId)
+  const { data, error } = await query
+  if (error) throw error
+  return data || []
+}
+
+export async function saveDailyLogEntry({ memberId, logDate, count, note }) {
+  const { data, error } = await supabase
+    .from('missive_daily_log')
+    .upsert(
+      { member_id: memberId, log_date: logDate, count, note: note || null, updated_at: new Date().toISOString() },
+      { onConflict: 'member_id,log_date' }
+    )
+    .select().single()
+  if (error) throw error
+  return data
+}
+
+export async function deleteDailyLogEntry(id) {
+  const { error } = await supabase.from('missive_daily_log').delete().eq('id', id)
   if (error) throw error
 }
