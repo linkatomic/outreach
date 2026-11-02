@@ -42,7 +42,7 @@ const COL_WIDTHS = [
 export async function checkGplApiStatus() {
   if (!GPL_TOKEN) return { ok: false, message: 'VITE_GPL_API_TOKEN not set' }
   try {
-    const res = await fetch('https://api.records.guestpostlinks.net/v2/publisher/website/gpl/search-publishers', {
+    const res = await fetch('https://records-api.guestpostlinks.net/v2/publisher/website/gpl/search-publishers', {
       method: 'POST',
       headers: { Authorization: GPL_TOKEN, 'Content-Type': 'application/json' },
       body: JSON.stringify({ websites: ['google.com'] }),
@@ -58,6 +58,12 @@ export async function checkGplApiStatus() {
   }
 }
 
+// Endpoint moved from api.records.guestpostlinks.net to records-api.guestpostlinks.net. The
+// team's new reference call for this endpoint also included ?page=1&perPage=2 query params
+// this code doesn't send — unconfirmed whether those paginate the response (which would mean
+// a batch of 100 websites below could now come back truncated to some default page size) or
+// something unrelated. Left unset per explicit direction; if a batch's returned site count
+// starts looking smaller than requested, this is the first thing to check.
 async function fetchGplData(domains, onProgress) {
   const map = new Map()
   if (!domains.length || !GPL_TOKEN) return map
@@ -68,7 +74,7 @@ async function fetchGplData(domains, onProgress) {
   let done = 0
   for (const batch of batches) {
     try {
-      const res = await fetch('https://api.records.guestpostlinks.net/v2/publisher/website/gpl/search-publishers', {
+      const res = await fetch('https://records-api.guestpostlinks.net/v2/publisher/website/gpl/search-publishers', {
         method: 'POST',
         headers: { Authorization: GPL_TOKEN, 'Content-Type': 'application/json' },
         body: JSON.stringify({ websites: batch }),

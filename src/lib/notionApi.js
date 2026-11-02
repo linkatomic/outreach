@@ -60,6 +60,12 @@ export async function updateNotionPage(pageId, properties) {
 }
 
 // ── GPL API lookup ────────────────────────────────────────
+// Endpoint moved from api.records.guestpostlinks.net to records-api.guestpostlinks.net. The
+// team's new reference call for this endpoint also included ?page=1&perPage=2 query params
+// this code doesn't send — unconfirmed whether those paginate the response (which would mean
+// a batch of 100 websites below could now come back truncated to some default page size) or
+// something unrelated. Left unset per explicit direction; if a batch's returned site count
+// starts looking smaller than requested, this is the first thing to check.
 
 export async function fetchGplBatch(domains) {
   const map = new Map()
@@ -68,7 +74,7 @@ export async function fetchGplBatch(domains) {
   for (let i = 0; i < domains.length; i += BATCH) {
     const batch = domains.slice(i, i + BATCH)
     try {
-      const res = await fetch('https://api.records.guestpostlinks.net/v2/publisher/website/gpl/search-publishers', {
+      const res = await fetch('https://records-api.guestpostlinks.net/v2/publisher/website/gpl/search-publishers', {
         method: 'POST',
         headers: { Authorization: GPL_TOKEN, 'Content-Type': 'application/json' },
         body: JSON.stringify({ websites: batch }),
