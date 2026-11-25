@@ -9,7 +9,8 @@
     "start": "concurrently \"npm run dev\" \"npm run server\"",
     "build": "vite build",
     "preview": "vite preview",
-    "pages:dev": "npm run build && wrangler pages dev dist --compatibility-flag=nodejs_compat"
+    "pages:dev": "npm run build && wrangler pages dev dist --compatibility-flag=nodejs_compat",
+    "worker:dev": "npm run build && wrangler dev"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",
