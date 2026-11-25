@@ -9,8 +9,8 @@
     "start": "concurrently \"npm run dev\" \"npm run server\"",
     "build": "vite build",
     "preview": "vite preview",
-    "pages:dev": "npm run build && wrangler pages dev dist --compatibility-flag=nodejs_compat",
-    "worker:dev": "npm run build && wrangler dev"
+    "build:cloudflare": "vite build --config vite.config.cloudflare.js",
+    "dev:cloudflare": "vite --config vite.config.cloudflare.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",
@@ -27,6 +27,7 @@
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.70.1",
     "@vitejs/plugin-react": "^4.3.4",
     "vite": "^6.0.0",
     "wrangler": "^4.168.0"
