@@ -3,8 +3,9 @@
 // Bearer auth, `choices[0].message.content` response shape) since that's the near-universal
 // convention for these proxies, but this hasn't been tested against the real gateway from
 // here — if it errors, the first things to check are the exact path and response envelope.
-const BASE_URL = process.env.GLM_BASE_URL || 'https://glmapi.amrytt.com:8443/v1'
-const MODEL = process.env.GLM_MODEL || 'glm-5.3'
+// Read lazily (per-request), not at module top level: on Cloudflare Pages Functions env
+// vars only exist once a request's context.env has been bridged into process.env by
+// functions/_lib/vercelAdapter.js, which hasn't happened yet at module-evaluation time.
 
 // A real run hit a 504 from Vercel itself with no application-level error at all — the
 // function was killed by the platform mid-completion rather than failing cleanly. Bounding
@@ -19,19 +20,21 @@ const MODEL = process.env.GLM_MODEL || 'glm-5.3'
 export async function glmComplete(messages, { maxTokens = 700, temperature = 0.3, timeoutMs = 50000 } = {}) {
   const token = process.env.GLM_API_KEY
   if (!token) throw new Error('GLM API token not configured (GLM_API_KEY)')
+  const baseUrl = process.env.GLM_BASE_URL || 'https://glmapi.amrytt.com:8443/v1'
+  const model = process.env.GLM_MODEL || 'glm-5.3'
 
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
   let res
   try {
-    res = await fetch(`${BASE_URL}/chat/completions`, {
+    res = await fetch(`${baseUrl}/chat/completions`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: MODEL,
+        model,
         messages,
         max_tokens: maxTokens,
         temperature,

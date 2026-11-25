@@ -4,21 +4,23 @@
 // domain. Done server-side rather than from the browser so the Bearer token never reaches
 // the client bundle and to sidestep any CORS restriction on calling api.ahrefs.com directly.
 
-const AHREFS_API_KEY = process.env.AHREFS_API_KEY
+// Read lazily (per-request), not at module top level: on Cloudflare Pages Functions env
+// vars only exist once a request's context.env has been bridged into process.env by
+// functions/_lib/vercelAdapter.js, which hasn't happened yet at module-evaluation time.
 const CONCURRENCY = 3 // keep well under whatever Ahrefs' free-tier rate limit actually is
 
 function cleanTarget(raw) {
   return String(raw ?? '').trim().replace(/^https?:\/\//i, '').replace(/^www\./i, '').split('/')[0]
 }
 
-async function fetchDomainRating(domain, attempt = 0) {
+async function fetchDomainRating(domain, apiKey, attempt = 0) {
   const url = `https://api.ahrefs.com/v3/public/domain-rating-free?target=${encodeURIComponent(domain)}&output=json`
   const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${AHREFS_API_KEY}`, Accept: 'application/json' },
+    headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
   })
   if (res.status === 429 && attempt < 3) {
     await new Promise(r => setTimeout(r, 1000 * (attempt + 1))) // back off on rate limit
-    return fetchDomainRating(domain, attempt + 1)
+    return fetchDomainRating(domain, apiKey, attempt + 1)
   }
   const data = await res.json().catch(() => ({}))
   if (!res.ok) {
@@ -30,6 +32,7 @@ async function fetchDomainRating(domain, attempt = 0) {
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
+  const AHREFS_API_KEY = process.env.AHREFS_API_KEY
   if (!AHREFS_API_KEY) return res.status(500).json({ error: 'AHREFS_API_KEY not configured' })
 
   const { domains } = req.body || {}
@@ -40,7 +43,7 @@ export default async function handler(req, res) {
   const results = []
   for (let i = 0; i < domains.length; i += CONCURRENCY) {
     const batch = domains.slice(i, i + CONCURRENCY)
-    const settled = await Promise.allSettled(batch.map(d => fetchDomainRating(cleanTarget(d))))
+    const settled = await Promise.allSettled(batch.map(d => fetchDomainRating(cleanTarget(d), AHREFS_API_KEY)))
     settled.forEach((r, bi) => {
       if (r.status === 'fulfilled') results.push({ domain: batch[bi], domainRating: r.value, error: null })
       else results.push({ domain: batch[bi], domainRating: null, error: r.reason?.message || 'Failed' })

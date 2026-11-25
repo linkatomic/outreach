@@ -8,7 +8,9 @@ function authHeader() {
   const id = process.env.CRISP_IDENTIFIER
   const key = process.env.CRISP_KEY
   if (!id || !key) throw new Error('Crisp credentials not configured (CRISP_IDENTIFIER/CRISP_KEY)')
-  return 'Basic ' + Buffer.from(`${id}:${key}`).toString('base64')
+  // btoa (not Buffer) so this doesn't depend on Node's Buffer global being polyfilled —
+  // works unchanged on both Vercel's Node runtime and Cloudflare's Workers runtime.
+  return 'Basic ' + btoa(`${id}:${key}`)
 }
 
 export function crispWebsiteId() {

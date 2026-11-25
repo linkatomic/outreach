@@ -1,14 +1,16 @@
-const NOTION_TOKEN = process.env.NOTION_TOKEN
-const DB_ID = process.env.NOTION_DATABASE_ID
-
-const notionHeaders = {
-  Authorization: `Bearer ${NOTION_TOKEN}`,
-  'Notion-Version': '2022-06-28',
-  'Content-Type': 'application/json',
-}
-
+// Read lazily (per-request), not at module top level: on Cloudflare Pages Functions env
+// vars only exist once a request's context.env has been bridged into process.env by
+// functions/_lib/vercelAdapter.js, which hasn't happened yet at module-evaluation time.
 export default async function handler(req, res) {
+  const NOTION_TOKEN = process.env.NOTION_TOKEN
+  const DB_ID = process.env.NOTION_DATABASE_ID
   if (!NOTION_TOKEN) return res.status(500).json({ error: 'NOTION_TOKEN not configured' })
+
+  const notionHeaders = {
+    Authorization: `Bearer ${NOTION_TOKEN}`,
+    'Notion-Version': '2022-06-28',
+    'Content-Type': 'application/json',
+  }
 
   // GET → list workspace users (users=true) OR fetch a specific page (pageId) OR test DB connection
   if (req.method === 'GET') {

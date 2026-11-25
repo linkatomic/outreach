@@ -5,8 +5,26 @@ const SUPABASE_URL = 'https://mhoncmvynerqsswmdqin.supabase.co'
 // Service-role client — bypasses RLS. Server-only: never import this from src/.
 // SUPABASE_SERVICE_ROLE_KEY must be a plain (non-VITE_-prefixed) env var so Vite
 // never inlines it into the client bundle.
-export const supabaseAdmin = createClient(SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {
-  auth: { autoRefreshToken: false, persistSession: false },
+//
+// Built lazily behind a Proxy rather than at module load: on Cloudflare Pages Functions
+// (unlike Vercel's Node functions) env vars only exist per-request (context.env), not at
+// module-evaluation time, so `process.env.SUPABASE_SERVICE_ROLE_KEY` would still be
+// undefined the moment this file is first imported at cold start. Every call site keeps
+// using `supabaseAdmin.from(...)` / `supabaseAdmin.auth.admin...` exactly as before — the
+// Proxy just defers actually building the client until the first real call, by which
+// point functions/_lib/vercelAdapter.js has already populated process.env for this request.
+let _client = null
+function getClient() {
+  if (!_client) {
+    if (!process.env.SUPABASE_SERVICE_ROLE_KEY) throw new Error('SUPABASE_SERVICE_ROLE_KEY not configured')
+    _client = createClient(SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    })
+  }
+  return _client
+}
+export const supabaseAdmin = new Proxy({}, {
+  get(_target, prop) { return getClient()[prop] },
 })
 
 // Verifies the caller's Supabase session token and returns their profile,
